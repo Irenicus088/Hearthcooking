@@ -92,6 +92,9 @@ namespace Kit
 		{
 			const auto& n = f.name;
 			const auto& x = f.file;
+			if (In(x, "marker")) {
+				return 0;  // a furniture marker has nothing to see
+			}
 			switch (a_r) {
 			case Role::Table:
 				if ((f.type != 'S' && f.type != 'F') || !In(x, "table") ||
@@ -123,8 +126,11 @@ namespace Kit
 			case Role::Ladle:
 				return In(n, "ladle") ? 10 : In(x, "ladle") ? 8 : 0;
 			case Role::Knife:
-				if (Any(x, { "dagger", "sheath", "rack" })) {
+				if (Any(x, { "dagger", "sheath", "rack", "dwe", "silver", "gold", "ebony", "glass", "elven", "daedric" })) {
 					return 0;
+				}
+				if (Any(x, { "kitchen", "butcher", "cleaver", "carving" })) {
+					return 10;
 				}
 				return In(n, "knife") ? 9 : In(x, "knife") ? 7 : 0;
 			case Role::Board:
@@ -155,7 +161,14 @@ namespace Kit
 				}
 				return f.type == 'S' && In(x, "spit") && !In(x, "spittoon") ? 5 : 0;
 			case Role::Oven:
-				return f.type == 'F' && f.oven ? 10 : 0;
+				// the oven itself (a static), never its furniture marker (invisible: only where you stand to use it)
+				if (In(x, "marker")) {
+					return 0;
+				}
+				if (f.type == 'S' && In(x, "oven") && !Any(x, { "stove", "dwe" })) {
+					return In(x, "byoh") ? 10 : 8;
+				}
+				return f.type == 'F' && f.oven ? 6 : 0;
 			case Role::Peel:
 				return In(x, "peel") && In(x, "bread") ? 8 : 0;
 			default:

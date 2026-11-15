@@ -147,8 +147,11 @@ float4 PSMain(VSOut i) : SV_Target
 	if (any(clip1.xyz != 0) && dot(clip1.xyz, i.wpos) > clip1.w) discard;
 	if (any(clip2.xyz != 0) && dot(clip2.xyz, i.wpos) > clip2.w) discard;
 	float4 dif = has.x ? texDiffuse.Sample(smpWrap, i.uv) : float4(0.6, 0.6, 0.6, 1);
-	float alpha = dif.a * misc.y;
-	if (misc.w > 0.5) clip(alpha - misc.z);
+	float a = dif.a * misc.y;
+	if (misc.w > 0.5) clip(a - misc.z);
+	// only blended meshes are see-through: many of the game's opaque textures keep something else in their alpha
+	// (a plant's cabbage drew invisible when it counted)
+	float alpha = scale3.w > 0.5 ? a : 1.0;
 	float3 N0 = normalize(i.n);
 	float3 albedo = Lin(dif.rgb) * tint.rgb;
 	albedo = lerp(albedo, Lin(lift.rgb), lift.a);
@@ -1128,6 +1131,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				ob.cookRef[k] = it.cookRef[k];
 			}
 			ob.posScale[3] = it.scale;
+			ob.scale3[3] = it.blend ? 1.0f : 0.0f;
 			ob.spec[3] = it.gloss;
 			ob.misc[0] = it.envScale;
 			ob.misc[1] = it.alpha;
