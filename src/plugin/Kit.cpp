@@ -2,6 +2,8 @@
 // Copyright (C) 2026 evodube. GPL-3.0 (LICENSE.txt).
 #include "Kit.h"
 
+#include <set>
+
 namespace Kit
 {
 	namespace
@@ -141,7 +143,7 @@ namespace Kit
 			case Role::Ladle:
 				return In(n, "ladle") ? 10 : In(x, "ladle") ? 8 : 0;
 			case Role::Knife:
-				if (Any(x, { "dagger", "sheath", "rack", "dwe", "silver", "gold", "ebony", "glass", "elven", "daedric" })) {
+				if (Any(x, { "dagger", "sheath", "rack", "dwe", "silver", "gold", "ebony", "glass", "elven", "daedric", "draw" }) || In(n, "draw")) {
 					return 0;
 				}
 				{
@@ -240,6 +242,14 @@ namespace Kit
 	{
 		const auto forms = Gather();
 		spdlog::info("Kitchen: looking through {} meshes for the kitchen's things", forms.size());
+		{
+			std::set<std::string> seen;
+			for (const auto& f : forms) {
+				if ((Any(f.file, { "knife", "cleaver" }) || Any(f.name, { "knife", "cleaver" })) && seen.insert(f.path).second) {
+					spdlog::info("Kitchen: knife-like {} ({}, \"{}\", from {})", f.shown, f.type == 'F' ? "furniture" : f.type == 'S' ? "static" : "item", f.name, f.plugin);
+				}
+			}
+		}
 		for (int k = 0; k < static_cast<int>(Role::Count); ++k) {
 			const auto role = static_cast<Role>(k);
 			auto&      m = g_mesh[k];
@@ -257,6 +267,20 @@ namespace Kit
 			if (best) {
 				m.path = best->shown;
 				m.vanilla = true;
+			}
+			// the others it could have been, best first, so one can be named in the INI instead
+			{
+				std::vector<std::pair<int, const Form*>> all;
+				for (const auto& f : forms) {
+					if (const int sc = Score(role == Role::SaltBowl ? Role::Bowl : role, f); sc > 0 && &f != best) {
+						all.emplace_back(sc, &f);
+					}
+				}
+				std::stable_sort(all.begin(), all.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+				for (int i = 0; i < static_cast<int>(all.size()) && i < 12; ++i) {
+					const auto* f = all[i].second;
+					spdlog::info("Kitchen:   or {:<8} {} ({}, \"{}\", from {})", kNames[k], f->shown, f->type == 'F' ? "furniture" : f->type == 'S' ? "static" : "item", f->name, f->plugin);
+				}
 			}
 			// what the INI says ("ours" for Hearthcooking's own)
 			const std::string key = kNames[k];
