@@ -939,6 +939,30 @@ namespace Cook
 		}
 
 		// ---------------------------------------------------------------- serving
+		// The finished dish: its mesh, wearing the textures its form gives it (as the inventory shows it)
+		Scene::Id AddResult()
+		{
+			auto* form = g_recipe ? g_recipe->result : nullptr;
+			auto* m = form ? form->As<RE::TESModel>() : nullptr;
+			if (!m || !m->GetModel() || !*m->GetModel()) {
+				return -1;
+			}
+			const auto id = Scene::Add(m->GetModel());
+			auto*      sw = form->As<RE::TESModelTextureSwap>();
+			if (id >= 0 && sw && sw->alternateTextures) {
+				for (std::uint32_t i = 0; i < sw->numAlternateTextures; ++i) {
+					const auto& alt = sw->alternateTextures[i];
+					if (!alt.textureSet) {
+						continue;
+					}
+					const char* name = alt.name3D.c_str();
+					Scene::SwapTextures(id, name ? name : "", static_cast<int>(alt.index3D), alt.textureSet->textures[0].textureName.c_str(),
+						alt.textureSet->textures[1].textureName.c_str());
+				}
+			}
+			return id;
+		}
+
 		void Serve()
 		{
 			if (g_served || !g_recipe) {
@@ -996,11 +1020,10 @@ namespace Cook
 			if (P.bowl >= 0) {
 				Scene::Hide(P.bowl, true);
 			}
-			auto* m = g_recipe->result ? g_recipe->result->As<RE::TESModel>() : nullptr;
 			if (P.result >= 0) {
 				Scene::Remove(P.result);
 			}
-			P.result = m && m->GetModel() && *m->GetModel() ? Scene::Add(m->GetModel()) : -1;
+			P.result = AddResult();
 			Scene::SetCamera({ L::kServeX, L::kServeY + 2.0, 1.0 }, 42.0f);
 		}
 
@@ -2068,6 +2091,15 @@ namespace Cook
 					}
 				} else {
 					Scene::Place(P.board, pose.c, RotY(pose.tilt), 1.0f);
+					// ours wears the game's own wood (the table's), lighter, a patch of it to a face
+					if (Game(Kit::Role::Table)) {
+						if (auto* wood = Scene::Skin(P.kitchen)) {
+							auto& lk = Scene::LookOf(P.board);
+							lk.skin = wood;
+							lk.tint[0] = 1.45f, lk.tint[1] = 1.3f, lk.tint[2] = 1.12f;
+							lk.uv[0] = lk.uv[1] = 0.45f;
+						}
+					}
 				}
 			}
 			if (P.knife >= 0) {
@@ -2296,8 +2328,7 @@ namespace Cook
 				// the dish itself once it's in (the game's own bread or pie), else our dough
 				const bool showDish = baking || g_hold == Hold::Bread;
 				if (showDish && P.result < 0 && g_recipe) {
-					auto* m = g_recipe->result ? g_recipe->result->As<RE::TESModel>() : nullptr;
-					P.result = m && m->GetModel() && *m->GetModel() ? Scene::Add(m->GetModel()) : -1;
+					P.result = AddResult();
 				}
 				Vec3 mn, mx;
 				if (showDish && P.result >= 0 && Scene::Bounds(P.result, mn, mx)) {

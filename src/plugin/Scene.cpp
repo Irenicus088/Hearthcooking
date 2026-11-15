@@ -24,6 +24,12 @@ namespace Scene
 			int                           tries = 0;  // frames spent waiting for its measurement
 			hc::Vec3                      bmin, bmax;
 			ID3D11ShaderResourceView*     skin = nullptr;
+			struct Swap
+			{
+				std::string shape, diffuse, normal;
+				int         index = -1;
+			};
+			std::vector<Swap> swaps;
 		};
 
 		std::vector<Prop>             g_props;
@@ -444,6 +450,21 @@ namespace Scene
 		p.placed = true;
 	}
 
+	void SwapTextures(Id a_id, const std::string& a_shape, int a_index, const std::string& a_diffuse, const std::string& a_normal)
+	{
+		if (Valid(a_id)) {
+			auto full = [](const std::string& a_p) {
+				if (a_p.empty()) {
+					return a_p;
+				}
+				std::string l = a_p;
+				std::transform(l.begin(), l.end(), l.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				return l.rfind("textures\\", 0) == 0 || l.rfind("textures/", 0) == 0 ? a_p : "textures\\" + a_p;
+			};
+			g_props[a_id].swaps.push_back({ a_shape, full(a_diffuse), full(a_normal), a_index });
+		}
+	}
+
 	void Stretch(Id a_id, float a_x, float a_y, float a_z)
 	{
 		if (Valid(a_id)) {
@@ -597,7 +618,9 @@ namespace Scene
 				continue;
 			}
 			TryBounds(p);
+			int shapeIndex = -1;
 			RE::BSVisit::TraverseScenegraphGeometries(p.node.get(), [&](RE::BSGeometry* a_geo) {
+				++shapeIndex;
 				auto* tri = a_geo ? a_geo->AsTriShape() : nullptr;
 				if (!tri || !Visible(a_geo, p.node.get())) {
 					return RE::BSVisit::BSVisitControl::kContinue;
@@ -652,6 +675,18 @@ namespace Scene
 				it.diffuse = SrvOf(mat->diffuseTexture.get());
 				if (!it.diffuse && set) {
 					it.diffuse = SrvOfPath(set->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse));
+				}
+				// the form's own textures for this shape (the game's stews share one mesh, told apart this way)
+				for (const auto& sw : p.swaps) {
+					const bool named = !sw.shape.empty() && _stricmp(sw.shape.c_str(), a_geo->name.c_str()) == 0;
+					if (named || (sw.shape.empty() && sw.index == shapeIndex)) {
+						if (auto* d = SrvOfPath(sw.diffuse.c_str())) {
+							it.diffuse = d;
+						}
+						if (auto* n = SrvOfPath(sw.normal.c_str())) {
+							it.normal = n;
+						}
+					}
 				}
 				if (!p.skin && it.diffuse) {
 					p.skin = it.diffuse;

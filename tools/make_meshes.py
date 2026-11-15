@@ -500,15 +500,14 @@ def nif(name, shapes):
 
 # =================================================================== the kitchen
 def kitchen():
-    # the worktop (wood, left), the hearth slab (stone, right), the wall behind
-    top, slab, wall = Mesh(), Mesh(), Mesh()
+    # the worktop (wood, left) and the hearth slab (stone, right); no wall behind (the game's room shows through)
+    top, slab = Mesh(), Mesh()
     x0, x1, y0, y1 = -TOP_W / 2, TOP_W / 2, -TOP_D / 2, TOP_D / 2
     top.box(x0, HEARTH_EDGE, y0, y1, -2.5, 0, uscale=40.0, faces="Zyx")
     slab.box(HEARTH_EDGE, x1, y0, y1, -2.5, 0, uscale=24.0, faces="ZyX")
-    wall.box(x0 - 4, x1 + 4, y1, y1 + 3, -2.5, 40, uscale=36.0, faces="yZ")
     # the worktop on its own, so a table of the game's can stand in for it
     nif("Worktop", [("Worktop", top, "worktop", WOOD)])
-    nif("Room", [("Hearth", slab, "hearth", STONE), ("Wall", wall, "wall", STONE)])
+    nif("Room", [("Hearth", slab, "hearth", STONE)])
 
     # the linen the ingredients wait on
     cloth = Mesh()
