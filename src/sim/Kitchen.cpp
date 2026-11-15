@@ -418,6 +418,21 @@ namespace hc
 		}
 	}
 
+	void Chunks::Aim(Body& b, int a_i)
+	{
+		constexpr double kG = 140.0;
+		Rng          rng(static_cast<unsigned>(a_i) * 2654435761u + 17u);
+		const double room = m::Max(0.3, (kPotR - b.r - 0.6) * 0.75);
+		const double ang = rng.Range(0.0, 6.2832), rad = room * m::Sqrt(rng.Range(0.0, 1.0));
+		const Vec3   to{ kPotX + m::Cos(ang) * rad, kPotY + m::Sin(ang) * rad, kLiquidZ };
+		const double top = m::Max(b.p.z, kPotRim + b.r) + 1.5;  // over the rim
+		const double up = m::Sqrt(2.0 * kG * (top - b.p.z));
+		const double t = up / kG + m::Sqrt(2.0 * (top - to.z) / kG);
+		b.v = { (to.x - b.p.x) / t, (to.y - b.p.y) / t, up };
+		b.w = { rng.Range(-5, 5), rng.Range(-5, 5), rng.Range(-3, 3) };
+		b.aimed = true;
+	}
+
 	void Chunks::Step(double a_dt, const Board& a_board, double a_swirl)
 	{
 		constexpr double kG = 140.0, kSub = 1.0 / 240.0;
@@ -431,17 +446,30 @@ namespace hc
 				switch (b.state) {
 				case State::Board:
 					b.p = a_board.ToWorld(b.local);
-					if (a_board.tilt > 0.33) {  // past its grip: off it goes
+					if (a_board.tilt > 0.33) {  // past its grip: off it goes, and into the pot (nothing is ever spilt)
 						b.state = State::Free;
-						b.v = a_board.v;
 						b.q = boardQ * b.q;
+						Aim(b, i);
 					}
 					break;
 				case State::Free:
 					b.v.z -= kG * dt;
 					b.p += b.v * dt;
 					b.q.Integrate(b.w, dt);
-					Collide(b, a_board, dt);
+					if (b.aimed) {
+						// straight in: only the broth stops it
+						const double dx = b.p.x - kPotX, dy = b.p.y - kPotY;
+						if (b.v.z < 0.0 && b.p.z < kLiquidZ + b.r * 0.2 && dx * dx + dy * dy < kPotR * kPotR) {
+							b.state = State::Pot;
+							b.potA = Atan2(dy, dx);
+							b.potR = m::Min(m::Sqrt(dx * dx + dy * dy), kPotR - b.r - 0.25);
+							Push(Event::Kind::Splash, b.p, -b.v.z);
+						} else if (b.p.z < kPotFloor) {
+							Aim(b, i + 101);  // can't happen, but never lost
+						}
+					} else {
+						Collide(b, a_board, dt);
+					}
 					break;
 				case State::Pot:
 					{
@@ -449,7 +477,7 @@ namespace hc
 						b.potA += a_swirl * dt * (0.55 + 0.45 * (1.0 - b.potR / ri));
 						b.bob += dt;
 						b.p = { kPotX + m::Cos(b.potA) * b.potR, kPotY + m::Sin(b.potA) * b.potR,
-							kLiquidZ - b.r * 0.8 + 0.1 * m::Sin(b.bob * 2.1) };
+							kLiquidZ - b.r * 0.35 + 0.1 * m::Sin(b.bob * 2.1) };
 						b.q.Integrate({ 0.0, 0.0, a_swirl * 0.6 }, dt);
 					}
 					break;
@@ -459,7 +487,7 @@ namespace hc
 			}
 			// the free pieces knock against each other
 			for (int i = 0; i < _n; ++i) {
-				if (_b[i].state != State::Free) {
+				if (_b[i].state != State::Free || _b[i].aimed) {
 					continue;
 				}
 				for (int j = i + 1; j < _n; ++j) {

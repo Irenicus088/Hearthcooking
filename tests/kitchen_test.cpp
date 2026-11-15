@@ -134,7 +134,7 @@ static void TestTipping()
 	Chunks b;
 	Tip(b, layout::kPotY - 7.5, in, lost);
 	std::printf("tipped off to one side: %d in, %d lost, %d still going\n", in, lost, b.Count() - in - lost);
-	CHECK(lost >= 4, "held off to one side, some go astray (%d lost)", lost);
+	CHECK(lost == 0 && in == b.Count(), "held off to one side, still nothing is spilt (%d lost)", lost);
 }
 
 static Result Stew(bool a_careful, int a_logs, double a_salt, double a_serveAt)

@@ -20,6 +20,7 @@ namespace Scene
 		float emissive[3]{};
 		float clips[6][4]{};  // world planes: n.p > d isn't drawn (n = 0 for none) - a piece cut from the whole
 		float flesh[4]{};     // rgb, 1: where it's cut, the inside shows this colour (a solid cut face)
+		float shape[4][4]{};  // the whole's rough shape: middle (w: how square its ends), then its axes over its radii
 		float uv[4]{ 1, 1, 0, 0 };
 		int   cookMode = 0;  // see Render3D::Item
 		float cook[12]{};

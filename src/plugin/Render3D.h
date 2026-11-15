@@ -41,6 +41,8 @@ namespace Render3D
 		float emissive[3]{};           // light of its own (embers, a burning log), linear
 		float clips[6][4]{};           // planes (world): what's past n.p > d isn't drawn; n = 0 for none
 		float flesh[4]{};              // rgb, on: the inside seen through a cut is drawn as a flat face this colour
+		float shape[4][4]{};           // the whole's rough shape (middle, w the ends' power; axes over radii): no cut
+		                               // face outside it (a leaf or a stem seen from behind isn't flesh)
 		float uv[4]{ 1, 1, 0, 0 };     // uv scale and offset (a piece shows a patch of its ingredient's skin)
 		int   cookMode = 0;            // 0 none, 1 all over (cook[0]), 2 by side round an axis (the spit)
 		float cook[12]{};              // how browned: 0 raw, 1 golden, 1.4 dark, 1.8 black

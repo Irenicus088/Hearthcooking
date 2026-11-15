@@ -141,6 +141,7 @@ namespace Cook
 		struct Piece
 		{
 			Scene::Id prop = -1;
+			Scene::Id cube = -1;  // a die: a solid block of its flesh, with its skin over the outer side
 			int       unit = 0;
 			double    box[6]{};  // x0 x1 y0 y1 z0 z1
 			Vec3      mid;
@@ -159,7 +160,7 @@ namespace Cook
 
 		struct Props
 		{
-			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, bowl = -1, posts = -1, rod = -1,
+			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, bowl = -1, posts = -1, rod = -1,
 					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1;
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
 			Scene::Id pile[3]{ -1, -1, -1 };
@@ -506,6 +507,8 @@ namespace Cook
 				P.pot = KitAdd(Kit::Role::Pot);
 				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
 				P.broth = Add("Broth");
+				P.ladleSoup = Add("Broth");  // a ladleful, carried to the bowl
+				Scene::Hide(P.ladleSoup, true);
 				P.ladle = KitAdd(Kit::Role::Ladle);
 				P.bowl = KitAdd(Kit::Role::Bowl);
 				Settle(P.bowl, Kit::Role::Bowl, { L::kServeX, L::kServeY, 0.0 }, { 7.0, 7.0, 0.0 }, 0.0, false, { L::kServeX, L::kServeY, 0.0 });
@@ -696,7 +699,7 @@ namespace Cook
 			std::memcpy(a_out, c, sizeof(c));
 		}
 
-		int NewPiece(int a_unit, int a_body, const double (&a_box)[6], const Vec3& a_mid, bool a_cut)
+		int NewPiece(int a_unit, int a_body, const double (&a_box)[6], const Vec3& a_mid, bool a_cut, bool a_dice = false)
 		{
 			auto& u = g_units[a_unit];
 			Piece p;
@@ -707,6 +710,9 @@ namespace Cook
 			p.prop = u.model.empty() ? -1 : Scene::Add(u.model);
 			if (p.prop < 0) {
 				p.prop = Add("Chunk");  // its mesh won't load: a plain piece
+			}
+			if (a_dice) {
+				p.cube = Add("Chunk");
 			}
 			if (static_cast<int>(g_pieces.size()) <= a_body) {
 				g_pieces.resize(a_body + 1);
@@ -781,7 +787,7 @@ namespace Cook
 								continue;
 							}
 							const double box[6] = { cut ? xa : -1e7, cut ? xb : 1e7, ny > 1 ? ya : -1e7, ny > 1 ? yb : 1e7, nz > 1 ? za : -1e7, nz > 1 ? zb : 1e7 };
-							NewPiece(i, b, box, mid, cut);
+							NewPiece(i, b, box, mid, cut, ny > 1 || nz > 1);
 							g_chunks.At(b).q = {};  // a fresh piece lies as it was cut, not turned
 						}
 					}
@@ -973,6 +979,7 @@ namespace Cook
 			}
 			for (auto& p : g_pieces) {
 				Scene::Hide(p.prop, true);
+				Scene::Hide(p.cube, true);
 			}
 			if (P.dough >= 0) {
 				Scene::Hide(P.dough, true);
@@ -1803,6 +1810,18 @@ namespace Cook
 			Flesh(u, fl);
 			std::copy(fl, fl + 3, lk.flesh);
 			lk.flesh[3] = a_cut ? 1.0f : 0.0f;
+			// its rough shape (round, or long with rounded ends), so only the inside of the thing itself shows as flesh
+			const double rx = u.boardLen * 0.5, ry = (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5), rz = (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5);
+			const Vec3   ax[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / rx), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / ry), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / rz) };
+			lk.shape[0][0] = static_cast<float>(a_c.x);
+			lk.shape[0][1] = static_cast<float>(a_c.y);
+			lk.shape[0][2] = static_cast<float>(a_c.z);
+			lk.shape[0][3] = u.dims[0] < 1.6 * u.dims[1] ? 2.0f : 8.0f;
+			for (int k = 0; k < 3; ++k) {
+				lk.shape[k + 1][0] = a_cut ? static_cast<float>(ax[k].x) : 0.0f;
+				lk.shape[k + 1][1] = a_cut ? static_cast<float>(ax[k].y) : 0.0f;
+				lk.shape[k + 1][2] = a_cut ? static_cast<float>(ax[k].z) : 0.0f;
+			}
 		}
 
 		void PlaceBoardUnit(Unit& u)
@@ -2101,6 +2120,7 @@ namespace Cook
 				}
 				if (body.state == hc::Chunks::State::None) {
 					Scene::Hide(pc.prop, true);
+					Scene::Hide(pc.cube, true);
 					continue;
 				}
 				auto&      u = g_units[(std::min)(pc.unit, static_cast<int>(g_units.size()) - 1)];
@@ -2111,6 +2131,22 @@ namespace Cook
 				lk.cookMode = 1;
 				lk.cook[0] = static_cast<float>(body.charred ? 1.7 : body.cooked * 0.6);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
+				if (pc.cube >= 0) {
+					// a die: a block of flesh the size of what the cell holds, the skin cut to the cell laid over it
+					lk.flesh[3] = 0.0f;
+					Scene::Place(pc.cube, body.p, frame, 1.0f);
+					Scene::Stretch(pc.cube, static_cast<float>(body.size.x * 0.97), static_cast<float>(body.size.y * 0.97), static_cast<float>(body.size.z * 0.97));
+					Scene::Hide(pc.cube, false);
+					auto&       cl = Scene::LookOf(pc.cube);
+					float       fl[3];
+					Flesh(u, fl);
+					for (int k = 0; k < 3; ++k) {
+						cl.tint[k] = fl[k] * 1.12f;
+					}
+					cl.cookMode = 1;
+					cl.cook[0] = lk.cook[0];
+					cl.shadow = lk.shadow;
+				}
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
 			if (P.broth >= 0 && g_pot) {
@@ -2180,7 +2216,8 @@ namespace Cook
 					// the game's ladle: its long side along the handle, which leans out of the pot and up
 					const double ls = 12.0 / lie.d[0];
 					const bool   out = g_hold == Hold::LadleOut;
-					const double yaw = out ? -kPi * 0.5 : g_ladleA, up = out ? 0.15 : 1.05;
+					// lifted out it stays as it was in the pot: the handle up and away, the cup level under the pointer
+					const double yaw = g_ladleA, up = out ? 0.9 : 1.05;
 					// end over end: the game's ladle has its cup at the far end of its length, opening the other way
 					const Quat   lean = RotZ(yaw) * RotY(-up);
 					const Quat   q = lean * RotY(kPi) * lie.q;
@@ -2189,8 +2226,23 @@ namespace Cook
 					const Vec3   c = bowl + dir * (lie.d[0] * ls * 0.4);
 					Scene::Place(P.ladle, c - q.Rotate(lie.c) * ls, q, static_cast<float>(ls));
 					Scene::Hide(P.ladle, false);
+					// a ladleful of the stew in its cup
+					const bool full = out && g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn > 0;
+					if (P.ladleSoup >= 0) {
+						const double cup = (std::max)(0.5, lie.d[1] * ls * 0.42);
+						Scene::Place(P.ladleSoup, bowl + dir * (lie.d[0] * ls * 0.02) + Vec3{ 0, 0, 0.35 }, RotZ(g_clock * 0.3), static_cast<float>(cup / 6.1));
+						Scene::Hide(P.ladleSoup, !full);
+						if (P.broth >= 0) {
+							auto&       sl = Scene::LookOf(P.ladleSoup);
+							const auto& bl = Scene::LookOf(P.broth);
+							std::copy(std::begin(bl.lift), std::end(bl.lift), sl.lift);
+							std::copy(std::begin(bl.tint), std::end(bl.tint), sl.tint);
+							sl.shadow = false;
+						}
+					}
 				} else if (g_hold == Hold::LadleOut) {
-					Scene::Place(P.ladle, g_ladleOutAt, RotZ(-kPi * 0.5), 1.0f);
+					const double handle = std::atan2(-0.45, -0.25);
+					Scene::Place(P.ladle, g_ladleOutAt, RotZ(g_ladleA - handle), 1.0f);
 				} else {
 					const Vec3   at{ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ + 0.4 };
 					const double handle = std::atan2(-0.45, -0.25);  // which way the mesh's handle points

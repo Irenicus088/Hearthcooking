@@ -184,6 +184,7 @@ namespace hc
 			double potA = 0.0, potR = 0.0, bob = 0.0;
 			double cooked = 0.0;  // 0 raw .. 1 cooked (its colour)
 			bool   charred = false;
+			bool   aimed = false;  // thrown straight for the pot: nothing knocks it off course
 		};
 
 		struct Event
@@ -224,6 +225,7 @@ namespace hc
 	private:
 		void Push(Event::Kind a_kind, const Vec3& a_at, double a_speed);
 		void Collide(Body& a_b, const Board& a_board, double a_dt);
+		void Aim(Body& a_b, int a_i);  // an arc over the rim into the broth, wherever it starts
 
 		Body  _b[kMax]{};
 		int   _n = 0;

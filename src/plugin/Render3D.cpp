@@ -41,6 +41,7 @@ cbuffer Object : register(b1)
 	float4 emissive;
 	float4 clips[6];
 	float4 flesh;       // rgb, w on: cut faces
+	float4 shape[4];    // middle (w power along x), axes over radii
 	float4 uvx;         // scale, offset
 	float4 cookA, cookB, cookC;
 	float4 cookAxis;    // xyz, w mode
@@ -183,6 +184,12 @@ bool CutFace(VSOut i, out float3 q, out float3 n)
 	}
 	if (best < 0) return false;
 	q = e + d * best;
+	// only inside the whole thing's rough shape: a leaf or a stem seen from behind stays a leaf
+	if (shape[1].x != 0 || shape[1].y != 0 || shape[1].z != 0) {
+		float3 r = q - shape[0].xyz;
+		float  lx = abs(dot(shape[1].xyz, r)), ly = dot(shape[2].xyz, r), lz = dot(shape[3].xyz, r);
+		if (pow(lx, shape[0].w) + ly * ly + lz * lz > 1.0) return false;
+	}
 	return true;
 }
 
@@ -425,6 +432,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			float         emissive[4];
 			float         clips[6][4];
 			float         flesh[4];
+			float         shape[4][4];
 			float         uvx[4];
 			float         cook[12];
 			float         cookAxis[4];
@@ -1258,6 +1266,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			std::memcpy(ob.lift, it.lift, sizeof(ob.lift));
 			std::memcpy(ob.clips, it.clips, sizeof(ob.clips));
 			std::memcpy(ob.flesh, it.flesh, sizeof(ob.flesh));
+			std::memcpy(ob.shape, it.shape, sizeof(ob.shape));
 			std::memcpy(ob.uvx, it.uv, sizeof(ob.uvx));
 			std::memcpy(ob.cook, it.cook, sizeof(ob.cook));
 			ob.cookAxis[3] = static_cast<float>(it.cookMode);

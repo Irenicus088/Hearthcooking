@@ -688,6 +688,7 @@ namespace Scene
 				std::memcpy(it.emissive, lk.emissive, sizeof(it.emissive));
 				std::memcpy(it.clips, lk.clips, sizeof(it.clips));
 				std::memcpy(it.flesh, lk.flesh, sizeof(it.flesh));
+				std::memcpy(it.shape, lk.shape, sizeof(it.shape));
 				std::memcpy(it.uv, lk.uv, sizeof(it.uv));
 				it.cookMode = lk.cookMode;
 				std::memcpy(it.cook, lk.cook, sizeof(it.cook));
