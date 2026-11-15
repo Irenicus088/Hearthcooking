@@ -212,7 +212,9 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 		float  att = pow(saturate(1 - df / firePos.w), 2);
 		float3 fire = fireColor.rgb * att * saturate(dot(cn, toF / max(df, 1e-3)) * 0.85 + 0.15);
 		float3 H = normalize(keyDir.xyz + V);
-		float3 col = alb * (hemi + keyColor.rgb * nl * sh + fire) + pow(saturate(dot(cn, H)), 40) * nl * sh * keyColor.rgb * 0.12;
+		// a cut face is wet and pale: lit softly from every side, so the faces turned from the light don't go dark
+		float  soft = 0.45 + 0.55 * saturate(dot(cn, keyDir.xyz) * 0.5 + 0.5);
+		float3 col = alb * (hemi * 1.25 + keyColor.rgb * soft * lerp(0.6, 1.0, sh) + fire) + pow(saturate(dot(cn, H)), 40) * nl * sh * keyColor.rgb * 0.12;
 		return float4(col, 1);
 	}
 	float4 dif = has.x ? texDiffuse.Sample(smpWrap, i.uv) : float4(0.6, 0.6, 0.6, 1);

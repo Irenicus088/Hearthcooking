@@ -2117,7 +2117,8 @@ namespace Cook
 						Lie lie;
 						if (LieOf(P.knife, lie)) {
 							static const double kCyc[3][3] = { { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 } };
-							const Quat   q = (g_knifeAlong ? RotZ(kPi * 0.5) : Quat{}) * FromRows(kCyc) * lie.q;
+							// turned over about its length so the edge is down, toward the food
+							const Quat   q = (g_knifeAlong ? RotZ(kPi * 0.5) : Quat{}) * RotY(kPi) * FromRows(kCyc) * lie.q;
 							const double ks = 8.5 / lie.d[0];
 							const Vec3   c{ g_knifeX, g_knifeY, z + lie.d[1] * ks * 0.5 };
 							Scene::Place(P.knife, c - q.Rotate(lie.c) * ks, q, static_cast<float>(ks));
