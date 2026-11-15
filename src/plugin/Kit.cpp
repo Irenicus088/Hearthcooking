@@ -28,6 +28,21 @@ namespace Kit
 			return a_s;
 		}
 		bool In(const std::string& a_s, const char* a_w) { return a_s.find(a_w) != std::string::npos; }
+		bool Official(const Form& f)
+		{
+			const auto p = Lower(f.plugin);
+			return p == "skyrim.esm" || p == "update.esm" || p == "dawnguard.esm" || p == "hearthfires.esm" || p == "dragonborn.esm";
+		}
+		// a_w at the start of a word: not right after another letter
+		bool Word(const std::string& a_s, const char* a_w)
+		{
+			for (auto i = a_s.find(a_w); i != std::string::npos; i = a_s.find(a_w, i + 1)) {
+				if (i == 0 || !std::isalpha(static_cast<unsigned char>(a_s[i - 1])) || (i >= 4 && a_s.compare(i - 4, 4, "byoh") == 0)) {
+					return true;
+				}
+			}
+			return false;
+		}
 		bool Any(const std::string& a_s, std::initializer_list<const char*> a_ws)
 		{
 			for (const char* w : a_ws) {
@@ -129,10 +144,15 @@ namespace Kit
 				if (Any(x, { "dagger", "sheath", "rack", "dwe", "silver", "gold", "ebony", "glass", "elven", "daedric" })) {
 					return 0;
 				}
-				if (Any(x, { "kitchen", "butcher", "cleaver", "carving" })) {
-					return 10;
+				{
+					// it has to be called a knife (a mod's "decoKitchen" set is not one), and a loose item
+					// or a static from the game itself, never another mod's decoration
+					const bool knife = In(n, "knife") || Any(x, { "knife", "cleaver" });
+					if (!knife || (f.type != 'M' && !Official(f))) {
+						return 0;
+					}
+					return Any(x, { "kitchen", "butcher", "cleaver", "carving" }) ? 10 : In(n, "knife") ? 9 : 7;
 				}
-				return In(n, "knife") ? 9 : In(x, "knife") ? 7 : 0;
 			case Role::Board:
 				return In(x, "cuttingboard") ? 10 : In(x, "breadboard") ? 8 : In(n, "cutting board") ? 9 : 0;
 			case Role::Bowl:
@@ -165,7 +185,8 @@ namespace Kit
 				if (In(x, "marker")) {
 					return 0;
 				}
-				if (f.type == 'S' && In(x, "oven") && !Any(x, { "stove", "dwe" })) {
+				// "oven" the word, not inside "woven" (a fence) or "stove"
+				if (f.type == 'S' && Word(x, "oven") && !Any(x, { "stove", "dwe", "fence" })) {
 					return In(x, "byoh") ? 10 : 8;
 				}
 				return f.type == 'F' && f.oven ? 6 : 0;
