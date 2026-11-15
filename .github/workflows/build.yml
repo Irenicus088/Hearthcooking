@@ -1,0 +1,164 @@
+name: build
+
+# Every push compiles and runs the kitchen tests (a check, nothing handed out). The installable package goes to the
+# dist branch only when the workflow is run by hand (Actions > build > Run workflow).
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # the plugin job pushes its logs (ci-logs) and, when run by hand, the package (dist)
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Kitchen tests
+        run: |
+          mkdir -p build
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -o build/kitchen_test tests/kitchen_test.cpp src/sim/Kitchen.cpp
+          ./build/kitchen_test
+
+  plugin:
+    runs-on: windows-2022
+    env:
+      VCPKG_COMMIT: 9e593bb18ea69cc5095e012465dcd675a822ed0d   # vcpkg 2026.07.29
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-bincache
+          key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ env.VCPKG_COMMIT }}-
+
+      - name: CommonLib commit
+        id: clib
+        shell: pwsh
+        run: echo "sha=$(git -C extern/CommonLibSSE-NG rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+
+      - name: Restore build folder
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: build-v1-${{ steps.clib.outputs.sha }}-${{ hashFiles('vcpkg.json', 'CMakeLists.txt') }}
+          restore-keys: build-v1-${{ steps.clib.outputs.sha }}-
+
+      - name: Date CommonLib's sources back
+        shell: pwsh
+        run: |
+          $old = Get-Date "2000-01-01"
+          Get-ChildItem extern -Recurse -File | ForEach-Object { $_.LastWriteTime = $old }
+
+      - name: Set up vcpkg
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+          git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          git -C "$env:VCPKG_ROOT" checkout $env:VCPKG_COMMIT
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure
+        id: configure
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path logs | Out-Null
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
+            "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`$<`$<CONFIG:Debug>:Debug>DLL" 2>&1 | Tee-Object -FilePath logs/configure.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Check the kitchen's shaders (fxc)
+        id: shaders
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path logs | Out-Null
+          $src = Get-Content src/plugin/Render3D.cpp -Raw
+          $m = [regex]::Match($src, 'R"\((.*?)\)";', 'Singleline')
+          Set-Content -Path shader.hlsl -Value $m.Groups[1].Value
+          $fxc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter fxc.exe | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
+          $fail = 0
+          foreach ($e in @('VSMain:vs_5_0','VSShadow:vs_5_0','VSFull:vs_5_0','VSSprite:vs_5_0','PSMain:ps_5_0','PSSprite:ps_5_0','PSDown:ps_5_0','PSBlur:ps_5_0','PSBack:ps_5_0','PSComposite:ps_5_0')) {
+            $entry, $target = $e.Split(':')
+            & $fxc.FullName /nologo /E $entry /T $target /Fo NUL shader.hlsl 2>&1 | Tee-Object -FilePath logs/shaders.txt -Append
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error::shader $entry failed"; $fail = 1 }
+          }
+          exit $fail
+
+      - name: Build
+        id: build
+        if: steps.configure.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel -- /p:CL_MPCount=4 /nologo /v:minimal 2>&1 | Tee-Object -FilePath logs/build.txt
+          $code = $LASTEXITCODE
+          Select-String -Path logs/build.txt -Pattern ': (fatal )?error ' | Select-Object -First 40 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+          if ($code -ne 0) { exit 1 }
+
+      - name: Publish logs to ci-logs branch
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path logs | Out-Null
+          if (Test-Path build/vcpkg-manifest-install.log) { Copy-Item build/vcpkg-manifest-install.log logs/ }
+          "run ${{ github.run_id }} sha ${{ github.sha }} configure=${{ steps.configure.outcome }} shaders=${{ steps.shaders.outcome }} build=${{ steps.build.outcome }}" | Out-File logs/STATUS.txt
+          Copy-Item -Recurse logs $env:RUNNER_TEMP/logs-out
+          cd $env:RUNNER_TEMP/logs-out
+          git init -q -b ci-logs
+          git config user.name "ci"; git config user.email "ci@users.noreply.github.com"
+          git add -A; git commit -q -m "logs for run ${{ github.run_id }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-logs
+
+      - name: Fail if configure, shaders or build failed
+        if: steps.configure.outcome != 'success' || steps.build.outcome != 'success' || steps.shaders.outcome != 'success'
+        shell: pwsh
+        run: exit 1
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = "package"
+          $p = "$out/Data/SKSE/Plugins/Hearthcooking"
+          New-Item -ItemType Directory -Force -Path "$p/Sounds", "$p/Fonts", "$p/UI" | Out-Null
+          Copy-Item build/Release/Hearthcooking.dll "$out/Data/SKSE/Plugins/"
+          Copy-Item Hearthcooking.ini "$out/Data/SKSE/Plugins/"
+          Copy-Item assets/game_sounds/*.wav "$p/Sounds/"
+          Copy-Item assets/fonts/* "$p/Fonts/"
+          Copy-Item assets/ui/*.rgba "$p/UI/"
+          Copy-Item Hearthcooking.esp "$out/Data/"
+          Copy-Item -Recurse assets/meshes "$out/Data/meshes"
+          Copy-Item -Recurse assets/textures "$out/Data/textures"
+          Copy-Item LICENSE.txt "$p/"
+          Copy-Item assets/download/README.txt "$p/"
+
+      - name: Publish package to dist branch
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse package $env:RUNNER_TEMP/dist-out
+          if (Test-Path build/Release/Hearthcooking.pdb) { Copy-Item build/Release/Hearthcooking.pdb $env:RUNNER_TEMP/dist-out/ }
+          "run ${{ github.run_id }} sha ${{ github.sha }}" | Out-File $env:RUNNER_TEMP/dist-out/BUILD.txt
+          cd $env:RUNNER_TEMP/dist-out
+          git init -q -b dist
+          git config user.name "ci"; git config user.email "ci@users.noreply.github.com"
+          git add -A; git commit -q -m "Hearthcooking build ${{ github.run_id }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" dist
+
+      - name: Upload package
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hearthcooking
+          path: package/

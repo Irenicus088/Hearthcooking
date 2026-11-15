@@ -1,0 +1,63 @@
+# Hearthcooking
+
+Cook by hand in Skyrim SE, AE and GOG. Sit down at a cooking pot or a Hearthfire oven and a recipe book opens over
+the game's own crafting menu:
+
+- **Quick Cook** hands you back to the game's menu. Its dishes are always **Plain** (the game's own).
+- **Cook by Hand** opens a kitchen drawn over the paused game, where you make the dish yourself. It comes out
+  **Burnt**, **Plain**, **Hearty** or **Masterwork**, and only cooking by hand gets you past Plain.
+
+Every cooking recipe in your game is used as it is (the game's own and any mod's), with the same ingredients and
+conditions. Each one is cooked one of three ways:
+
+| Station | Recipes | How |
+| --- | --- | --- |
+| Cooking pot | soups and stews | Chop on the board (small, even pieces), tip the board into the pot, keep it at a simmer, stir so it doesn't catch, salt it, ladle it into the bowl |
+| Spit (cooking pot) | roasts, steaks, grilled things | Put the meat on the spit, turn the crank so every side browns evenly, salt it, take it off onto the plate |
+| Hearthfire oven | breads, pies, sweet rolls | Add the dough's ingredients, knead with long, steady strokes, fill and crimp (pies), bake with the door shut, take it out golden |
+
+There is no heat gauge: you read the fire from its flames, the pot from its bubbles and steam, and the bake by
+opening the oven door (which lets the heat out). Logs from the pile make the fire hotter, burn down over about two
+minutes, and can be pulled back out.
+
+## The tiers
+
+| Tier | Effects | Price |
+| --- | --- | --- |
+| Burnt | half as strong, half as long; eating it costs 20 stamina | a quarter |
+| Plain | the game's own dish | as the game's |
+| Hearty | 1.5x as strong and as long | 1.5x |
+| Masterwork | twice as strong and as long | 2.5x |
+
+`Hearthcooking.esp` holds 300 empty dishes. The first time you cook a dish to Burnt, Hearty or Masterwork, one is made
+into a copy of the game's dish (name, mesh, effects, keywords) and the SKSE co-save remembers which is which, so they
+stay what they are across saves, and merchants buy them as food.
+
+## How it's built
+
+- `src/sim/Kitchen` - the rules, plain C++ with no game code: the fire and its logs, cutting, the pieces sliding off
+  the board into the pot (a small physics of their own), the pot, the spit, the oven, and the grading. Tested by
+  `tests/kitchen_test.cpp`, which plays careful and careless cooks by script.
+- `src/plugin` - the SKSE plugin. `Cook` runs the kitchen and its interface, `Recipes` reads the game's recipes and makes
+  the tiered dishes, `Scene` and `Render3D` draw the kitchen (our own meshes, and the food's own meshes from your game)
+  with Skyrim Yacht's renderer, extended with browning, cut planes and fire, steam and salt sprites.
+- `tools/make_meshes.py` makes every kitchen mesh and texture (nothing of Bethesda's ships), `tools/make_sounds.py`
+  synthesizes the sounds, `tools/make_esp.py` writes the plugin. `tools/preview_kitchen.py` draws the layout to a PNG.
+
+Built by CI on Windows: every push compiles and runs the tests; running the workflow by hand publishes the package to
+the `dist` branch.
+
+```
+g++ -std=c++20 -O2 -o build/kitchen_test tests/kitchen_test.cpp src/sim/Kitchen.cpp && ./build/kitchen_test
+```
+
+Requires SKSE64, Address Library for SKSE Plugins. SKSE Menu Framework is optional (settings page); everything is also
+in `Hearthcooking.ini`.
+
+## Credits
+
+- Interface fonts: Barlow Condensed, IM Fell English, Fondamento (SIL Open Font License, see `assets/fonts`).
+- Settings page: SKSE Menu Framework header (MIT).
+- The renderer, overlay and input plumbing come from Skyrim Yacht.
+
+GPL-3.0 (LICENSE.txt).

@@ -1,0 +1,2738 @@
+// Hearthcooking - cook by hand in Skyrim Special Edition.
+// Copyright (C) 2026 evodube. GPL-3.0 (LICENSE.txt).
+#include "Cook.h"
+
+#include "Audio.h"
+#include "Config.h"
+#include "Overlay.h"
+#include "Recipes.h"
+#include "Scene.h"
+#include "Ui.h"
+
+#include "../sim/Kitchen.h"
+
+namespace Cook
+{
+	namespace
+	{
+		using hc::Quat;
+		using hc::Vec3;
+		namespace L = hc::layout;
+		using namespace Ui;
+		using Recipes::Role;
+
+		constexpr double kPi = 3.14159265358979;
+		constexpr double kCarryZ = 9.0;    // how high things are carried
+		constexpr double kBoardTop = L::kBoardH;
+		constexpr int    kMaxUnits = 10;
+
+		// ---------------------------------------------------------------- small helpers
+		double Clamp(double v, double a, double b) { return v < a ? a : v > b ? b : v; }
+		double Smooth(double t)
+		{
+			t = Clamp(t, 0.0, 1.0);
+			return t * t * (3.0 - 2.0 * t);
+		}
+		float Rand01() { return static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX); }
+		double Wrap(double a)
+		{
+			while (a > kPi) {
+				a -= 2 * kPi;
+			}
+			while (a < -kPi) {
+				a += 2 * kPi;
+			}
+			return a;
+		}
+		float Hash(int a_k, int a_salt = 0)
+		{
+			unsigned h = static_cast<unsigned>(a_k) * 0x9E3779B1u + static_cast<unsigned>(a_salt) * 0x85EBCA77u;
+			h ^= h >> 15;
+			h *= 0x2C1B3C6Du;
+			h ^= h >> 12;
+			return (h & 0xFFFFFF) / 16777216.0f;
+		}
+		Quat RotX(double a) { return Quat::FromAxisAngle({ 1, 0, 0 }, a); }
+		Quat RotY(double a) { return Quat::FromAxisAngle({ 0, 1, 0 }, a); }
+		Quat RotZ(double a) { return Quat::FromAxisAngle({ 0, 0, 1 }, a); }
+
+		// A rotation from its matrix (rows)
+		Quat FromRows(const double m[3][3])
+		{
+			Quat         q;
+			const double tr = m[0][0] + m[1][1] + m[2][2];
+			if (tr > 0) {
+				const double s = std::sqrt(tr + 1.0) * 2;
+				q = { 0.25 * s, (m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s };
+			} else if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) {
+				const double s = std::sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2;
+				q = { (m[2][1] - m[1][2]) / s, 0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s };
+			} else if (m[1][1] > m[2][2]) {
+				const double s = std::sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2;
+				q = { (m[0][2] - m[2][0]) / s, (m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s };
+			} else {
+				const double s = std::sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2;
+				q = { (m[1][0] - m[0][1]) / s, (m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s };
+			}
+			q.Normalize();
+			return q;
+		}
+
+		// ---------------------------------------------------------------- state
+		enum class Phase
+		{
+			Idle,
+			Book,
+			Cooking,
+			Result
+		};
+
+		enum class Hold
+		{
+			None,
+			Ingredient,  // carrying something from the cloth
+			Log,         // a log from the pile
+			FireLog,     // a burning log pulled out
+			Board,       // tipping the board into the pot
+			Ladle,       // stirring
+			LadleOut,    // the ladle lifted out, to the bowl
+			Salt,        // a pinch of salt
+			Crank,       // turning the spit
+			Meat,        // the roast lifted off the spit
+			Dough,       // kneading, or carrying the dough to the oven
+			Spread,      // spreading the filling
+			Crimp,       // pinching the edge
+			Door,        // the oven door
+			Bread        // taking it out of the oven
+		};
+
+		struct Unit
+		{
+			int                       ing = 0;
+			Role                      role = Role::Toss;
+			std::string               name, model;
+			Scene::Id                 prop = -1, cap = -1;
+			enum class At
+			{
+				Cloth,
+				Held,
+				Board,
+				Pot,
+				Spit,
+				Dough,
+				Gone
+			} at = At::Cloth;
+			bool                      fitted = false;
+			Quat                      lie;          // lays it along x, flat
+			Vec3                      center;       // its middle, in its own space
+			double                    dims[3]{ 6, 2, 2 };  // long, middle, short (its own size)
+			Vec3                      clothAt;
+			int                       lane = -1;
+			hc::Cutting               cut;
+			double                    boardLen = 8.0;
+			double                    spitX = 0.0;
+			bool                      wentWhole = false;  // into the pot without being cut
+		};
+
+		struct Piece
+		{
+			Scene::Id prop = -1;
+			int       unit = 0;
+			float     uv[4]{ 0.35f, 0.35f, 0, 0 };
+		};
+
+		struct Grain
+		{
+			Vec3   p, v;
+			double life = 1.0, age = 0.0;
+			float  col[4]{ 1, 1, 1, 1 };
+			float  size = 0.12f;
+			Render3D::Sprite::Kind kind = Render3D::Sprite::Kind::Grain;
+			bool   gravity = true;
+		};
+
+		struct Props
+		{
+			Scene::Id kitchen = -1, cloth = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, bowl = -1, posts = -1, rod = -1,
+					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1;
+			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
+			Scene::Id pile[3]{ -1, -1, -1 };
+			std::vector<Scene::Id> crimps;
+			std::vector<std::pair<Scene::Id, Vec3>> fill;  // the filling on the pie (disk-local, units)
+		};
+
+		std::recursive_mutex g_mtx;
+		Phase                g_phase = Phase::Idle;
+		bool                 g_ovenStation = false;
+		bool                 g_quick = false;  // Quick Cook was chosen: let the game's menu be
+		std::vector<const Recipes::Recipe*> g_book;
+		int                  g_sel = 0;
+		const Recipes::Recipe* g_recipe = nullptr;
+		hc::Flow             g_flow = hc::Flow::Pot;
+		double               g_clock = 0.0;
+		std::string          g_toast;
+		double               g_toastAt = -10.0;
+		bool                 g_help = false, g_confirm = false;
+
+		// the dish on the go
+		std::vector<Unit>        g_units;
+		std::vector<Piece>       g_pieces;
+		hc::Chunks               g_chunks;
+		hc::Fire                 g_fire{ 5.0 };
+		std::unique_ptr<hc::Pot>  g_pot;
+		std::unique_ptr<hc::Spit> g_spit;
+		std::unique_ptr<hc::Oven> g_oven;
+		Props                    P;
+		std::vector<Grain>       g_grains;
+		float                    g_broth[3]{ 0.6f, 0.42f, 0.22f };
+		int                      g_tossedIn = 0;
+
+		// hands
+		Hold   g_hold = Hold::None;
+		int    g_holdUnit = -1;
+		Vec3   g_carry;              // where the held thing is
+		double g_grabX = 0, g_grabY = 0;
+		double g_tip = 0, g_tipWant = 0, g_boardY = L::kBoardY;
+		bool   g_tipped = false;     // the board's last lot has gone over its edge
+		hc::Chunks::Board g_boardPose, g_boardPrev;
+		double g_knifeX = L::kBoardX, g_knifeY = L::kBoardY, g_knifeAnim = -1;
+		bool   g_knifeOn = false, g_knifeCut = false;
+		int    g_knifeLane = -1;
+		double g_ladleA = -kPi * 0.6, g_ladleR = 3.6, g_lastStir = 0, g_stirred = 0;
+		Vec3   g_ladleOutAt;
+		double g_crankPrev = 0, g_crankRun = 0;
+		double g_pinch = 0;
+		double g_door = 1.0, g_doorWant = 1.0;  // the oven door, 0 shut .. 1 open
+		Vec3   g_doughAt{ L::kBoardX, L::kBoardY, kBoardTop };
+		int    g_doughParts = 0, g_doughNeeded = 0;
+		bool   g_rolled = false;
+		double g_squash = 0, g_squashA = 0, g_strokeLen = 0;
+		int    g_stock = 0;
+		int    g_lastFill = 0;          // the filling being spread
+		Vec3   g_lastSpread;
+		double g_peelT = -1;        // the peel's trip into or out of the oven
+		bool   g_peelIn = true;
+		bool   g_served = false;
+		double g_serveAt = 0;
+		hc::Result g_result;
+		RE::TESBoundObject* g_given = nullptr;
+		std::string g_givenName;
+		bool   g_burntLook = false;
+
+		// UI -> kitchen
+		enum class Act
+		{
+			Select,
+			CookByHand,
+			QuickCook,
+			Leave,
+			Abandon,
+			AbandonYes,
+			AbandonNo,
+			Again,
+			Done,
+			Help,
+			Mute
+		};
+		bool board_kneading();
+		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled);
+		std::vector<std::pair<Act, int>> g_acts;
+		std::mutex                       g_actMtx;
+		void Post(Act a_act, int a_arg = 0)
+		{
+			std::lock_guard lk(g_actMtx);
+			g_acts.emplace_back(a_act, a_arg);
+		}
+
+		void Toast(std::string a_text)
+		{
+			g_toast = std::move(a_text);
+			g_toastAt = g_clock;
+		}
+
+		RE::GPtr<RE::CraftingMenu> Crafting()
+		{
+			auto* ui = RE::UI::GetSingleton();
+			return ui ? ui->GetMenu<RE::CraftingMenu>() : RE::GPtr<RE::CraftingMenu>();
+		}
+
+		void ShowCrafting(bool a_show)
+		{
+			if (auto m = Crafting(); m && m->uiMovie) {
+				m->uiMovie->SetVisible(a_show);
+			}
+		}
+
+		// ---------------------------------------------------------------- the kitchen's furniture
+		Scene::Id Add(const char* a_name)
+		{
+			const auto id = Scene::Add(std::string("Hearthcooking\\") + a_name + ".nif");
+			if (id < 0) {
+				spdlog::warn("Kitchen: {} didn't load", a_name);
+			}
+			return id;
+		}
+
+		void Put(Scene::Id a_id, const Vec3& a_at, double a_rotZ = 0.0, float a_scale = 1.0f)
+		{
+			Scene::Place(a_id, a_at, RotZ(a_rotZ), a_scale);
+		}
+
+		Vec3 FireCenter()
+		{
+			return g_flow == hc::Flow::Oven ? Vec3{ L::kOvenX, -0.5, L::kFireboxZ } : Vec3{ L::kFireX, L::kFireY, 0.6 };
+		}
+
+		void BuildKitchen(bool a_oven, hc::Flow a_flow)
+		{
+			Scene::RemoveAll();
+			P = Props{};
+			P.kitchen = Add("Kitchen");
+			Put(P.kitchen, {});
+			P.cloth = Add("Cloth");
+			Put(P.cloth, {});
+			for (int k = 0; k < 3; ++k) {
+				P.pile[k] = Add("Log");
+				Put(P.pile[k], { L::kPileX + (k == 2 ? 0.0 : (k ? 1.0 : -1.0)), L::kPileY + (k == 2 ? 0.0 : -0.4), 0.95 + (k == 2 ? 1.65 : 0.0) }, kPi * 0.5 + 0.12 * k);
+			}
+			for (auto& f : P.fireLogs) {
+				f = Add("Log");
+				Scene::Hide(f, true);
+			}
+			P.heldLog = Add("Log");
+			Scene::Hide(P.heldLog, true);
+			if (!a_oven) {
+				P.firepit = Add("FirePit");
+				Put(P.firepit, { L::kFireX, L::kFireY, 0.0 });
+			}
+			if (a_flow != hc::Flow::Spit) {
+				P.board = Add("Board");
+				Put(P.board, { L::kBoardX, L::kBoardY, L::kBoardH * 0.5 });
+			}
+			if (a_flow == hc::Flow::Pot) {
+				P.knife = Add("Knife");
+				P.pot = Add("Pot");
+				Put(P.pot, { L::kPotX, L::kPotY, 0.0 });
+				P.broth = Add("Broth");
+				P.ladle = Add("Ladle");
+				P.bowl = Add("Bowl");
+				Put(P.bowl, { L::kServeX, L::kServeY, 0.0 });
+			}
+			if (a_flow == hc::Flow::Spit) {
+				P.posts = Add("SpitPosts");
+				Put(P.posts, { L::kFireX, L::kFireY, 0.0 });
+				P.rod = Add("SpitRod");
+			}
+			if (a_flow != hc::Flow::Pot) {
+				P.plate = Add("Plate");
+				Put(P.plate, { L::kServeX, L::kServeY, 0.0 });
+			}
+			if (a_oven) {
+				P.ovenBase = Add("OvenBase");
+				Put(P.ovenBase, { L::kOvenX, L::kOvenY, 0.0 });
+				P.ovenDome = Add("OvenDome");
+				Put(P.ovenDome, { L::kOvenX, L::kOvenY, 0.0 });
+				P.door = Add("OvenDoor");
+				P.peel = Add("Peel");
+				P.dough = Add("Dough");
+				Scene::Hide(P.dough, true);
+				P.disk = Add("DoughDisk");
+				Scene::Hide(P.disk, true);
+			}
+		}
+
+		// ---------------------------------------------------------------- the ingredients
+		const Recipes::Ingredient& Ing(const Unit& a_u) { return g_recipe->ings[a_u.ing]; }
+
+		// How it lies flat: its longest side along x, its shortest up
+		bool Fit(Unit& a_u)
+		{
+			if (a_u.fitted) {
+				return true;
+			}
+			Vec3 mn, mx;
+			if (a_u.prop < 0 || !Scene::Bounds(a_u.prop, mn, mx)) {
+				return false;
+			}
+			const double e[3] = { mx.x - mn.x, mx.y - mn.y, mx.z - mn.z };
+			int          ord[3] = { 0, 1, 2 };
+			std::sort(ord, ord + 3, [&](int a, int b) { return e[a] > e[b]; });
+			double m[3][3]{};
+			for (int r = 0; r < 3; ++r) {
+				m[r][ord[r]] = 1.0;
+			}
+			// keep it a rotation (not a mirror)
+			const double det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+			                   m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+			if (det < 0) {
+				for (auto& v : m[1]) {
+					v = -v;
+				}
+			}
+			a_u.lie = FromRows(m);
+			a_u.center = { (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, (mn.z + mx.z) * 0.5 };
+			for (int k = 0; k < 3; ++k) {
+				a_u.dims[k] = (std::max)(0.2, e[ord[k]]);
+			}
+			a_u.boardLen = Clamp(a_u.dims[0] * 0.5, 4.0, 9.0);
+			a_u.cut.x0 = 0.0;
+			a_u.cut.x1 = a_u.boardLen;
+			a_u.cut.wholeEnd = a_u.boardLen;
+			a_u.cut.target = (std::max)(0.6, a_u.boardLen / 6.0);
+			a_u.fitted = true;
+			return true;
+		}
+
+		// Puts a unit lying along x with its middle at a_at, a_len long (and turned a_rot about z)
+		void Lay(Unit& a_u, const Vec3& a_at, double a_len, const Quat& a_extra = {})
+		{
+			if (!Fit(a_u)) {
+				Scene::Hide(a_u.prop, true);
+				return;
+			}
+			const double s = a_len / a_u.dims[0];
+			const Quat   q = a_extra * a_u.lie;
+			const Vec3   c = q.Rotate(a_u.center) * s;
+			Scene::Place(a_u.prop, a_at - c, q, static_cast<float>(s));
+			Scene::Hide(a_u.prop, false);
+		}
+
+		double Thick(const Unit& a_u, double a_len, int a_k) { return a_u.dims[a_k] * a_len / a_u.dims[0]; }
+
+		void BuildUnits()
+		{
+			g_units.clear();
+			for (int i = 0; i < static_cast<int>(g_recipe->ings.size()); ++i) {
+				const auto& in = g_recipe->ings[i];
+				if (in.role == Role::Salt) {
+					continue;
+				}
+				for (int c = 0; c < in.count && static_cast<int>(g_units.size()) < kMaxUnits; ++c) {
+					Unit u;
+					u.ing = i;
+					u.role = in.role;
+					u.name = in.name;
+					u.model = in.model;
+					u.prop = u.model.empty() ? -1 : Scene::Add(u.model);
+					if (u.prop < 0) {
+						u.prop = Add("Chunk");  // a stand-in if its mesh won't load
+						if (u.prop >= 0) {
+							u.fitted = true;
+							u.dims[0] = 1.0;
+							u.dims[1] = 0.8;
+							u.dims[2] = 0.7;
+							u.boardLen = 5.0;
+							u.cut.x1 = u.cut.wholeEnd = 5.0;
+						}
+					}
+					Scene::Hide(u.prop, true);
+					const int k = static_cast<int>(g_units.size());
+					u.clothAt = { k < 5 ? -32.5 : -25.5, 13.0 - (k % 5) * 6.6, 0.0 };
+					g_units.push_back(std::move(u));
+				}
+			}
+		}
+
+		int FreeLane()
+		{
+			for (int l = 0; l < 3; ++l) {
+				bool used = false;
+				for (const auto& u : g_units) {
+					used |= u.at == Unit::At::Board && u.lane == l;
+				}
+				if (!used) {
+					return l;
+				}
+			}
+			return -1;
+		}
+
+		// ---------------------------------------------------------------- the pieces
+		void AddPiece(int a_unit, double a_x0, double a_len)
+		{
+			auto&        u = g_units[a_unit];
+			const double dy = Thick(u, u.boardLen, 1) * 0.9, dz = Thick(u, u.boardLen, 2) * 0.9;
+			const double lx = -u.boardLen * 0.5 + a_x0 + a_len * 0.5 + 0.18;  // board-local, nudged off the knife
+			const int    b = g_chunks.Add(a_unit, { lx, L::kLaneY[u.lane], L::kBoardH * 0.5 + dz * 0.5 }, { a_len, dy, dz }, static_cast<unsigned>(g_pieces.size() * 31 + 7));
+			if (b < 0) {
+				return;
+			}
+			Piece p;
+			p.unit = a_unit;
+			p.prop = Add("Chunk");
+			p.uv[0] = p.uv[1] = 0.3f;
+			p.uv[2] = Hash(b, 1) * 0.7f;
+			p.uv[3] = Hash(b, 2) * 0.7f;
+			if (static_cast<int>(g_pieces.size()) <= b) {
+				g_pieces.resize(b + 1);
+			}
+			g_pieces[b] = p;
+		}
+
+		// The whole part left on the board goes over as the last piece
+		void FinishBoard()
+		{
+			for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
+				auto& u = g_units[i];
+				if (u.at != Unit::At::Board || u.cut.finished) {
+					continue;
+				}
+				const double x0 = u.cut.x0, len = u.cut.Finish();
+				if (len > 0.05) {
+					AddPiece(i, x0, len);
+				}
+				if (u.cut.count <= 1) {
+					u.wentWhole = true;
+				}
+				Scene::Hide(u.prop, true);
+				Scene::Hide(u.cap, true);
+				u.at = Unit::At::Pot;  // on its way
+			}
+		}
+
+		// ---------------------------------------------------------------- starting a dish
+		void BrothColour()
+		{
+			std::string s = g_recipe->name;
+			for (const auto& in : g_recipe->ings) {
+				s += " " + in.name;
+			}
+			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			auto has = [&](const char* w) { return s.find(w) != std::string::npos; };
+			const float* c = nullptr;
+			static const float tomato[3] = { 0.72f, 0.24f, 0.12f }, green[3] = { 0.55f, 0.52f, 0.26f }, cream[3] = { 0.86f, 0.78f, 0.6f },
+							   brown[3] = { 0.46f, 0.27f, 0.13f }, plain[3] = { 0.62f, 0.44f, 0.24f };
+			if (has("tomato")) {
+				c = tomato;
+			} else if (has("milk") || has("cheese") || has("chowder") || has("fondue") || has("cream") || has("potato soup")) {
+				c = cream;
+			} else if (has("beef") || has("venison") || has("horker") || has("meat") || has("stew") || has("goat") || has("mammoth")) {
+				c = brown;
+			} else if (has("cabbage") || has("leek") || has("vegetable")) {
+				c = green;
+			} else {
+				c = plain;
+			}
+			std::memcpy(g_broth, c, sizeof(g_broth));
+		}
+
+		void ResetHands()
+		{
+			g_hold = Hold::None;
+			g_holdUnit = -1;
+			g_tip = g_tipWant = 0;
+			g_tipped = false;
+			g_boardY = L::kBoardY;
+			g_knifeAnim = -1;
+			g_knifeOn = false;
+			g_ladleA = -kPi * 0.6;
+			g_ladleR = 3.6;
+			g_pinch = 0;
+			g_door = g_doorWant = 1.0;
+			g_doughParts = 0;
+			g_rolled = false;
+			g_squash = 0;
+			g_stock = 0;
+			g_peelT = -1;
+			g_served = false;
+			g_grains.clear();
+			g_tossedIn = 0;
+			g_crankRun = 0;
+			g_stirred = 0;
+		}
+
+		void ShowStation()
+		{
+			// the book over the kitchen as it stands: the fire going, nothing out yet
+			g_flow = g_ovenStation ? hc::Flow::Oven : hc::Flow::Pot;
+			g_recipe = nullptr;
+			g_units.clear();
+			g_pieces.clear();
+			g_chunks.Clear();
+			BuildKitchen(g_ovenStation, g_flow);
+			g_fire = hc::Fire(g_ovenStation ? 9.0 : 5.0);
+			g_fire.Light(2);
+			g_pot.reset();
+			g_spit.reset();
+			g_oven.reset();
+			ResetHands();
+			Scene::SetCamera({ 0.0, -1.0, 0.0 }, 96.0f, true);
+		}
+
+		void StartCooking(const Recipes::Recipe* a_r)
+		{
+			g_recipe = a_r;
+			g_flow = a_r->flow;
+			g_chunks.Clear();
+			g_pieces.clear();
+			BuildKitchen(a_r->oven, g_flow);
+			g_fire = hc::Fire(a_r->oven ? 9.0 : 5.0);
+			g_fire.Light(2);
+			g_pot.reset();
+			g_spit.reset();
+			g_oven.reset();
+			if (g_flow == hc::Flow::Pot) {
+				g_pot = std::make_unique<hc::Pot>(a_r->salted);
+				BrothColour();
+			} else if (g_flow == hc::Flow::Spit) {
+				g_spit = std::make_unique<hc::Spit>(a_r->salted);
+			} else {
+				g_oven = std::make_unique<hc::Oven>(a_r->pie, a_r->salted, a_r->dough);
+			}
+			if (a_r->salted) {
+				P.salt = Add("SaltBowl");
+				Put(P.salt, { L::kSaltX, L::kSaltY, 0.0 });
+			}
+			ResetHands();
+			BuildUnits();
+			g_doughNeeded = 0;
+			for (const auto& u : g_units) {
+				g_doughNeeded += u.role == Role::Dough;
+			}
+			// no dough to make (a dish built on bread already made): the first filling is the base
+			if (g_flow == hc::Flow::Oven && g_doughNeeded == 0) {
+				g_doughParts = 1;
+				g_oven->Knead(5.0, 0.0);
+			}
+			g_phase = Phase::Cooking;
+			g_served = false;
+			g_help = false;
+			g_confirm = false;
+			Scene::SetCamera({ 0.0, -1.0, 0.0 }, 88.0f);
+			Audio::Play({ "ui_equip", 0.8f });
+			spdlog::info("Cooking {} by hand ({})", a_r->name, g_flow == hc::Flow::Pot ? "pot" : g_flow == hc::Flow::Spit ? "spit" : "oven");
+		}
+
+		void CloseKitchen(bool a_closeCrafting)
+		{
+			Audio::StopAll();
+			Scene::Close();
+			g_phase = Phase::Idle;
+			g_recipe = nullptr;
+			g_units.clear();
+			g_pieces.clear();
+			g_chunks.Clear();
+			ShowCrafting(true);
+			if (a_closeCrafting) {
+				SKSE::GetTaskInterface()->AddTask([] {
+					if (auto* ui = RE::UI::GetSingleton(); ui && ui->IsMenuOpen(RE::CraftingMenu::MENU_NAME)) {
+						RE::CraftingMenu::QuitMenu();
+					}
+				});
+			}
+		}
+
+		// ---------------------------------------------------------------- serving
+		void Serve()
+		{
+			if (g_served || !g_recipe) {
+				return;
+			}
+			g_served = true;
+			if (g_flow == hc::Flow::Pot) {
+				std::vector<double> cuts;
+				int                 lost = g_chunks.CountIn(hc::Chunks::State::Lost);
+				for (const auto& u : g_units) {
+					if (u.role == Role::Chop) {
+						cuts.push_back(u.wentWhole ? 0.05 : u.cut.Score());
+					}
+					if (u.at == Unit::At::Cloth || u.at == Unit::At::Board) {
+						++lost;  // never went in
+					}
+				}
+				const int in = g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn;
+				g_result = g_pot->Score(cuts.data(), static_cast<int>(cuts.size()), in, lost);
+			} else if (g_flow == hc::Flow::Spit) {
+				g_result = g_spit->Score();
+			} else {
+				g_oven->Unload();
+				g_result = g_oven->Score();
+			}
+			Recipes::Consume(*g_recipe);
+			g_given = Recipes::Give(*g_recipe, g_result.tier);
+			g_givenName = g_given && g_given->GetName() ? g_given->GetName() : g_recipe->name;
+			g_burntLook = g_result.tier == hc::Tier::Burnt;
+			g_phase = Phase::Result;
+			g_serveAt = g_clock;
+			Audio::Play({ g_result.tier == hc::Tier::Burnt ? "burnt" : "done", 0.9f });
+			spdlog::info("Served {}: {} (quality {:.2f})", g_recipe->name, hc::TierName(g_result.tier), g_result.quality);
+			// the dish itself, on the plate or in the bowl
+			for (auto& u : g_units) {
+				Scene::Hide(u.prop, true);
+				Scene::Hide(u.cap, true);
+			}
+			for (auto& p : g_pieces) {
+				Scene::Hide(p.prop, true);
+			}
+			if (P.dough >= 0) {
+				Scene::Hide(P.dough, true);
+			}
+			if (P.disk >= 0) {
+				Scene::Hide(P.disk, true);
+			}
+			for (auto& [id, at] : P.fill) {
+				Scene::Hide(id, true);
+			}
+			for (auto id : P.crimps) {
+				Scene::Hide(id, true);
+			}
+			if (P.bowl >= 0) {
+				Scene::Hide(P.bowl, true);
+			}
+			auto* m = g_recipe->result ? g_recipe->result->As<RE::TESModel>() : nullptr;
+			if (P.result >= 0) {
+				Scene::Remove(P.result);
+			}
+			P.result = m && m->GetModel() && *m->GetModel() ? Scene::Add(m->GetModel()) : -1;
+			Scene::SetCamera({ L::kServeX, L::kServeY + 2.0, 1.0 }, 42.0f);
+		}
+
+		// ---------------------------------------------------------------- picking
+		bool NearScreen(const Vec3& a_p, float a_mx, float a_my, double a_r, float a_minPx = 16.0f)
+		{
+			float sx = 0, sy = 0;
+			if (!Scene::Project(a_p, sx, sy)) {
+				return false;
+			}
+			const float r = (std::max)(S(a_minPx), static_cast<float>(a_r) * Scene::PixelsPerUnit(a_p));
+			return std::hypot(sx - a_mx, sy - a_my) <= r;
+		}
+
+		bool OnPlane(float a_mx, float a_my, double a_z, double& a_x, double& a_y) { return Scene::Unproject(a_mx, a_my, a_z, a_x, a_y); }
+
+		bool OverBoard(float a_mx, float a_my, double& a_lx, double& a_ly)
+		{
+			double x = 0, y = 0;
+			if (!OnPlane(a_mx, a_my, kBoardTop, x, y)) {
+				return false;
+			}
+			a_lx = x - L::kBoardX;
+			a_ly = y - g_boardY;
+			return std::abs(a_lx) <= L::kBoardW * 0.5 && std::abs(a_ly) <= L::kBoardD * 0.5;
+		}
+
+		bool OverPot(float a_mx, float a_my, double a_extra = 0.0)
+		{
+			double x = 0, y = 0;
+			return OnPlane(a_mx, a_my, L::kPotRim, x, y) && std::hypot(x - L::kPotX, y - L::kPotY) <= L::kPotR + a_extra;
+		}
+
+		bool OverFire(float a_mx, float a_my)
+		{
+			if (g_flow == hc::Flow::Oven) {
+				double x = 0, y = 0;
+				return OnPlane(a_mx, a_my, L::kFireboxZ, x, y) && std::abs(x - L::kOvenX) < 7.0 && y > -9.0 && y < 2.0;
+			}
+			double x = 0, y = 0;
+			return OnPlane(a_mx, a_my, 1.0, x, y) && std::hypot(x - L::kFireX, y - L::kFireY) <= L::kFireR + 1.5;
+		}
+
+		bool OverServe(float a_mx, float a_my) { return NearScreen({ L::kServeX, L::kServeY, 1.0 }, a_mx, a_my, 5.0, 40.0f); }
+
+		Vec3 SpitAxis(double a_x) { return { L::kFireX + a_x, L::kFireY, L::kSpitZ }; }
+		Vec3 CrankGrip()
+		{
+			const double a = g_spit ? g_spit->Angle() : 0.0;
+			return { L::kFireX + 12.9 + 0.95, L::kFireY - std::sin(a) * L::kCrankR, L::kSpitZ + std::cos(a) * L::kCrankR };
+		}
+
+		Vec3 MouthAt() { return { L::kOvenX, L::kOvenMouthY - 0.6, L::kOvenFloorZ + 2.5 }; }
+		Vec3 BreadAt() { return { L::kOvenX, L::kOvenMouthY + 4.2, L::kOvenFloorZ }; }
+		Vec3 DoorCentre() { return { L::kOvenX - 4.9 + std::cos(-g_door * 1.75) * 5.0, L::kOvenMouthY - 0.35 + std::sin(-g_door * 1.75) * 5.0, L::kOvenFloorZ + 3.2 }; }
+
+		int UnitAt(float a_mx, float a_my, Unit::At a_where)
+		{
+			for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
+				const auto& u = g_units[i];
+				if (u.at != a_where) {
+					continue;
+				}
+				Vec3 at = u.clothAt + Vec3{ 0, 0, 1.0 };
+				if (a_where == Unit::At::Spit) {
+					at = SpitAxis(u.spitX);
+				}
+				if (NearScreen(at, a_mx, a_my, a_where == Unit::At::Spit ? 3.5 : 3.0, 26.0f)) {
+					return i;
+				}
+			}
+			return -1;
+		}
+
+		bool AllInPot()
+		{
+			for (const auto& u : g_units) {
+				if (u.at == Unit::At::Cloth || u.at == Unit::At::Board || u.at == Unit::At::Held) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		int Mounted()
+		{
+			int n = 0;
+			for (const auto& u : g_units) {
+				n += u.at == Unit::At::Spit;
+			}
+			return n;
+		}
+
+		// ---------------------------------------------------------------- particles
+		void Spray(const Vec3& a_at, int a_n, const float (&a_col)[4], double a_speed, double a_up, float a_size, bool a_gravity = true,
+			Render3D::Sprite::Kind a_kind = Render3D::Sprite::Kind::Grain, double a_life = 0.9)
+		{
+			for (int k = 0; k < a_n && g_grains.size() < 600; ++k) {
+				Grain g;
+				g.p = a_at + Vec3{ (Rand01() - 0.5) * 0.6, (Rand01() - 0.5) * 0.6, 0.0 };
+				const double a = Rand01() * 2 * kPi;
+				g.v = { std::cos(a) * a_speed * Rand01(), std::sin(a) * a_speed * Rand01(), a_up * (0.5 + Rand01()) };
+				g.life = a_life * (0.6 + 0.8 * Rand01());
+				std::memcpy(g.col, a_col, sizeof(g.col));
+				g.size = a_size * (0.7f + 0.6f * Rand01());
+				g.kind = a_kind;
+				g.gravity = a_gravity;
+				g_grains.push_back(g);
+			}
+		}
+
+		void SaltOn(const Vec3& a_at, double a_amount)
+		{
+			static const float white[4] = { 0.95f, 0.95f, 0.93f, 1.0f };
+			Spray(a_at + Vec3{ 0, 0, 5.0 }, static_cast<int>(10 + a_amount * 40), white, 1.2, -2.0, 0.09f);
+			Audio::Take("salt_", 0.6f);
+		}
+
+		void Flour(const Vec3& a_at)
+		{
+			static const float dust[4] = { 0.92f, 0.9f, 0.86f, 0.35f };
+			Spray(a_at + Vec3{ 0, 0, 0.8 }, 10, dust, 3.0, 2.0, 1.6f, false, Render3D::Sprite::Kind::Smoke, 1.4);
+			Audio::Play({ "flour", 0.7f });
+		}
+
+		// ---------------------------------------------------------------- hands: picking up
+		void Grab(float mx, float my)
+		{
+			if (g_phase != Phase::Cooking || g_confirm) {
+				return;
+			}
+			const bool pot = g_flow == hc::Flow::Pot, spit = g_flow == hc::Flow::Spit, oven = g_flow == hc::Flow::Oven;
+			// the knife comes down where it is
+			if (pot && g_knifeOn && g_knifeAnim < 0 && g_tip <= 0.001) {
+				g_knifeAnim = 0.0;
+				g_knifeCut = false;
+				return;
+			}
+			// the board, by its left end
+			if (pot && P.board >= 0) {
+				double lx = 0, ly = 0;
+				if (OverBoard(mx, my, lx, ly) && lx < -L::kBoardW * 0.5 + 3.6) {
+					bool any = g_chunks.CountIn(hc::Chunks::State::Board) > 0;
+					for (const auto& u : g_units) {
+						any |= u.at == Unit::At::Board;
+					}
+					if (any) {
+						g_hold = Hold::Board;
+						double x = 0, y = 0;
+						OnPlane(mx, my, kBoardTop, x, y);
+						g_grabX = x;
+						g_grabY = y - g_boardY;
+						return;
+					}
+				}
+			}
+			// the ladle (anywhere in the pot)
+			if (pot && (OverPot(mx, my, -0.6) || NearScreen({ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ + 3.0 }, mx, my, 3.0))) {
+				g_hold = Hold::Ladle;
+				return;
+			}
+			// the spit's crank, and the roast on it
+			if (spit && NearScreen(CrankGrip(), mx, my, 2.6, 30.0f)) {
+				g_hold = Hold::Crank;
+				float hx = 0, hy = 0;
+				Scene::Project({ L::kFireX + 12.9, L::kFireY, L::kSpitZ }, hx, hy);
+				g_crankPrev = std::atan2(my - hy, mx - hx);
+				return;
+			}
+			if (spit) {
+				if (const int k = UnitAt(mx, my, Unit::At::Spit); k >= 0) {
+					g_hold = Hold::Meat;
+					g_holdUnit = k;
+					return;
+				}
+			}
+			// the oven: its door, what's in it, the dough
+			if (oven) {
+				if (g_oven->InOven() && g_door > 0.6 && g_peelT < 0 && NearScreen(BreadAt() + Vec3{ 0, 0, 1.5 }, mx, my, 4.0, 30.0f)) {
+					g_hold = Hold::Bread;
+					return;
+				}
+				if (NearScreen(DoorCentre(), mx, my, 3.5, 30.0f)) {
+					g_hold = Hold::Door;
+					g_grabX = mx;
+					g_grabY = g_door;
+					return;
+				}
+				if (g_doughParts > 0 && !g_oven->InOven() && !g_oven->Out()) {
+					double x = 0, y = 0;
+					if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
+						const double dx = x - g_doughAt.x, dy = y - g_doughAt.y, r = std::hypot(dx, dy);
+						const double R = g_rolled ? 5.0 : 3.2;
+						if (g_rolled && std::abs(r - R) < 1.2) {
+							g_hold = Hold::Crimp;
+							return;
+						}
+						if (g_rolled && r < R - 1.0 && g_stock > 0) {
+							g_hold = Hold::Spread;
+							g_lastSpread = { x, y, 0 };
+							return;
+						}
+						if (r < R + 0.8) {
+							g_hold = Hold::Dough;
+							g_grabX = x;
+							g_grabY = y;
+							g_strokeLen = 0;
+							return;
+						}
+					}
+				}
+			}
+			// salt
+			if (P.salt >= 0 && NearScreen({ L::kSaltX, L::kSaltY, 1.5 }, mx, my, 2.6, 26.0f)) {
+				g_hold = Hold::Salt;
+				g_pinch = 0;
+				return;
+			}
+			// logs: from the pile, or a burning one out of the fire
+			for (int k = 0; k < 3; ++k) {
+				if (NearScreen({ L::kPileX, L::kPileY + (k - 1) * 1.6, 1.5 }, mx, my, 3.0, 22.0f)) {
+					g_hold = Hold::Log;
+					return;
+				}
+			}
+			if (g_fire.Logs() > 0) {
+				const Vec3 fc = FireCenter();
+				const bool ring = pot ? (!OverPot(mx, my, 0.8) && OverFire(mx, my)) : oven ? OverFire(mx, my) : NearScreen(fc, mx, my, 4.0);
+				if (ring && g_fire.RemoveLog()) {
+					g_hold = Hold::FireLog;
+					Audio::Take("log_", 0.5f);
+					return;
+				}
+			}
+			// an ingredient off the cloth
+			if (const int k = UnitAt(mx, my, Unit::At::Cloth); k >= 0) {
+				g_hold = Hold::Ingredient;
+				g_holdUnit = k;
+				g_units[k].at = Unit::At::Held;
+				return;
+			}
+		}
+
+		// ---------------------------------------------------------------- hands: carrying
+		void Carry(float mx, float my, double dt)
+		{
+			double x = 0, y = 0;
+			switch (g_hold) {
+			case Hold::Ingredient:
+			case Hold::Log:
+			case Hold::FireLog:
+			case Hold::Meat:
+			case Hold::Bread:
+				if (OnPlane(mx, my, kCarryZ, x, y)) {
+					g_carry = { x, y, kCarryZ };
+				}
+				break;
+			case Hold::Board:
+				if (OnPlane(mx, my, kBoardTop, x, y)) {
+					g_tipWant = Clamp((x - g_grabX) / 10.0, 0.0, 1.0);
+					g_boardY = Clamp(y - g_grabY, L::kPotY - 8.0, L::kPotY + 8.0);
+				}
+				break;
+			case Hold::Ladle:
+				if (OnPlane(mx, my, L::kLiquidZ, x, y)) {
+					const double dx = x - L::kPotX, dy = y - L::kPotY, r = std::hypot(dx, dy);
+					if (r > L::kPotR + 3.0) {
+						g_hold = Hold::LadleOut;  // lifted out
+						Audio::Take("splash_", 0.35f);
+						break;
+					}
+					const double a = std::atan2(dy, dx);
+					const double dA = Wrap(a - g_ladleA);
+					g_ladleA = a;
+					g_ladleR = Clamp(r, 1.0, L::kPotR - 1.6);
+					if (g_pot && std::abs(dA) < 1.5) {
+						g_pot->Stir(dA);
+						g_stirred += std::abs(dA);
+						if (g_stirred > 1.4 && Audio::Now() - g_lastStir > 0.25) {
+							g_stirred = 0;
+							g_lastStir = Audio::Now();
+							Audio::Take("stir_", 0.5f);
+						}
+					}
+				}
+				break;
+			case Hold::LadleOut:
+				if (OnPlane(mx, my, kCarryZ, x, y)) {
+					g_ladleOutAt = { x, y, kCarryZ };
+					if (std::hypot(x - L::kPotX, y - L::kPotY) < L::kPotR - 1.0) {
+						g_hold = Hold::Ladle;  // back in
+					}
+				}
+				break;
+			case Hold::Salt:
+				g_pinch = (std::min)(1.4, g_pinch + dt / 0.5);
+				if (OnPlane(mx, my, kCarryZ, x, y)) {
+					g_carry = { x, y, kCarryZ };
+				}
+				break;
+			case Hold::Crank:
+				{
+					float hx = 0, hy = 0;
+					if (g_spit && Scene::Project({ L::kFireX + 12.9, L::kFireY, L::kSpitZ }, hx, hy)) {
+						const double a = std::atan2(my - hy, mx - hx);
+						const double dA = Wrap(a - g_crankPrev);
+						g_crankPrev = a;
+						if (std::abs(dA) < 1.2) {
+							g_spit->Turn(dA);
+							g_crankRun += std::abs(dA);
+							if (g_crankRun > kPi / 3) {
+								g_crankRun = 0;
+								Audio::Take("crank_", 0.45f);
+							}
+						}
+					}
+				}
+				break;
+			case Hold::Dough:
+				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
+					const double dx = x - g_grabX, dy = y - g_grabY;
+					g_strokeLen = std::hypot(dx, dy);
+					g_squash = Clamp(g_strokeLen / 6.0, 0.0, 1.0);
+					g_squashA = std::atan2(dy, dx);
+					g_carry = { x, y, kCarryZ };
+				}
+				break;
+			case Hold::Spread:
+				if (OnPlane(mx, my, kBoardTop + 1.0, x, y) && g_stock > 0) {
+					const double dx = x - g_doughAt.x, dy = y - g_doughAt.y;
+					if (std::hypot(x - g_lastSpread.x, y - g_lastSpread.y) > 0.7 && std::hypot(dx, dy) < 4.6) {
+						g_lastSpread = { x, y, 0 };
+						g_oven->Fill(dx / 5.0, dy / 5.0);
+						--g_stock;
+						const auto id = Add("Chunk");
+						P.fill.emplace_back(id, Vec3{ dx, dy, static_cast<double>(g_lastFill) });
+						Audio::Take("knead_", 0.15f, 0.2f);
+					}
+				}
+				break;
+			case Hold::Crimp:
+				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
+					const double dx = x - g_doughAt.x, dy = y - g_doughAt.y;
+					if (std::abs(std::hypot(dx, dy) - 5.0) < 1.6) {
+						const double a = std::atan2(dy, dx);
+						const int    before = static_cast<int>(std::lround(g_oven->Crimped() * hc::Oven::kCrimps));
+						g_oven->Crimp(a);
+						const int after = static_cast<int>(std::lround(g_oven->Crimped() * hc::Oven::kCrimps));
+						if (after > before) {
+							Audio::Take("knead_", 0.2f, 0.3f);
+						}
+					}
+				}
+				break;
+			case Hold::Door:
+				{
+					const float px = Scene::PixelsPerUnit({ L::kOvenX, L::kOvenMouthY, L::kOvenFloorZ });
+					const double want = Clamp(g_grabY + (g_grabX - mx) / (px * 9.0), 0.0, 1.0);
+					if ((want > 0.5) != (g_doorWant > 0.5)) {
+						Audio::Play({ want > 0.5 ? "door_open" : "door_close", 0.6f });
+					}
+					g_doorWant = want;
+				}
+				break;
+			default:
+				break;
+			}
+		}
+
+		// ---------------------------------------------------------------- hands: letting go
+		void PutBack(int a_unit)
+		{
+			if (a_unit >= 0 && a_unit < static_cast<int>(g_units.size())) {
+				g_units[a_unit].at = Unit::At::Cloth;
+			}
+		}
+
+		void Drop(float mx, float my)
+		{
+			const Hold h = g_hold;
+			g_hold = Hold::None;
+			const int ui = g_holdUnit;
+			g_holdUnit = -1;
+			switch (h) {
+			case Hold::Ingredient:
+				{
+					if (ui < 0) {
+						break;
+					}
+					auto& u = g_units[ui];
+					double lx = 0, ly = 0;
+					if (g_flow == hc::Flow::Pot) {
+						if (u.role == Role::Chop && P.board >= 0 && g_tip < 0.05 && OverBoard(mx, my, lx, ly)) {
+							const int lane = FreeLane();
+							if (lane >= 0 && Fit(u)) {
+								u.at = Unit::At::Board;
+								u.lane = lane;
+								Audio::Take("thunk_", 0.4f);
+								break;
+							}
+							Toast("The board is full");
+						} else if (OverPot(mx, my, 1.0)) {
+							u.at = Unit::At::Pot;
+							if (u.role == Role::Chop) {
+								// in whole: a piece the size of the thing
+								Fit(u);
+								u.wentWhole = true;
+								const double len = u.boardLen;
+								const int    b = g_chunks.AddFree(ui, g_carry, {}, { len * 0.6, Thick(u, len, 1) * 0.6, Thick(u, len, 2) * 0.6 }, static_cast<unsigned>(ui * 13 + 5));
+								if (b >= 0) {
+									if (static_cast<int>(g_pieces.size()) <= b) {
+										g_pieces.resize(b + 1);
+									}
+									g_pieces[b].unit = ui;
+									g_pieces[b].prop = Add("Chunk");
+								}
+							} else {
+								++g_tossedIn;
+								Audio::Play({ u.role == Role::Toss && (u.name.find("Ale") != std::string::npos || u.name.find("Milk") != std::string::npos ||
+																	u.name.find("Wine") != std::string::npos || u.name.find("Mead") != std::string::npos)
+												  ? "pour"
+												  : "splash_0",
+									0.7f });
+								static const float drop[4] = { 0.5f, 0.35f, 0.2f, 0.9f };
+								Spray({ L::kPotX, L::kPotY, L::kLiquidZ }, 10, drop, 4.0, 18.0, 0.18f);
+							}
+							break;
+						}
+						PutBack(ui);
+					} else if (g_flow == hc::Flow::Spit) {
+						if (u.role == Role::Meat && NearScreen(SpitAxis(0.0), mx, my, 11.0, 60.0f)) {
+							int n = Mounted();
+							u.at = Unit::At::Spit;
+							Fit(u);
+							static constexpr double kSpots[3] = { 0.0, -5.0, 5.0 };
+							u.spitX = kSpots[(std::min)(n, 2)];
+							Audio::Take("log_", 0.3f);
+							break;
+						}
+						if (u.role != Role::Meat && Mounted() > 0 && NearScreen(SpitAxis(0.0), mx, my, 9.0, 50.0f)) {
+							u.at = Unit::At::Gone;  // rubbed on
+							Audio::Take("knead_", 0.4f);
+							break;
+						}
+						PutBack(ui);
+					} else {
+						double x = 0, y = 0;
+						const bool onDough = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 7.0;
+						if (u.role == Role::Dough && P.board >= 0 && OverBoard(mx, my, lx, ly) && !g_oven->InOven()) {
+							u.at = Unit::At::Dough;
+							++g_doughParts;
+							Flour(g_doughAt);
+							break;
+						}
+						if (u.role == Role::Filling && g_doughParts > 0 && onDough && !g_oven->InOven()) {
+							u.at = Unit::At::Dough;
+							if (g_oven->Pie()) {
+								if (!g_rolled) {
+									g_rolled = true;
+									Flour(g_doughAt);
+								}
+								g_stock += 12;
+								g_lastFill = ui;
+								// a first dollop where it landed
+								for (int k = 0; k < 3; ++k) {
+									const double ox = (x - g_doughAt.x) + (Rand01() - 0.5) * 1.4, oy = (y - g_doughAt.y) + (Rand01() - 0.5) * 1.4;
+									if (std::hypot(ox, oy) < 4.6) {
+										g_oven->Fill(ox / 5.0, oy / 5.0);
+										const auto id = Add("Chunk");
+										P.fill.emplace_back(id, Vec3{ ox, oy, static_cast<double>(ui) });
+										--g_stock;
+									}
+								}
+								Audio::Take("knead_", 0.4f);
+							} else {
+								Audio::Take("knead_", 0.5f);  // worked into the dough
+							}
+							break;
+						}
+						PutBack(ui);
+					}
+				}
+				break;
+			case Hold::Log:
+				if (OverFire(mx, my) && g_fire.AddLog()) {
+					Audio::Take("log_", 0.8f);
+					static const float spark[4] = { 1.0f, 0.55f, 0.15f, 1.0f };
+					Spray(FireCenter() + Vec3{ 0, 0, 1.0 }, 18, spark, 4.0, 12.0, 0.12f, false, Render3D::Sprite::Kind::Ember, 1.2);
+				} else if (OverFire(mx, my)) {
+					Toast("The fire can't take another log");
+				}
+				break;
+			case Hold::FireLog:
+				if (OverFire(mx, my)) {
+					g_fire.AddLog();  // put back
+				} else {
+					static const float smoke[4] = { 0.3f, 0.28f, 0.26f, 0.5f };
+					Spray(g_carry, 6, smoke, 1.5, 3.0, 1.4f, false, Render3D::Sprite::Kind::Smoke, 1.6);
+					Audio::Take("hiss_", 0.4f);
+				}
+				break;
+			case Hold::Board:
+				g_tipWant = 0.0;
+				break;
+			case Hold::LadleOut:
+				if (OverServe(mx, my)) {
+					if (g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn > 0) {
+						Audio::Take("splash_", 0.6f);
+						Serve();
+					} else {
+						Toast("There's nothing in the pot yet");
+					}
+				}
+				break;
+			case Hold::Salt:
+				{
+					Vec3 target;
+					bool hit = false;
+					if (g_flow == hc::Flow::Pot && OverPot(mx, my, 1.0)) {
+						target = { L::kPotX, L::kPotY, L::kLiquidZ };
+						g_pot->Seasoning().amount += g_pinch;
+						hit = true;
+					} else if (g_flow == hc::Flow::Spit && Mounted() > 0 && NearScreen(SpitAxis(0.0), mx, my, 9.0, 50.0f)) {
+						target = SpitAxis(0.0);
+						g_spit->Seasoning().amount += g_pinch;
+						hit = true;
+					} else if (g_flow == hc::Flow::Oven && g_doughParts > 0 && !g_oven->InOven() && NearScreen(g_doughAt, mx, my, 5.0, 40.0f)) {
+						target = g_doughAt;
+						g_oven->Seasoning().amount += g_pinch;
+						hit = true;
+					}
+					if (hit) {
+						SaltOn(target, g_pinch);
+					} else {
+						SaltOn({ g_carry.x, g_carry.y, 0.0 }, g_pinch * 0.5);  // spilt
+					}
+					g_pinch = 0;
+				}
+				break;
+			case Hold::Meat:
+				if (OverServe(mx, my)) {
+					Serve();
+				}
+				break;
+			case Hold::Dough:
+				{
+					double x = 0, y = 0;
+					const bool board = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::abs(x - L::kBoardX) < L::kBoardW * 0.5 + 1.0 && std::abs(y - L::kBoardY) < L::kBoardD * 0.5 + 1.0;
+					if (NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
+						if (g_door < 0.6) {
+							Toast("Open the oven door first");
+						} else if (g_doughNeeded > 0 && g_doughParts < g_doughNeeded) {
+							Toast("The dough isn't all in yet");
+						} else {
+							g_peelT = 0.0;  // in it goes
+							g_peelIn = true;
+							Audio::Play({ "peel", 0.7f });
+						}
+					} else if (board && g_strokeLen > 1.2 && !g_rolled && g_doughParts > 0) {
+						g_oven->Knead(g_strokeLen, g_clock);
+						Audio::Take("knead_", 0.7f);
+						static const float dust[4] = { 0.92f, 0.9f, 0.86f, 0.18f };
+						Spray(g_doughAt + Vec3{ 0, 0, 1.0 }, 3, dust, 2.0, 1.0, 1.2f, false, Render3D::Sprite::Kind::Smoke, 1.0);
+					}
+					g_squash = 0;
+				}
+				break;
+			case Hold::Door:
+				g_doorWant = g_doorWant > 0.5 ? 1.0 : 0.0;
+				break;
+			case Hold::Bread:
+				if (OverServe(mx, my)) {
+					Audio::Play({ "peel", 0.7f });
+					Serve();
+				}
+				break;
+			default:
+				break;
+			}
+		}
+
+		void Cancel()
+		{
+			if (g_hold == Hold::Ingredient) {
+				PutBack(g_holdUnit);
+			} else if (g_hold == Hold::FireLog) {
+				g_fire.AddLog();
+			} else if (g_hold == Hold::Board) {
+				g_tipWant = 0;
+			}
+			g_hold = Hold::None;
+			g_holdUnit = -1;
+			g_pinch = 0;
+			g_squash = 0;
+		}
+
+		void HandleInput(double dt)
+		{
+			float mx = 0, my = 0;
+			Overlay::MousePos(mx, my);
+			for (const auto& p : Overlay::TakePresses()) {
+				if (p.button == 1 && p.down) {
+					Cancel();
+					continue;
+				}
+				if (p.button != 0) {
+					continue;
+				}
+				if (p.down) {
+					if (!p.onUi && g_hold == Hold::None) {
+						Grab(p.x, p.y);
+					}
+				} else if (g_hold != Hold::None) {
+					Drop(p.x, p.y);
+				}
+			}
+			if (g_hold != Hold::None && !Overlay::ButtonHeld(0)) {
+				Drop(mx, my);  // a release that never arrived
+			}
+			if (g_hold != Hold::None) {
+				Carry(mx, my, dt);
+			}
+			// the knife follows the mouse over the board
+			g_knifeOn = false;
+			if (g_flow == hc::Flow::Pot && g_hold == Hold::None && P.knife >= 0 && g_tip < 0.01 && g_phase == Phase::Cooking) {
+				double lx = 0, ly = 0;
+				if (OverBoard(mx, my, lx, ly) && lx > -L::kBoardW * 0.5 + 3.6) {
+					int    best = -1;
+					double bd = 1e9;
+					for (int l = 0; l < 3; ++l) {
+						for (const auto& u : g_units) {
+							if (u.at == Unit::At::Board && u.lane == l && std::abs(ly - L::kLaneY[l]) < bd) {
+								bd = std::abs(ly - L::kLaneY[l]);
+								best = l;
+							}
+						}
+					}
+					g_knifeOn = true;
+					g_knifeLane = best;
+					if (g_knifeAnim < 0) {
+						g_knifeX = L::kBoardX + Clamp(lx, -L::kBoardW * 0.5 + 1.0, L::kBoardW * 0.5 - 1.0);
+						g_knifeY = g_boardY + (best >= 0 ? L::kLaneY[best] : ly);
+					}
+				}
+			}
+		}
+
+		// ---------------------------------------------------------------- every frame: the kitchen moves
+		void Step(double dt)
+		{
+			g_fire.Step(dt);
+			// the knife's chop lands a moment after the click
+			if (g_knifeAnim >= 0) {
+				g_knifeAnim += dt;
+				if (!g_knifeCut && g_knifeAnim >= 0.06) {
+					g_knifeCut = true;
+					bool cut = false;
+					for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
+						auto& u = g_units[i];
+						if (u.at != Unit::At::Board || u.lane != g_knifeLane || u.cut.finished) {
+							continue;
+						}
+						const double x = (g_knifeX - L::kBoardX) + u.boardLen * 0.5;
+						const double before = u.cut.wholeEnd;
+						const double len = u.cut.Chop(x);
+						if (len > 0.0) {
+							AddPiece(i, before - len, len);
+							cut = true;
+						}
+					}
+					Audio::Take(cut ? "chop_" : "thunk_", cut ? 0.8f : 0.5f, 0.08f, static_cast<float>(Clamp((g_knifeX - 0.0) / 40.0, -0.8, 0.8)));
+				}
+				if (g_knifeAnim > 0.2) {
+					g_knifeAnim = -1;
+				}
+			}
+			if (g_flow == hc::Flow::Pot && g_pot) {
+				// the board tips toward what's asked, and eases back
+				g_tip += Clamp(g_tipWant - g_tip, -dt * 2.2, dt * 1.6);
+				if (g_tip > 0.25 && !g_tipped) {
+					g_tipped = true;
+					FinishBoard();
+				}
+				if (g_tip < 0.02 && g_tipped && g_chunks.CountIn(hc::Chunks::State::Free) == 0) {
+					g_tipped = false;  // ready for another lot
+				}
+				g_boardPrev = g_boardPose;
+				g_boardPose = hc::BoardPose(g_tip, g_boardY);
+				g_boardPose.v = dt > 0 ? (g_boardPose.c - g_boardPrev.c) * (1.0 / dt) : Vec3{};
+				const int before = g_chunks.CountIn(hc::Chunks::State::Pot);
+				g_chunks.Step(dt, g_boardPose, g_pot->Swirl());
+				hc::Chunks::Event ev[32];
+				const int         n = g_chunks.TakeEvents(ev, 32);
+				for (int k = 0; k < n; ++k) {
+					const auto& e = ev[k];
+					const float pan = static_cast<float>(Clamp(e.at.x / 40.0, -0.8, 0.8));
+					if (e.kind == hc::Chunks::Event::Kind::Splash) {
+						Audio::Take("splash_", static_cast<float>(Clamp(0.3 + e.speed / 60.0, 0.3, 0.9)), 0.1f, pan);
+						static const float drop[4] = { 0.55f, 0.4f, 0.25f, 0.9f };
+						float c[4] = { g_broth[0] * 0.9f, g_broth[1] * 0.9f, g_broth[2] * 0.9f, 0.9f };
+						(void)drop;
+						Spray(e.at, 6, c, 3.0, 14.0, 0.16f);
+					} else if (e.kind == hc::Chunks::Event::Kind::Land) {
+						const double fx = e.at.x - L::kFireX, fy = e.at.y - L::kFireY;
+						if (fx * fx + fy * fy < L::kFireR * L::kFireR) {
+							Audio::Take("hiss_", 0.5f, 0.1f, pan);
+						} else {
+							Audio::Take("thunk_", 0.35f, 0.1f, pan);
+						}
+					}
+				}
+				const int after = g_chunks.CountIn(hc::Chunks::State::Pot);
+				if (after > before) {
+					g_pot->AddPieces(before, after - before);
+				}
+				g_pot->Step(dt, g_fire.Heat(), after + g_tossedIn > 0);
+				g_chunks.Cook(dt * 0.02 * Clamp(g_pot->Temp() - 0.3, 0.0, 1.0));
+				const double t = g_pot->Temp();
+				Audio::SetLoop("loop_simmer", static_cast<float>(Clamp((t - 0.38) * 3.0, 0.0, 0.7)));
+				Audio::SetLoop("loop_boil", static_cast<float>(Clamp((t - 0.8) * 4.0, 0.0, 0.8)));
+			}
+			if (g_flow == hc::Flow::Spit && g_spit) {
+				const int m = Mounted();
+				g_spit->Step(dt, g_fire.Heat(), m > 0);
+				Audio::SetLoop("loop_sizzle", m > 0 ? static_cast<float>(Clamp((g_fire.Heat() - 0.3) * 1.4, 0.0, 0.8)) : 0.0f);
+			}
+			if (g_flow == hc::Flow::Oven && g_oven) {
+				g_door += Clamp(g_doorWant - g_door, -dt * 3.0, dt * 3.0);
+				g_oven->SetDoor(g_door > 0.5);
+				g_oven->Step(dt, g_fire.Heat());
+				if (g_peelT >= 0) {
+					g_peelT += dt / 0.7;
+					if (g_peelT >= 1.0) {
+						g_peelT = -1;
+						if (g_peelIn) {
+							g_oven->Load();
+							Toast("Shut the door, and let it bake");
+						}
+					}
+				}
+			}
+			Audio::SetLoop("loop_fire", static_cast<float>(Clamp(g_fire.Heat() * 0.75, 0.0, 0.85)));
+			// the fire pops now and then
+			if (Rand01() < dt * (0.5 + 3.0 * g_fire.Heat())) {
+				Audio::Take("crackle_", 0.25f + 0.3f * Rand01(), 0.15f, g_flow == hc::Flow::Oven ? 0.3f : 0.4f);
+			}
+			// the grains, drops, sparks and puffs
+			for (auto& g : g_grains) {
+				g.age += dt;
+				if (g.gravity) {
+					g.v.z -= 60.0 * dt;
+				} else {
+					g.v = g.v * (1.0 / (1.0 + dt * 1.5));
+					g.v.z += (g.kind == Render3D::Sprite::Kind::Smoke ? 3.0 : 6.0) * dt;
+				}
+				g.p += g.v * dt;
+				if (g.p.z < 0.05) {
+					g.p.z = 0.05;
+					g.v = {};
+				}
+			}
+			std::erase_if(g_grains, [](const Grain& g) { return g.age > g.life; });
+		}
+
+		// ---------------------------------------------------------------- every frame: the kitchen as it looks
+		void PlaceBoardUnit(Unit& u)
+		{
+			const Vec3 at = g_boardPose.ToWorld({ 0.0, L::kLaneY[u.lane], L::kBoardH * 0.5 + Thick(u, u.boardLen, 2) * 0.5 });
+			Lay(u, at, u.boardLen, RotY(g_boardPose.tilt));
+			// cut off past the knife's last cut (a plane across the board)
+			auto&        lk = Scene::LookOf(u.prop);
+			const double xEnd = L::kBoardX + (u.cut.wholeEnd - u.boardLen * 0.5);
+			lk.clip[0] = 1.0f;
+			lk.clip[1] = lk.clip[2] = 0.0f;
+			lk.clip[3] = static_cast<float>(xEnd);
+			// the cut end
+			if (u.cut.count > 0) {
+				if (u.cap < 0) {
+					u.cap = Add("Cap");
+				}
+				Scene::Place(u.cap, { xEnd - 0.02, at.y, at.z }, {}, 1.0f);
+				Scene::Stretch(u.cap, 1.0f, static_cast<float>(Thick(u, u.boardLen, 1) * 0.92), static_cast<float>(Thick(u, u.boardLen, 2) * 0.92));
+				auto& cl = Scene::LookOf(u.cap);
+				cl.skin = Scene::Skin(u.prop);
+				cl.uv[0] = cl.uv[1] = 0.2f;
+				cl.uv[2] = cl.uv[3] = 0.4f;
+				cl.lift[0] = 0.92f;
+				cl.lift[1] = 0.88f;
+				cl.lift[2] = 0.74f;
+				cl.lift[3] = 0.35f;
+				Scene::Hide(u.cap, false);
+			}
+		}
+
+		void Look3D()
+		{
+			const double t = g_clock;
+			std::vector<Render3D::Sprite> sp;
+			const double heat = g_fire.Heat();
+			const Vec3   fc = FireCenter();
+			// ---- the fire: its logs, flames, embers, smoke
+			for (int k = 0; k < hc::Fire::kMaxLogs; ++k) {
+				const auto id = P.fireLogs[k];
+				if (id < 0) {
+					continue;
+				}
+				if (k >= g_fire.Logs()) {
+					Scene::Hide(id, true);
+					continue;
+				}
+				const double glow = g_fire.Glow(k), fuel = g_fire.Fuel(k);
+				Vec3         at;
+				double       rz = 0;
+				if (g_flow == hc::Flow::Oven) {
+					at = { L::kOvenX - 3.0 + k * 1.5, -0.4 + (k % 2) * 0.8, 1.6 + (k / 3) * 1.2 };
+					rz = kPi * 0.5 + (k % 2 ? 0.2 : -0.2);
+				} else {
+					static constexpr double kA[5] = { 0.3, 2.4, 4.4, 1.3, 3.4 };
+					at = { fc.x + std::cos(kA[k]) * 1.2, fc.y + std::sin(kA[k]) * 1.2, 0.95 + (k >= 3 ? 1.3 : 0.0) };
+					rz = kA[k] + kPi * 0.5;
+				}
+				Scene::Place(id, at, RotZ(rz) * RotY(k >= 3 ? 0.15 : 0.0), static_cast<float>(0.8 + 0.2 * fuel));
+				auto& lk = Scene::LookOf(id);
+				const float dark = static_cast<float>(0.25 + 0.75 * fuel);
+				lk.tint[0] = lk.tint[1] = lk.tint[2] = dark;
+				const float e = static_cast<float>(glow * Clamp(heat * 1.2, 0.0, 1.2) * (1.0 - fuel * 0.6));
+				lk.emissive[0] = 0.9f * e;
+				lk.emissive[1] = 0.28f * e;
+				lk.emissive[2] = 0.05f * e;
+				Scene::Hide(id, false);
+				// flames along the log
+				for (int f = 0; f < 3; ++f) {
+					Render3D::Sprite s;
+					const double off = (f - 1) * 2.4;
+					s.pos[0] = static_cast<float>(at.x + std::cos(rz - kPi * 0.5) * off * 0.0 + std::cos(rz) * off);
+					s.pos[1] = static_cast<float>(at.y + std::sin(rz) * off);
+					s.pos[2] = static_cast<float>(at.z + 0.6);
+					s.size = static_cast<float>((0.9 + 1.4 * glow) * Clamp(heat * 1.3, 0.2, 1.4));
+					s.stretch = 1.9f;
+					s.seed = static_cast<float>(k * 3 + f) * 1.37f;
+					s.color[3] = static_cast<float>(glow * Clamp(heat * 1.5, 0.0, 1.0));
+					s.kind = Render3D::Sprite::Kind::Flame;
+					sp.push_back(s);
+				}
+			}
+			if (heat > 0.02) {
+				const int n = static_cast<int>(2 + heat * 6);
+				for (int k = 0; k < n; ++k) {
+					Render3D::Sprite s;
+					const double a = k * 2.399 + 0.3, r = (g_flow == hc::Flow::Oven ? 0.8 : 1.4) * Hash(k, 3);
+					s.pos[0] = static_cast<float>(fc.x + std::cos(a) * r * (g_flow == hc::Flow::Oven ? 2.5 : 1.0));
+					s.pos[1] = static_cast<float>(fc.y + std::sin(a) * r);
+					s.pos[2] = static_cast<float>(fc.z + 0.6);
+					s.size = static_cast<float>(1.4 + 2.2 * heat * (0.6 + 0.4 * Hash(k, 4)));
+					s.stretch = 2.0f;
+					s.seed = 20.0f + k * 2.11f;
+					s.color[3] = static_cast<float>(Clamp(heat * 1.3, 0.0, 1.0));
+					s.kind = Render3D::Sprite::Kind::Flame;
+					sp.push_back(s);
+				}
+				Render3D::Sprite g;
+				g.pos[0] = static_cast<float>(fc.x);
+				g.pos[1] = static_cast<float>(fc.y);
+				g.pos[2] = static_cast<float>(fc.z + 0.8);
+				g.size = static_cast<float>(6.0 + 4.0 * heat);
+				g.color[0] = 1.0f;
+				g.color[1] = 0.42f;
+				g.color[2] = 0.12f;
+				g.color[3] = static_cast<float>(0.22 * Clamp(heat, 0.0, 1.2));
+				g.kind = Render3D::Sprite::Kind::Glow;
+				sp.push_back(g);
+				// embers rising, and a little smoke
+				for (int k = 0; k < 14; ++k) {
+					const double p = std::fmod(t * (0.3 + 0.25 * Hash(k, 5)) + Hash(k, 6), 1.0);
+					Render3D::Sprite e;
+					e.pos[0] = static_cast<float>(fc.x + (Hash(k, 7) - 0.5) * 4.0 + std::sin(t * 2.0 + k) * p * 1.5);
+					e.pos[1] = static_cast<float>(fc.y + (Hash(k, 8) - 0.5) * 3.0);
+					e.pos[2] = static_cast<float>(fc.z + 1.0 + p * (6.0 + 14.0 * heat));
+					e.size = 0.13f;
+					e.color[0] = 1.0f;
+					e.color[1] = 0.55f;
+					e.color[2] = 0.18f;
+					e.color[3] = static_cast<float>((1.0 - p) * Clamp(heat * 1.4, 0.0, 1.0));
+					e.kind = Render3D::Sprite::Kind::Ember;
+					sp.push_back(e);
+				}
+			}
+			for (int k = 0; k < 6 && g_flow != hc::Flow::Pot; ++k) {
+				const double p = std::fmod(t * 0.12 + k / 6.0, 1.0);
+				Render3D::Sprite s;
+				s.pos[0] = static_cast<float>(fc.x + std::sin(t * 0.4 + k) * 2.0 * p);
+				s.pos[1] = static_cast<float>(fc.y + (g_flow == hc::Flow::Oven ? -2.0 * p : 0.0));
+				s.pos[2] = static_cast<float>(fc.z + 6.0 + p * 22.0);
+				s.size = static_cast<float>(2.0 + p * 6.0);
+				s.color[0] = s.color[1] = s.color[2] = 0.32f;
+				s.color[3] = static_cast<float>(0.16 * (1.0 - p) * Clamp(heat, 0.2, 1.0));
+				s.seed = k * 3.3f;
+				s.kind = Render3D::Sprite::Kind::Smoke;
+				sp.push_back(s);
+			}
+			Scene::SetFire(fc + Vec3{ 0, 0, 3.0 }, static_cast<float>(heat));
+
+			// ---- the log carried
+			if (P.heldLog >= 0) {
+				const bool held = g_hold == Hold::Log || g_hold == Hold::FireLog;
+				Scene::Hide(P.heldLog, !held);
+				if (held) {
+					Scene::Place(P.heldLog, g_carry, RotZ(0.4), 1.0f);
+					auto& lk = Scene::LookOf(P.heldLog);
+					const float e = g_hold == Hold::FireLog ? 0.5f : 0.0f;
+					lk.emissive[0] = 0.9f * e;
+					lk.emissive[1] = 0.3f * e;
+					lk.emissive[2] = 0.05f * e;
+				}
+			}
+
+			// ---- the ingredients
+			for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
+				auto& u = g_units[i];
+				if (u.prop < 0) {
+					continue;
+				}
+				switch (u.at) {
+				case Unit::At::Cloth:
+					Lay(u, u.clothAt + Vec3{ 0, 0, Thick(u, (std::min)(5.2, u.dims[0] * 0.6), 2) * 0.5 + 0.2 }, (std::min)(5.2, Clamp(u.dims[0] * 0.6, 2.5, 5.2)), RotZ(0.25 * (Hash(i, 9) - 0.5)));
+					break;
+				case Unit::At::Held:
+					Lay(u, g_carry, Clamp(u.dims[0] * 0.6, 2.5, 5.2), RotZ(0.3));
+					break;
+				case Unit::At::Board:
+					PlaceBoardUnit(u);
+					break;
+				case Unit::At::Spit:
+					{
+						const double len = Clamp(u.dims[0] * 0.5, 5.0, 9.0);
+						const double a = g_spit ? g_spit->Angle() : 0.0;
+						Lay(u, SpitAxis(u.spitX), len, RotX(a));
+						auto& lk = Scene::LookOf(u.prop);
+						lk.cookMode = 2;
+						for (int b = 0; b < hc::Spit::kBands; ++b) {
+							lk.cook[b] = static_cast<float>(g_spit->Band(b));
+						}
+						lk.cookAxis[0] = 1.0f;
+						lk.cookAxis[1] = lk.cookAxis[2] = 0.0f;
+						lk.cookRef[0] = 0.0f;
+						lk.cookRef[1] = static_cast<float>(std::sin(a));
+						lk.cookRef[2] = static_cast<float>(-std::cos(a));
+						// it sizzles and smokes as it browns
+						if (g_fire.Heat() > 0.4 && g_spit->Mean() > 0.15) {
+							for (int k = 0; k < 3; ++k) {
+								const double p = std::fmod(t * 0.5 + k / 3.0 + i * 0.13, 1.0);
+								Render3D::Sprite s;
+								const auto   at = SpitAxis(u.spitX);
+								s.pos[0] = static_cast<float>(at.x + (Hash(k + i * 5, 11) - 0.5) * len);
+								s.pos[1] = static_cast<float>(at.y);
+								s.pos[2] = static_cast<float>(at.z + 1.0 + p * 8.0);
+								s.size = static_cast<float>(1.0 + p * 2.5);
+								s.color[0] = s.color[1] = s.color[2] = 0.75f;
+								s.color[3] = static_cast<float>(0.12 * (1.0 - p) * Clamp(g_spit->Mean(), 0.0, 1.2));
+								s.seed = k * 5.1f + i;
+								s.kind = Render3D::Sprite::Kind::Smoke;
+								sp.push_back(s);
+							}
+						}
+					}
+					break;
+				default:
+					Scene::Hide(u.prop, true);
+					Scene::Hide(u.cap, true);
+					break;
+				}
+				if (u.at != Unit::At::Board) {
+					Scene::LookOf(u.prop).clip[0] = 0.0f;
+					Scene::Hide(u.cap, true);
+				}
+			}
+			if (g_hold == Hold::Meat && g_holdUnit >= 0) {
+				auto&        u = g_units[g_holdUnit];
+				const double len = Clamp(u.dims[0] * 0.5, 5.0, 9.0);
+				Lay(u, g_carry, len, RotX(g_spit ? g_spit->Angle() : 0.0));
+			}
+
+			// ---- the board and knife (the pot)
+			if (P.board >= 0) {
+				const auto pose = g_flow == hc::Flow::Pot ? g_boardPose : hc::BoardPose(0.0, L::kBoardY);
+				Scene::Place(P.board, pose.c, RotY(pose.tilt), 1.0f);
+			}
+			if (P.knife >= 0) {
+				if (g_knifeOn || g_knifeAnim >= 0) {
+					const double a = g_knifeAnim < 0 ? 0.0 : g_knifeAnim < 0.06 ? g_knifeAnim / 0.06 : 1.0 - (g_knifeAnim - 0.06) / 0.14;
+					const double z = kBoardTop + 2.6 * (1.0 - Clamp(a, 0.0, 1.0));
+					Scene::Place(P.knife, { g_knifeX, g_knifeY - 3.8, z }, {}, 1.0f);
+				} else {
+					Scene::Place(P.knife, { L::kBoardX + 5.0, L::kBoardY - 9.2, 0.12 }, RotZ(-kPi * 0.5) * RotY(kPi * 0.5), 1.0f);
+				}
+			}
+			// ---- the pieces
+			for (int b = 0; b < g_chunks.Count() && b < static_cast<int>(g_pieces.size()); ++b) {
+				const auto& body = g_chunks.At(b);
+				auto&       pc = g_pieces[b];
+				if (pc.prop < 0) {
+					continue;
+				}
+				if (body.state == hc::Chunks::State::None) {
+					Scene::Hide(pc.prop, true);
+					continue;
+				}
+				Quat q = body.q;
+				if (body.state == hc::Chunks::State::Board) {
+					q = RotY(g_boardPose.tilt) * body.q;
+				}
+				Scene::Place(pc.prop, body.p, q, 1.0f);
+				Scene::Stretch(pc.prop, static_cast<float>(body.size.x), static_cast<float>(body.size.y), static_cast<float>(body.size.z));
+				auto& lk = Scene::LookOf(pc.prop);
+				const auto& u = g_units[(std::min)(pc.unit, static_cast<int>(g_units.size()) - 1)];
+				lk.skin = Scene::Skin(u.prop);
+				std::memcpy(lk.uv, pc.uv, sizeof(lk.uv));
+				lk.lift[0] = 0.9f;
+				lk.lift[1] = 0.86f;
+				lk.lift[2] = 0.72f;
+				lk.lift[3] = 0.28f;
+				lk.cookMode = 1;
+				lk.cook[0] = static_cast<float>(body.charred ? 1.7 : body.cooked * 0.6);
+				Scene::Hide(pc.prop, false);
+			}
+			// ---- the pot, the broth, the ladle, bubbles and steam
+			if (P.broth >= 0 && g_pot) {
+				Scene::Place(P.broth, { L::kPotX, L::kPotY, L::kLiquidZ }, RotZ(std::fmod(t * 0.05, 6.283) + g_ladleA * 0.15), 1.0f);
+				auto&       lk = Scene::LookOf(P.broth);
+				const bool  any = g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn > 0;
+				const float c = static_cast<float>(Clamp(g_pot->Cooked(), 0.0, 1.5));
+				lk.lift[0] = any ? g_broth[0] * (1.0f - 0.15f * c) : 0.55f;
+				lk.lift[1] = any ? g_broth[1] * (1.0f - 0.15f * c) : 0.55f;
+				lk.lift[2] = any ? g_broth[2] * (1.0f - 0.15f * c) : 0.52f;
+				lk.lift[3] = any ? 0.82f : 0.6f;  // plain water until something's in it
+				const double tp = g_pot->Temp();
+				if (tp > 0.42) {
+					const int n = static_cast<int>((tp - 0.42) * 40.0);
+					for (int k = 0; k < n; ++k) {
+						const double rate = 0.9 + Hash(k, 12);
+						const double ph = t * rate + Hash(k, 13);
+						const int    cyc = static_cast<int>(std::floor(ph));
+						const double p = ph - cyc;
+						const double a = Hash(k * 17 + cyc, 14) * 6.283, r = std::sqrt(Hash(k * 17 + cyc, 15)) * (L::kPotR - 0.8);
+						Render3D::Sprite s;
+						s.pos[0] = static_cast<float>(L::kPotX + std::cos(a) * r);
+						s.pos[1] = static_cast<float>(L::kPotY + std::sin(a) * r);
+						s.pos[2] = static_cast<float>(L::kLiquidZ + 0.05);
+						s.size = static_cast<float>(0.12 + 0.35 * p);
+						s.color[0] = s.color[1] = s.color[2] = 0.95f;
+						s.color[3] = static_cast<float>(0.8 * (1.0 - p * p));
+						s.kind = Render3D::Sprite::Kind::Bubble;
+						sp.push_back(s);
+					}
+				}
+				if (tp > 0.35) {
+					for (int k = 0; k < 7; ++k) {
+						const double p = std::fmod(t * 0.22 + k / 7.0, 1.0);
+						Render3D::Sprite s;
+						s.pos[0] = static_cast<float>(L::kPotX + (Hash(k, 16) - 0.5) * 6.0 + std::sin(t * 0.6 + k) * p * 2.0);
+						s.pos[1] = static_cast<float>(L::kPotY + (Hash(k, 17) - 0.5) * 6.0);
+						s.pos[2] = static_cast<float>(L::kLiquidZ + 1.0 + p * 16.0);
+						s.size = static_cast<float>(1.6 + p * 5.0);
+						s.color[0] = s.color[1] = s.color[2] = 0.92f;
+						s.color[3] = static_cast<float>(0.14 * (1.0 - p) * Clamp((tp - 0.35) * 3.0, 0.0, 1.0));
+						s.seed = 40.0f + k * 1.9f;
+						s.kind = Render3D::Sprite::Kind::Smoke;
+						sp.push_back(s);
+					}
+				}
+				// smoke when it catches
+				if (g_pot->Burn() > 0.35) {
+					for (int k = 0; k < 4; ++k) {
+						const double p = std::fmod(t * 0.3 + k / 4.0, 1.0);
+						Render3D::Sprite s;
+						s.pos[0] = static_cast<float>(L::kPotX + (Hash(k, 18) - 0.5) * 4.0);
+						s.pos[1] = static_cast<float>(L::kPotY + (Hash(k, 19) - 0.5) * 4.0);
+						s.pos[2] = static_cast<float>(L::kLiquidZ + 2.0 + p * 14.0);
+						s.size = static_cast<float>(2.0 + p * 5.0);
+						s.color[0] = s.color[1] = s.color[2] = 0.18f;
+						s.color[3] = static_cast<float>(0.3 * (1.0 - p) * Clamp(g_pot->Burn(), 0.0, 1.0));
+						s.seed = 60.0f + k;
+						s.kind = Render3D::Sprite::Kind::Smoke;
+						sp.push_back(s);
+					}
+				}
+			}
+			if (P.ladle >= 0) {
+				if (g_hold == Hold::LadleOut) {
+					Scene::Place(P.ladle, g_ladleOutAt, RotZ(-kPi * 0.5), 1.0f);
+				} else {
+					const Vec3   at{ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ + 0.4 };
+					const double handle = std::atan2(-0.45, -0.25);  // which way the mesh's handle points
+					Scene::Place(P.ladle, at, RotZ(g_ladleA - handle), 1.0f);
+				}
+			}
+			// ---- the spit's rod and crank
+			if (P.rod >= 0) {
+				Scene::Place(P.rod, { L::kFireX, L::kFireY, L::kSpitZ }, RotX(g_spit ? g_spit->Angle() : 0.0), 1.0f);
+			}
+			// ---- the oven: door, peel, dough, the bake
+			if (P.door >= 0) {
+				Scene::Place(P.door, { L::kOvenX - 4.9, L::kOvenMouthY - 0.35, L::kOvenFloorZ }, RotZ(-g_door * 1.75), 1.0f);
+			}
+			if (P.peel >= 0) {
+				Vec3 at{ L::kOvenX - 15.0, -15.0, 0.3 };
+				double rz = 0.35;
+				if (g_peelT >= 0) {
+					const double k = std::sin(Clamp(g_peelT, 0.0, 1.0) * kPi);
+					at = g_doughAt + (BreadAt() + Vec3{ 0, 0, 0.3 } - g_doughAt) * Clamp(g_peelT * 1.4, 0.0, 1.0);
+					at.z += k * 1.5;
+					rz = 0.0;
+				}
+				Scene::Place(P.peel, at, RotZ(rz), 1.0f);
+			}
+			if (g_oven) {
+				const bool baking = g_oven->InOven() || (g_peelT >= 0 && g_peelIn);
+				Vec3       at = g_doughAt;
+				if (g_hold == Hold::Dough && g_strokeLen > 0 && !board_kneading()) {
+					at = { g_carry.x, g_carry.y, kBoardTop + 4.0 };
+				}
+				if (g_peelT >= 0) {
+					at = g_doughAt + (BreadAt() - g_doughAt) * Clamp(g_peelT * 1.4, 0.0, 1.0);
+					at.z += std::sin(Clamp(g_peelT, 0.0, 1.0) * kPi) * 1.5 + 0.3;
+				}
+				if (g_oven->InOven()) {
+					at = BreadAt();
+				}
+				if (g_hold == Hold::Bread) {
+					at = g_carry;
+				}
+				// the dish itself once it's in (the game's own bread or pie), else our dough
+				const bool showDish = baking || g_hold == Hold::Bread;
+				if (showDish && P.result < 0 && g_recipe) {
+					auto* m = g_recipe->result ? g_recipe->result->As<RE::TESModel>() : nullptr;
+					P.result = m && m->GetModel() && *m->GetModel() ? Scene::Add(m->GetModel()) : -1;
+				}
+				Vec3 mn, mx;
+				if (showDish && P.result >= 0 && Scene::Bounds(P.result, mn, mx)) {
+					const double big = (std::max)(mx.x - mn.x, mx.y - mn.y);
+					const double s = 8.0 / (std::max)(0.1, big) * (0.8 + 0.2 * Clamp(g_oven->Rise(), 0.0, 1.0));
+					const Vec3   c{ (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, mn.z };
+					Scene::Place(P.result, at - c * s, {}, static_cast<float>(s));
+					auto& lk = Scene::LookOf(P.result);
+					lk.cookMode = 1;
+					const double br = g_oven->Brown();
+					lk.cook[0] = static_cast<float>(br > 0.6 ? (br - 0.6) * 1.2 : 0.0);  // its own colour is "golden"; burnt past it
+					lk.lift[0] = 0.94f;
+					lk.lift[1] = 0.86f;
+					lk.lift[2] = 0.7f;
+					lk.lift[3] = static_cast<float>(Clamp(0.85 - br * 0.9, 0.0, 0.85));  // pale and doughy at first
+					Scene::Hide(P.result, false);
+					Scene::Hide(P.dough, true);
+					Scene::Hide(P.disk, true);
+				} else {
+					if (P.result >= 0 && !showDish) {
+						Scene::Hide(P.result, true);
+					}
+					const bool dough = g_doughParts > 0 && !g_oven->Out();
+					Scene::Hide(P.dough, !dough || g_rolled);
+					Scene::Hide(P.disk, !dough || !g_rolled);
+					if (dough && !g_rolled) {
+						const double grow = Clamp(static_cast<double>(g_doughParts) / (std::max)(1, g_doughNeeded), 0.3, 1.0);
+						const double r = 3.0 * std::cbrt(grow);
+						const double sq = g_squash * 0.45;
+						const Quat   q = RotZ(g_squashA);
+						Scene::Place(P.dough, at + Vec3{ 0, 0, r * 0.62 * (1.0 - sq) + 0.1 }, q, static_cast<float>(r));
+						Scene::Stretch(P.dough, static_cast<float>(1.0 + sq), static_cast<float>(1.0 - sq * 0.3), static_cast<float>(0.62 * (1.0 - sq)));
+						auto& lk = Scene::LookOf(P.dough);
+						const float smooth = static_cast<float>(Clamp(g_oven->Dough(), 0.0, 1.0));
+						lk.tint[0] = lk.tint[1] = lk.tint[2] = 0.88f + 0.12f * smooth;
+					} else if (dough) {
+						Scene::Place(P.disk, at + Vec3{ 0, 0, 0.3 }, {}, 5.0f);
+						Scene::Stretch(P.disk, 1.0f, 1.0f, 2.0f);
+					}
+				}
+				// the filling on the pie, and its crimped edge
+				for (auto& [id, off] : P.fill) {
+					if (id < 0) {
+						continue;
+					}
+					const bool show = g_rolled && !g_oven->InOven() && g_peelT < 0 && !g_oven->Out() && g_hold != Hold::Dough;
+					Scene::Hide(id, !show);
+					if (show) {
+						const int ui = static_cast<int>(off.z);
+						Scene::Place(id, g_doughAt + Vec3{ off.x, off.y, 0.75 }, RotZ(Hash(id, 21) * 6.28), 1.0f);
+						Scene::Stretch(id, 0.9f, 0.8f, 0.55f);
+						auto& lk = Scene::LookOf(id);
+						for (const auto& u : g_units) {
+							if (&u - g_units.data() == ui) {
+								lk.skin = Scene::Skin(u.prop);
+							}
+						}
+						lk.uv[0] = lk.uv[1] = 0.3f;
+						lk.uv[2] = Hash(id, 22) * 0.7f;
+						lk.uv[3] = Hash(id, 23) * 0.7f;
+					}
+				}
+				if (g_rolled) {
+					while (static_cast<int>(P.crimps.size()) < hc::Oven::kCrimps) {
+						const auto id = Add("Dough");
+						P.crimps.push_back(id);
+					}
+					for (int k = 0; k < hc::Oven::kCrimps; ++k) {
+						const auto id = P.crimps[k];
+						const bool show = g_oven->CrimpedAt(k) && !g_oven->InOven() && g_peelT < 0 && !g_oven->Out() && g_hold != Hold::Dough;
+						Scene::Hide(id, !show);
+						if (show) {
+							const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
+							Scene::Place(id, g_doughAt + Vec3{ std::cos(a) * 4.8, std::sin(a) * 4.8, 0.65 }, RotZ(a), 0.55f);
+							Scene::Stretch(id, 0.7f, 1.1f, 0.6f);
+						}
+					}
+				}
+			}
+			// ---- the dish served
+			if (g_phase == Phase::Result && P.result >= 0) {
+				Vec3 mn, mx;
+				if (Scene::Bounds(P.result, mn, mx)) {
+					const double big = (std::max)(mx.x - mn.x, mx.y - mn.y);
+					const double s = (g_flow == hc::Flow::Pot ? 7.5 : 8.0) / (std::max)(0.1, big);
+					const Vec3   c{ (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, mn.z };
+					const Quat   q = RotZ(std::fmod((g_clock - g_serveAt) * 0.4, 6.283));
+					const Vec3   on{ L::kServeX, L::kServeY, g_flow == hc::Flow::Pot ? 0.0 : 0.45 };
+					Scene::Place(P.result, on - q.Rotate(c) * s, q, static_cast<float>(s));
+					auto& lk = Scene::LookOf(P.result);
+					lk.lift[3] = 0.0f;
+					lk.cookMode = g_burntLook ? 1 : 0;
+					lk.cook[0] = 1.65f;
+					Scene::Hide(P.result, false);
+				}
+			}
+			// ---- the salt in the hand, the grains in the air
+			if (g_hold == Hold::Salt) {
+				for (int k = 0; k < static_cast<int>(4 + g_pinch * 10); ++k) {
+					Render3D::Sprite s;
+					s.pos[0] = static_cast<float>(g_carry.x + (Hash(k, 24) - 0.5) * 0.8);
+					s.pos[1] = static_cast<float>(g_carry.y + (Hash(k, 25) - 0.5) * 0.8);
+					s.pos[2] = static_cast<float>(g_carry.z + Hash(k, 26) * 0.5);
+					s.size = 0.1f;
+					s.color[0] = s.color[1] = s.color[2] = 0.96f;
+					s.color[3] = 1.0f;
+					s.kind = Render3D::Sprite::Kind::Grain;
+					sp.push_back(s);
+				}
+			}
+			for (const auto& g : g_grains) {
+				Render3D::Sprite s;
+				s.pos[0] = static_cast<float>(g.p.x);
+				s.pos[1] = static_cast<float>(g.p.y);
+				s.pos[2] = static_cast<float>(g.p.z);
+				const double k = g.age / (std::max)(0.01, g.life);
+				s.size = g.kind == Render3D::Sprite::Kind::Smoke ? g.size * static_cast<float>(1.0 + k * 1.5) : g.size;
+				std::memcpy(s.color, g.col, sizeof(s.color));
+				s.color[3] *= static_cast<float>(1.0 - k);
+				s.kind = g.kind;
+				s.seed = static_cast<float>(&g - g_grains.data()) * 0.7f;
+				sp.push_back(s);
+			}
+			Scene::SetSprites(std::move(sp));
+		}
+
+		bool board_kneading()
+		{
+			// a stroke that stays on the board is kneading; one that leaves it is carrying the dough away
+			return std::abs(g_carry.x - L::kBoardX) < L::kBoardW * 0.5 + 1.0 && std::abs(g_carry.y - L::kBoardY) < L::kBoardD * 0.5 + 1.0;
+		}
+
+		// ---------------------------------------------------------------- the menu's buttons, and the keys
+		void Leave()
+		{
+			spdlog::info("Left the kitchen");
+			CloseKitchen(true);
+		}
+
+		void ProcessActs()
+		{
+			std::vector<std::pair<Act, int>> acts;
+			{
+				std::lock_guard lk(g_actMtx);
+				acts.swap(g_acts);
+			}
+			for (const auto& [act, arg] : acts) {
+				switch (act) {
+				case Act::Select:
+					g_sel = arg;
+					break;
+				case Act::CookByHand:
+					if (g_phase == Phase::Book && g_sel >= 0 && g_sel < static_cast<int>(g_book.size())) {
+						const auto* r = g_book[g_sel];
+						if (Recipes::CanMake(*r) > 0) {
+							StartCooking(r);
+						} else {
+							Toast("You don't have what it takes");
+						}
+					}
+					break;
+				case Act::QuickCook:
+					// the game's own menu, as it was: its dishes are Plain
+					g_quick = true;
+					spdlog::info("Quick Cook: the game's own menu");
+					Audio::StopAll();
+					Scene::Close();
+					g_phase = Phase::Idle;
+					ShowCrafting(true);
+					break;
+				case Act::Leave:
+					Leave();
+					return;
+				case Act::Abandon:
+					if (g_phase == Phase::Cooking) {
+						g_confirm = true;
+					}
+					break;
+				case Act::AbandonYes:
+					g_confirm = false;
+					spdlog::info("Put the dish aside (nothing used up)");
+					Audio::StopAll();
+					ShowStation();
+					g_phase = Phase::Book;
+					g_book = Recipes::ForStation(g_ovenStation);
+					break;
+				case Act::AbandonNo:
+					g_confirm = false;
+					break;
+				case Act::Again:
+					Audio::StopAll();
+					ShowStation();
+					g_phase = Phase::Book;
+					g_book = Recipes::ForStation(g_ovenStation);
+					g_sel = std::clamp(g_sel, 0, (std::max)(0, static_cast<int>(g_book.size()) - 1));
+					break;
+				case Act::Done:
+					Leave();
+					return;
+				case Act::Help:
+					g_help = !g_help;
+					break;
+				case Act::Mute:
+					Audio::SetMuted(!Audio::Muted());
+					break;
+				}
+			}
+		}
+
+		void HandleKeys()
+		{
+			for (int key : Overlay::TakeKeys()) {
+				if (key == 0x01) {  // Esc
+					if (g_help) {
+						g_help = false;
+					} else if (g_confirm) {
+						g_confirm = false;
+					} else if (g_hold != Hold::None) {
+						Cancel();
+					} else if (g_phase == Phase::Book || g_phase == Phase::Result) {
+						Post(Act::Leave);
+					} else if (g_phase == Phase::Cooking) {
+						g_confirm = true;
+					}
+				} else if (key == 0x0F) {  // Tab
+					if (g_phase == Phase::Cooking) {
+						g_confirm = !g_confirm;
+					} else if (g_phase == Phase::Book) {
+						Post(Act::Leave);
+					}
+				} else if (key == 0x23) {  // H
+					g_help = !g_help;
+				} else if (key == 0x32 || key == Overlay::kPadSoundKey) {  // M
+					Audio::SetMuted(!Audio::Muted());
+				} else if (g_phase == Phase::Book && (key == 0xC8 || key == 0x11)) {  // up / W
+					g_sel = (std::max)(0, g_sel - 1);
+				} else if (g_phase == Phase::Book && (key == 0xD0 || key == 0x1F)) {  // down / S
+					g_sel = (std::min)(static_cast<int>(g_book.size()) - 1, g_sel + 1);
+				} else if (g_phase == Phase::Book && (key == 0x1C || key == 0x12)) {  // Enter / E
+					Post(Act::CookByHand);
+				}
+			}
+		}
+
+		// ---------------------------------------------------------------- the interface
+		struct CardLine
+		{
+			std::string text;
+			bool        done = false;
+		};
+
+		std::vector<CardLine> Steps()
+		{
+			std::vector<CardLine> s;
+			if (!g_recipe) {
+				return s;
+			}
+			auto unitsDone = [&](Role a_role, std::initializer_list<Unit::At> a_where, const char* a_pre, const char* a_post) {
+				std::map<std::string, std::pair<int, int>> by;
+				for (const auto& u : g_units) {
+					if (u.role != a_role) {
+						continue;
+					}
+					auto& e = by[u.name];
+					++e.first;
+					for (auto w : a_where) {
+						if (u.at == w) {
+							++e.second;
+							break;
+						}
+					}
+				}
+				for (const auto& [name, c] : by) {
+					s.push_back({ fmt::format("{}{}{}{}", a_pre, name, a_post, c.first > 1 ? fmt::format(" ({})", c.first) : ""), c.second >= c.first });
+				}
+			};
+			if (g_flow == hc::Flow::Pot) {
+				bool anyChop = false;
+				for (const auto& u : g_units) {
+					anyChop |= u.role == Role::Chop;
+				}
+				if (anyChop) {
+					std::map<std::string, std::pair<int, int>> by;
+					for (const auto& u : g_units) {
+						if (u.role == Role::Chop) {
+							auto& e = by[u.name];
+							++e.first;
+							e.second += u.cut.count > 0 || u.at == Unit::At::Pot;
+						}
+					}
+					for (const auto& [name, c] : by) {
+						s.push_back({ fmt::format("Chop the {}{}", name, c.first > 1 ? fmt::format(" ({})", c.first) : ""), c.second >= c.first });
+					}
+					unitsDone(Role::Chop, { Unit::At::Pot }, "Tip in the ", "");
+				}
+				unitsDone(Role::Toss, { Unit::At::Pot }, "Add the ", "");
+				s.push_back({ "Keep it at a simmer, and stir", g_pot && g_pot->Cooked() >= 0.92 });
+				if (g_recipe->salted) {
+					s.push_back({ "A pinch of salt", g_pot && g_pot->Seasoning().amount >= 0.7 });
+				}
+				s.push_back({ "Ladle it into the bowl", g_served });
+			} else if (g_flow == hc::Flow::Spit) {
+				unitsDone(Role::Meat, { Unit::At::Spit }, "Put the ", " on the spit");
+				unitsDone(Role::Toss, { Unit::At::Gone }, "Rub in the ", "");
+				s.push_back({ "Turn it over the fire", g_spit && g_spit->Mean() >= 0.9 });
+				if (g_recipe->salted) {
+					s.push_back({ "Salt it", g_spit && g_spit->Seasoning().amount >= 0.7 });
+				}
+				s.push_back({ "Take it off onto the plate", g_served });
+			} else {
+				if (g_doughNeeded > 0) {
+					unitsDone(Role::Dough, { Unit::At::Dough }, "Add the ", "");
+					s.push_back({ "Knead the dough", g_oven && g_oven->Dough() >= 0.9 });
+				}
+				if (g_recipe->pie) {
+					unitsDone(Role::Filling, { Unit::At::Dough }, "Fill it with the ", "");
+					s.push_back({ "Spread the filling", g_oven && g_oven->Coverage() >= 0.8 });
+					s.push_back({ "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
+				} else {
+					unitsDone(Role::Filling, { Unit::At::Dough }, "Work in the ", "");
+				}
+				if (g_recipe->salted) {
+					s.push_back({ "A pinch of salt", g_oven && g_oven->Seasoning().amount >= 0.7 });
+				}
+				s.push_back({ "Into the oven", g_oven && (g_oven->InOven() || g_oven->Out()) });
+				s.push_back({ "Bake it golden", g_oven && g_oven->Brown() >= 0.85 });
+				s.push_back({ "Out onto the plate", g_served });
+			}
+			return s;
+		}
+
+		std::string Hint()
+		{
+			if (!Config::Get().hints) {
+				return {};
+			}
+			switch (g_hold) {
+			case Hold::Ingredient:
+				return g_flow == hc::Flow::Pot ? "Onto the board to chop it, or into the pot as it is" : g_flow == hc::Flow::Spit ? "Onto the spit, or rub it on what's there" : "Onto the board";
+			case Hold::Log:
+				return "Into the fire for more heat";
+			case Hold::FireLog:
+				return "Drop it anywhere to take the heat down (back on the fire to keep it)";
+			case Hold::Board:
+				return "Drag right to tip it into the pot; up and down to line it up";
+			case Hold::Ladle:
+				return "Round and round. Lift it out to the bowl when it's done";
+			case Hold::LadleOut:
+				return "Over the bowl to serve, or back into the pot";
+			case Hold::Salt:
+				return "Hold for a bigger pinch. Let go over the dish";
+			case Hold::Crank:
+				return "Turn it round and round";
+			case Hold::Meat:
+				return "Onto the plate to serve, or back on the spit";
+			case Hold::Dough:
+				return "A long push to knead; carry it to the open oven to bake";
+			case Hold::Spread:
+				return "Spread it out to the edge";
+			case Hold::Crimp:
+				return "Pinch your way all round the edge";
+			case Hold::Door:
+				return "Left to open, right to shut";
+			case Hold::Bread:
+				return "Onto the plate";
+			default:
+				break;
+			}
+			if (g_knifeOn) {
+				return "Click to chop. Small, even pieces from the right-hand end";
+			}
+			for (const auto& st : Steps()) {
+				if (!st.done) {
+					return st.text;
+				}
+			}
+			return {};
+		}
+
+		void DrawBook(float W, float H)
+		{
+			auto*       fg = ImGui::GetBackgroundDrawList();
+			Vignette(fg, W, H);
+			const float pw = S(470), ph = (std::min)(H - S(160), S(760));
+			const ImVec2 lp(W * 0.5f - pw - S(18), (H - ph) * 0.5f - S(20)), rp(W * 0.5f + S(18), lp.y);
+			// the left page: what can be made here
+			BeginArea("##bookL", lp, ImVec2(pw, ph));
+			auto* dl = ImGui::GetWindowDrawList();
+			Sheet(dl, lp, ImVec2(pw, ph), 0);
+			float y = lp.y + S(28);
+			TextC(dl, F.bookSC, lp.x + pw * 0.5f, y, kInk, g_ovenStation ? "The Oven" : "The Cooking Pot");
+			y += S(42);
+			FadeRule(dl, lp.x + S(40), lp.x + pw - S(40), y, 0.5f, kInkSoft);
+			y += S(12);
+			const float rowH = S(30), listTop = y, listBot = lp.y + ph - S(36);
+			const int   visible = (std::max)(1, static_cast<int>((listBot - listTop) / rowH));
+			static int  s_first = 0;
+			if (ImGui::IsWindowHovered()) {
+				s_first -= static_cast<int>(ImGui::GetIO().MouseWheel * 2);
+			}
+			if (g_sel < s_first) {
+				s_first = g_sel;
+			}
+			if (g_sel >= s_first + visible) {
+				s_first = g_sel - visible + 1;
+			}
+			s_first = std::clamp(s_first, 0, (std::max)(0, static_cast<int>(g_book.size()) - visible));
+			if (g_book.empty()) {
+				Para(dl, F.bookIt, lp.x + S(40), y + S(10), pw - S(80), kInkSoft, "You know no recipes for this, yet.");
+			}
+			for (int i = s_first; i < static_cast<int>(g_book.size()) && i < s_first + visible; ++i) {
+				const auto*  r = g_book[i];
+				const ImVec2 a(lp.x + S(34), y), b(lp.x + pw - S(34), y + rowH);
+				bool         hov = false;
+				ImGui::PushID(i);
+				if (Clicked("row", a, b, &hov)) {
+					Post(Act::Select, i);
+				}
+				ImGui::PopID();
+				const bool sel = i == g_sel, can = Recipes::CanMake(*r) > 0;
+				if (sel || hov) {
+					dl->AddRectFilledMultiColor(a, b, IM_COL32(142, 47, 27, sel ? 60 : 30), IM_COL32(142, 47, 27, 8), IM_COL32(142, 47, 27, 8), IM_COL32(142, 47, 27, sel ? 60 : 30));
+				}
+				if (sel) {
+					Diamond(dl, ImVec2(a.x + S(4), a.y + rowH * 0.5f), S(3.5f), kRubric, 0);
+				}
+				Text(dl, F.book, ImVec2(a.x + S(14), a.y + (rowH - F.book->FontSize) * 0.5f), can ? kInk : Alpha(kInkSoft, 0.6f), r->name);
+				bool              any = false;
+				const auto        best = Recipes::Best(*r, any);
+				const char*       mark = r->flow == hc::Flow::Pot ? "pot" : r->flow == hc::Flow::Spit ? "spit" : "oven";
+				const std::string tag = any ? fmt::format("{} - {}", mark, hc::TierName(best)) : mark;
+				Text(dl, F.bookIt, ImVec2(b.x - Measure(F.bookIt, tag, 0) - S(4), a.y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(any && best == hc::Tier::Masterwork ? kRubric : kInkSoft, can ? 1.0f : 0.6f), tag);
+				y += rowH;
+			}
+			ImGui::End();
+
+			// the right page: the chosen recipe
+			BeginArea("##bookR", rp, ImVec2(pw, ph));
+			dl = ImGui::GetWindowDrawList();
+			Sheet(dl, rp, ImVec2(pw, ph), 1);
+			if (g_sel >= 0 && g_sel < static_cast<int>(g_book.size())) {
+				const auto* r = g_book[g_sel];
+				float       ry = rp.y + S(30);
+				TextC(dl, F.bookSC, rp.x + pw * 0.5f, ry, kInk, r->name);
+				ry += S(40);
+				const char* how = r->flow == hc::Flow::Pot ? "In the pot: chopped, simmered and stirred" : r->flow == hc::Flow::Spit ? "On the spit, turned over the fire"
+				                : r->pie                    ? "A pie: dough, filling, a crimped edge, baked"
+				                                            : "Kneaded and baked in the oven";
+				TextC(dl, F.bookIt, rp.x + pw * 0.5f, ry, kInkSoft, how);
+				ry += S(34);
+				FadeRule(dl, rp.x + S(40), rp.x + pw - S(40), ry, 0.5f, kInkSoft);
+				ry += S(18);
+				Text(dl, F.bookSCsm, ImVec2(rp.x + S(44), ry), kRubric, "You will need", 0.06f);
+				ry += S(28);
+				for (const auto& in : r->ings) {
+					const int   have = Recipes::Held(in.form);
+					const bool  ok = have >= in.count;
+					const auto  t = in.count > 1 ? fmt::format("{} x{}", in.name, in.count) : in.name;
+					Text(dl, F.book, ImVec2(rp.x + S(52), ry), ok ? kInk : kRubric, t);
+					const auto h = fmt::format("{} carried", have);
+					Text(dl, F.bookIt, ImVec2(rp.x + pw - S(44) - Measure(F.bookIt, h, 0), ry + S(2)), ok ? kGreenInk : kRubric, h);
+					ry += S(27);
+				}
+				ry += S(10);
+				if (r->makes > 1) {
+					Text(dl, F.bookIt, ImVec2(rp.x + S(52), ry), kInkSoft, fmt::format("Makes {}", r->makes));
+					ry += S(26);
+				}
+				bool       any = false;
+				const auto best = Recipes::Best(*r, any);
+				Text(dl, F.bookIt, ImVec2(rp.x + S(52), ry), kInkSoft, any ? fmt::format("Your best: {}", hc::TierName(best)) : "Not made by hand yet");
+				const bool can = Recipes::CanMake(*r) > 0;
+				const float by = rp.y + ph - S(118);
+				if (MenuBtnInk("cook", "Cook by hand", rp.x + pw * 0.5f, by, can)) {
+					Post(Act::CookByHand);
+				}
+				if (MenuBtnInk("quick", "Quick cook (plain)", rp.x + pw * 0.5f, by + S(44), true)) {
+					Post(Act::QuickCook);
+				}
+			}
+			ImGui::End();
+			// leave, bottom centre
+			BeginArea("##leave", ImVec2(W * 0.5f - S(120), H - S(70)), ImVec2(S(240), S(50)));
+			if (MenuButton("leave", "Leave", W * 0.5f, H - S(62))) {
+				Post(Act::Leave);
+			}
+			ImGui::End();
+		}
+
+		// A button in ink on the parchment
+		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled)
+		{
+			auto*       dl = ImGui::GetWindowDrawList();
+			const float w = Measure(F.bookSC, a_label, 0.04f) + S(40), h = F.bookSC->FontSize + S(8);
+			bool        hov = false;
+			const bool  r = Clicked(a_id, ImVec2(a_cx - w * 0.5f, a_y), ImVec2(a_cx + w * 0.5f, a_y + h), &hov, a_enabled);
+			const ImU32 c = !a_enabled ? Alpha(kInkSoft, 0.45f) : hov ? kRubric : kInk;
+			if (hov) {
+				Diamond(dl, ImVec2(a_cx - w * 0.5f + S(6), a_y + h * 0.5f), S(4), kRubric, 0);
+				Diamond(dl, ImVec2(a_cx + w * 0.5f - S(6), a_y + h * 0.5f), S(4), kRubric, 0);
+			}
+			TextC(dl, F.bookSC, a_cx, a_y + S(3), c, a_label, 0.04f);
+			return r;
+		}
+
+		void RecipeCard(float W, float H)
+		{
+			(void)H;
+			(void)W;
+			const auto steps = Steps();
+			const float w = S(380), rowH = S(26);
+			const float h = S(30) + S(44) + S(14) + rowH * static_cast<float>(steps.size()) + S(26);
+			const ImVec2 pos(S(22), S(22));
+			BeginArea("##card", pos, ImVec2(w, h));
+			auto* dl = ImGui::GetWindowDrawList();
+			Sheet(dl, pos, ImVec2(w, h), 0);
+			float y = pos.y + S(24);
+			Text(dl, F.bookSC, ImVec2(pos.x + S(30), y), kInk, g_recipe ? g_recipe->name : "", 0.02f);
+			y += S(42);
+			FadeRule(dl, pos.x + S(26), pos.x + w - S(26), y, 0.45f, kInkSoft);
+			y += S(12);
+			bool first = true;
+			for (const auto& st : steps) {
+				const bool now = !st.done && first;
+				if (!st.done) {
+					first = false;
+				}
+				const ImVec2 c(pos.x + S(38), y + rowH * 0.5f);
+				if (st.done) {
+					dl->AddLine(ImVec2(c.x - S(5), c.y), ImVec2(c.x - S(1), c.y + S(4)), kGreenInk, S(2));
+					dl->AddLine(ImVec2(c.x - S(1), c.y + S(4)), ImVec2(c.x + S(6), c.y - S(5)), kGreenInk, S(2));
+				} else {
+					Diamond(dl, c, S(3.5f), now ? kRubric : 0, Alpha(kInkSoft, 0.8f));
+				}
+				Text(dl, now ? F.book : F.bookIt, ImVec2(pos.x + S(54), y + (rowH - F.book->FontSize) * 0.5f), st.done ? Alpha(kInkSoft, 0.7f) : now ? kInk : kInkSoft, st.text);
+				y += rowH;
+			}
+			ImGui::End();
+		}
+
+		void KeyBar(float W, float H)
+		{
+			struct Key
+			{
+				const char* key;
+				const char* label;
+				Act         act;
+			};
+			const bool pad = Overlay::UsingPad();
+			const Key  keys[3] = { { pad ? "X" : "H", "How to cook", Act::Help }, { pad ? "Back" : "M", Audio::Muted() ? "Muted" : "Sound", Act::Mute },
+				 { pad ? "Y" : "Tab", g_phase == Phase::Cooking ? "Put it aside" : "Leave", g_phase == Phase::Cooking ? Act::Abandon : Act::Leave } };
+			float widths[3], total = 0;
+			for (int k = 0; k < 3; ++k) {
+				widths[k] = (std::max)(S(26), Measure(F.sansSemi, keys[k].key, 0.04f) + S(10)) + S(9) + Measure(F.sans, Upper(keys[k].label), 0.14f);
+				total += widths[k];
+			}
+			total += S(26) * 2;
+			const float  right = W - S(30), bottom = H - S(22), h = S(24);
+			const ImVec2 area(right - total - S(120), bottom - h - S(26));
+			BeginArea("##keys", area, ImVec2(W - area.x, H - area.y));
+			auto* dl = ImGui::GetWindowDrawList();
+			dl->AddRectFilledMultiColor(area, ImVec2(area.x + (W - area.x) * 0.3f, H), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 158), IM_COL32(0, 0, 0, 158), IM_COL32(0, 0, 0, 0));
+			dl->AddRectFilled(ImVec2(area.x + (W - area.x) * 0.3f, area.y), ImVec2(W, H), IM_COL32(0, 0, 0, 158));
+			float x = right - total;
+			for (int k = 0; k < 3; ++k) {
+				bool hov = false;
+				ImGui::PushID(k);
+				if (Clicked("key", ImVec2(x, bottom - h - S(2)), ImVec2(x + widths[k], bottom + S(2)), &hov)) {
+					if (keys[k].act == Act::Help) {
+						g_help = !g_help;
+					} else {
+						Post(keys[k].act);
+					}
+				}
+				ImGui::PopID();
+				const ImU32  col = hov ? kWhite : kGrey;
+				const float  kw = (std::max)(S(26), Measure(F.sansSemi, keys[k].key, 0.04f) + S(10));
+				const ImVec2 ka(x, bottom - h), kb(x + kw, bottom);
+				dl->AddRectFilled(ka, kb, IM_COL32(0, 0, 0, 90), S(4));
+				dl->AddRect(ka, kb, col, S(4), 0, 1.5f * g_ui);
+				TextC(dl, F.sansSemi, x + kw * 0.5f + S(0.5f), ka.y + (h - F.sansSemi->FontSize) * 0.5f, col, keys[k].key, 0.04f);
+				Text(dl, F.sans, ImVec2(kb.x + S(9), ka.y + (h - F.sans->FontSize) * 0.5f), col, Upper(keys[k].label), 0.14f, 0.7f);
+				x += widths[k] + S(26);
+			}
+			ImGui::End();
+		}
+
+		void HintLine(float W, float H)
+		{
+			const auto hint = Hint();
+			if (hint.empty()) {
+				return;
+			}
+			auto*       dl = ImGui::GetForegroundDrawList();
+			const float tw = Measure(F.sans, hint, 0.07f);
+			const float y = H - S(26) - S(25);
+			dl->AddRectFilledMultiColor(ImVec2(W * 0.5f - tw * 0.5f - S(60), y - S(6)), ImVec2(W * 0.5f, y + S(31)), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 120),
+				IM_COL32(0, 0, 0, 120), IM_COL32(0, 0, 0, 0));
+			dl->AddRectFilledMultiColor(ImVec2(W * 0.5f, y - S(6)), ImVec2(W * 0.5f + tw * 0.5f + S(60), y + S(31)), IM_COL32(0, 0, 0, 120), IM_COL32(0, 0, 0, 0),
+				IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 120));
+			Text(dl, F.sans, ImVec2(W * 0.5f - tw * 0.5f, y + (S(25) - F.sans->FontSize) * 0.5f), kWhite, hint, 0.07f, 0.9f);
+		}
+
+		void ToastLine(float W, float H)
+		{
+			const double t = g_clock - g_toastAt;
+			if (g_toast.empty() || t < 0 || t > 2.4) {
+				return;
+			}
+			auto*       dl = ImGui::GetForegroundDrawList();
+			const float a = static_cast<float>(t < 0.3 ? t / 0.3 : t > 2.0 ? (2.4 - t) / 0.4 : 1.0);
+			const auto  text = Upper(g_toast);
+			const float w = Measure(F.toastLong, text, 0.16f) + S(100);
+			const float y = H * 0.2f;
+			FadeRule(dl, W * 0.5f - w * 0.5f, W * 0.5f + w * 0.5f, y - S(10), 0.62f * a);
+			FadeRule(dl, W * 0.5f - w * 0.5f, W * 0.5f + w * 0.5f, y + F.toastLong->FontSize + S(10), 0.62f * a);
+			TextC(dl, F.toastLong, W * 0.5f, y, Alpha(kWhite, a), text, 0.16f, 0.9f * a);
+		}
+
+		void HelpBox(float W)
+		{
+			const float w = S(520), x = W * 0.5f - w * 0.5f, y = S(110);
+			std::vector<std::string> lines;
+			lines.push_back("Hold the left button to pick things up; let go to put them down. The right button puts back what you're holding.");
+			if (g_flow == hc::Flow::Pot) {
+				lines.push_back("Drag ingredients onto the board, and click along them with the knife from the right-hand end: small, even pieces.");
+				lines.push_back("Grab the board by its left end and drag right to tip it into the pot. Line it up with the pot first.");
+				lines.push_back("Hold the ladle in the pot and stir round. Lift it out over the bowl to serve when it's cooked through.");
+			} else if (g_flow == hc::Flow::Spit) {
+				lines.push_back("Drag the meat onto the spit. Hold the crank's handle and turn it round so every side faces the fire.");
+				lines.push_back("Drag the roast onto the plate when it's brown all over.");
+			} else {
+				lines.push_back("Drag the flour, butter and the rest onto the board, then knead: long pushes across the dough, in a steady rhythm.");
+				if (g_recipe && g_recipe->pie) {
+					lines.push_back("Drop the filling on the dough, spread it out to the edge, then pinch round the rim to crimp it.");
+				}
+				lines.push_back("Open the door (drag it left), carry the dough into the mouth, shut the door. Peek, but each peek lets the heat out.");
+			}
+			lines.push_back("There's no gauge for the heat: watch the flames, listen to the pot. Logs from the pile make it hotter; drag a burning one out to cool it.");
+			float h = S(80);
+			for (const auto& l : lines) {
+				h += F.sans->CalcTextSizeA(F.sans->FontSize, FLT_MAX, w - S(64), l.c_str()).y + S(10);
+			}
+			BeginArea("##help", ImVec2(x, y), ImVec2(w, h));
+			auto* dl = ImGui::GetWindowDrawList();
+			MsgBox(dl, ImVec2(x, y), ImVec2(x + w, y + h));
+			TextC(dl, F.menu, W * 0.5f, y + S(22), kWhite, "HOW TO COOK", 0.26f);
+			float yy = y + S(64);
+			for (const auto& l : lines) {
+				yy += Para(dl, F.sans, x + S(32), yy, w - S(64), kGrey, l) + S(10);
+			}
+			ImGui::End();
+		}
+
+		void ConfirmBox(float W, float H)
+		{
+			const float w = S(480), h = S(170), x = W * 0.5f - w * 0.5f, y = H * 0.38f;
+			BeginArea("##confirm", ImVec2(x, y), ImVec2(w, h));
+			auto* dl = ImGui::GetWindowDrawList();
+			MsgBox(dl, ImVec2(x, y), ImVec2(x + w, y + h));
+			TextC(dl, F.menu, W * 0.5f, y + S(26), kWhite, "PUT THIS DISH ASIDE?", 0.2f);
+			TextC(dl, F.sans, W * 0.5f, y + S(66), kGrey, "Nothing is used up. You can start again.");
+			switch (MenuButtons("confirm", { { "Put it aside", true }, { "Keep cooking", false } }, W * 0.5f, y + h - S(56))) {
+			case 0:
+				Post(Act::AbandonYes);
+				break;
+			case 1:
+				Post(Act::AbandonNo);
+				break;
+			default:
+				break;
+			}
+			ImGui::End();
+		}
+
+		void DrawResult(float W, float H)
+		{
+			auto* bg = ImGui::GetBackgroundDrawList();
+			Vignette(bg, W, H);
+			const double t = g_clock - g_serveAt;
+			const float  a = static_cast<float>(Clamp(t / 0.6, 0.0, 1.0));
+			const ImU32  tierCol = g_result.tier == hc::Tier::Masterwork ? kGold : g_result.tier == hc::Tier::Burnt ? IM_COL32(170, 150, 140, 255) : kWhite;
+			// the tier, big, as the game announces a level up
+			const auto title = Upper(hc::TierName(g_result.tier));
+			const float ty = S(70);
+			if (g_result.tier == hc::Tier::Masterwork) {
+				Glow(bg, F.title, ImVec2(W * 0.5f - Measure(F.title, title, 0.12f) * 0.5f, ty), Alpha(kGold, 0.08f * a), title, 0.12f, S(8));
+			}
+			TextC(bg, F.title, W * 0.5f, ty, Alpha(tierCol, a), title, 0.12f, 0.9f * a);
+			DiamondRule(bg, W * 0.5f, ty + F.title->FontSize + S(12), S(520));
+			TextC(bg, F.menu, W * 0.5f, ty + F.title->FontSize + S(26), Alpha(kGrey, a), Upper(g_givenName + (g_recipe && g_recipe->makes > 1 ? fmt::format(" x{}", g_recipe->makes) : "")), 0.2f, 0.8f);
+			if (g_result.tier == hc::Tier::Burnt && *g_result.burntWhy) {
+				TextC(bg, F.sans, W * 0.5f, ty + F.title->FontSize + S(64), Alpha(IM_COL32(230, 170, 150, 255), a), g_result.burntWhy, 0.05f, 0.8f);
+			}
+			// how it went, on a card
+			const float  w = S(430), rowH = S(30);
+			const float  h = S(30) + S(40) + rowH * static_cast<float>(g_result.count) + S(28);
+			const ImVec2 pos(W - w - S(40), H * 0.5f - h * 0.5f);
+			BeginArea("##verdict", pos, ImVec2(w, h));
+			auto* dl = ImGui::GetWindowDrawList();
+			Sheet(dl, pos, ImVec2(w, h), 1);
+			float y = pos.y + S(24);
+			TextC(dl, F.bookSC, pos.x + w * 0.5f, y, kInk, "How it went");
+			y += S(42);
+			for (int i = 0; i < g_result.count; ++i) {
+				const auto& l = g_result.lines[i];
+				Text(dl, F.bookSCsm, ImVec2(pos.x + S(30), y + S(4)), kRubric, l.label, 0.04f);
+				const ImU32 c = l.score >= 0.8 ? kGreenInk : l.score >= 0.5 ? kInk : kRubric;
+				Text(dl, F.hand, ImVec2(pos.x + w - S(30) - Measure(F.hand, l.verdict, 0), y), c, l.verdict);
+				y += rowH;
+			}
+			ImGui::End();
+			BeginArea("##again", ImVec2(W * 0.5f - S(300), H - S(90)), ImVec2(S(600), S(60)));
+			switch (MenuButtons("result", { { "Cook another", false }, { "Done", false } }, W * 0.5f, H - S(80))) {
+			case 0:
+				Post(Act::Again);
+				break;
+			case 1:
+				Post(Act::Done);
+				break;
+			default:
+				break;
+			}
+			ImGui::End();
+		}
+
+		void DebugMarks()
+		{
+			if (!Config::Get().debugOverlay || g_phase != Phase::Cooking) {
+				return;
+			}
+			auto* dl = ImGui::GetForegroundDrawList();
+			auto  mark = [&](const Vec3& p, ImU32 c) {
+				float sx = 0, sy = 0;
+				if (Scene::Project(p, sx, sy)) {
+					dl->AddCircle(ImVec2(sx, sy), S(10), c, 16, 2.0f);
+				}
+			};
+			for (const auto& u : g_units) {
+				mark(u.clothAt + Vec3{ 0, 0, 1.0 }, IM_COL32(120, 255, 120, 200));
+			}
+			mark({ L::kSaltX, L::kSaltY, 1.5 }, IM_COL32(255, 255, 255, 200));
+			mark({ L::kServeX, L::kServeY, 1.0 }, IM_COL32(255, 220, 120, 200));
+			mark({ L::kPileX, L::kPileY, 1.5 }, IM_COL32(255, 140, 80, 200));
+			if (g_flow == hc::Flow::Spit) {
+				mark(CrankGrip(), IM_COL32(120, 180, 255, 200));
+			}
+			if (g_flow == hc::Flow::Oven) {
+				mark(DoorCentre(), IM_COL32(120, 180, 255, 200));
+				mark(MouthAt(), IM_COL32(255, 120, 120, 200));
+			}
+		}
+
+		// ---------------------------------------------------------------- the station: the game's crafting menu at a cooking pot or oven
+		bool IsCookingStation(RE::TESFurniture* a_f, bool& a_oven)
+		{
+			if (!a_f) {
+				return false;
+			}
+			a_oven = a_f->HasKeywordString("BYOHCraftingOven");
+			return a_oven || a_f->HasKeywordString("CraftingCookpot");
+		}
+
+		void OnCraftingOpened()
+		{
+			if (!Config::Get().enabled || Scene::IsOpen()) {
+				return;
+			}
+			if (g_quick) {
+				g_quick = false;  // they asked for the game's own menu
+				return;
+			}
+			auto menu = Crafting();
+			auto* sub = menu ? menu->GetCraftingSubMenu() : nullptr;
+			bool  oven = false;
+			if (!sub || !IsCookingStation(sub->furniture, oven)) {
+				return;
+			}
+			std::lock_guard lk(g_mtx);
+			g_ovenStation = oven;
+			g_book = Recipes::ForStation(oven);
+			g_sel = 0;
+			ShowCrafting(false);
+			Scene::Open();
+			ShowStation();
+			g_phase = Phase::Book;
+			g_clock = 0;
+			Audio::Ready();
+			spdlog::info("At the {}: {} recipes", oven ? "oven" : "cooking pot", g_book.size());
+		}
+
+		class MenuWatch final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
+		{
+		public:
+			RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_e, RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
+			{
+				if (!a_e || std::string_view(a_e->menuName.c_str()) != RE::CraftingMenu::MENU_NAME) {
+					return RE::BSEventNotifyControl::kContinue;
+				}
+				if (a_e->opening) {
+					SKSE::GetTaskInterface()->AddTask([] { OnCraftingOpened(); });
+				} else {
+					SKSE::GetTaskInterface()->AddTask([] {
+						g_quick = false;
+						if (Scene::IsOpen()) {
+							std::lock_guard lk(g_mtx);
+							CloseKitchen(false);  // the station went away under us
+						}
+					});
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+		};
+	}
+
+	void OnDataLoaded()
+	{
+		Recipes::OnDataLoaded();
+		Recipes::InstallEatWatch();
+		Scene::Register();
+		static MenuWatch s_watch;
+		if (auto* ui = RE::UI::GetSingleton()) {
+			ui->AddEventSink<RE::MenuOpenCloseEvent>(&s_watch);
+		}
+	}
+
+	void OnGameLoaded()
+	{
+		std::lock_guard lk(g_mtx);
+		g_quick = false;
+		if (Scene::IsOpen()) {
+			CloseKitchen(false);
+		}
+	}
+
+	void Tick(float a_dt)
+	{
+		std::lock_guard lk(g_mtx);
+		const double    dt = std::clamp(static_cast<double>(a_dt), 0.001, 0.05);
+		g_clock += dt;
+		ProcessActs();
+		if (g_phase == Phase::Idle) {
+			return;
+		}
+		HandleKeys();
+		if (g_phase == Phase::Cooking && !g_confirm && !g_help) {
+			HandleInput(dt);
+		} else {
+			Overlay::TakePresses();  // the buttons are ImGui's
+			if (g_hold != Hold::None) {
+				Cancel();
+			}
+		}
+		if (g_phase != Phase::Result) {
+			Step(dt);
+		} else {
+			g_fire.Step(dt);
+			Audio::SetLoop("loop_fire", static_cast<float>(Clamp(g_fire.Heat() * 0.5, 0.0, 0.6)));
+			Audio::SetLoop("loop_simmer", 0.0f);
+			Audio::SetLoop("loop_boil", 0.0f);
+			Audio::SetLoop("loop_sizzle", 0.0f);
+		}
+		Look3D();
+	}
+
+	void Abort()
+	{
+		std::lock_guard lk(g_mtx);
+		spdlog::error("The kitchen hit a problem and was closed; nothing was used up");
+		CloseKitchen(true);
+	}
+
+	void SetupUi(float a_screenH) { Ui::Setup(a_screenH); }
+
+	void DrawUi()
+	{
+		std::lock_guard lk(g_mtx);
+		if (!Scene::IsOpen() || g_phase == Phase::Idle) {
+			return;
+		}
+		Ui::LoadArt();
+		auto& io = ImGui::GetIO();
+		io.MouseDrawCursor = false;
+		const float W = io.DisplaySize.x, H = io.DisplaySize.y;
+		switch (g_phase) {
+		case Phase::Book:
+			DrawBook(W, H);
+			break;
+		case Phase::Cooking:
+			Vignette(ImGui::GetBackgroundDrawList(), W, H);
+			RecipeCard(W, H);
+			HintLine(W, H);
+			if (g_confirm) {
+				ConfirmBox(W, H);
+			}
+			break;
+		case Phase::Result:
+			DrawResult(W, H);
+			break;
+		default:
+			break;
+		}
+		KeyBar(W, H);
+		if (g_help && g_phase == Phase::Cooking) {
+			HelpBox(W);
+		}
+		ToastLine(W, H);
+		DebugMarks();
+		// the pointer: a hand-held look while carrying
+		Ui::Cursor(g_hold != Hold::None ? IM_COL32(255, 226, 170, 245) : IM_COL32(241, 238, 232, 245));
+	}
+
+	void Save(SKSE::SerializationInterface* a_intfc) { Recipes::Save(a_intfc); }
+	void Load(SKSE::SerializationInterface* a_intfc) { Recipes::Load(a_intfc); }
+	void Revert(SKSE::SerializationInterface*) { Recipes::Revert(); }
+}

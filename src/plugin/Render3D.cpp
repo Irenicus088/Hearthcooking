@@ -1,0 +1,1246 @@
+// Hearthcooking - cook by hand in Skyrim Special Edition.
+// Copyright (C) 2026 evodube. GPL-3.0 (LICENSE.txt).
+#include "Render3D.h"
+
+#include <d3dcompiler.h>
+
+namespace Render3D
+{
+	namespace
+	{
+		// ---------------------------------------------------------------- shaders
+		// A warm key light from up and to the left with soft shadows, a hemisphere fill, and the fire: a point light that
+		// flickers. ACES filmic tone mapping. Textures are the game's own (sRGB content in UNORM formats); normal maps
+		// carry the specular mask in alpha, as Skyrim's do.
+		constexpr const char* kShader = R"(
+cbuffer Frame : register(b0)
+{
+	row_major float4x4 viewProj;
+	row_major float4x4 lightViewProj;
+	float4 camPos;
+	float4 keyDir;      // toward the light
+	float4 keyColor;
+	float4 sky;
+	float4 ground;
+	float4 firePos;     // w: reach
+	float4 fireColor;
+	float4 params;      // x time, y shadow texel, z exposure
+	float4 camRight;
+	float4 camUp;
+};
+cbuffer Object : register(b1)
+{
+	float4 rot0, rot1, rot2;
+	float4 posScale;
+	float4 scale3;
+	float4 spec;        // rgb * scale, w gloss
+	float4 misc;        // x env scale, y alpha, z alpha ref (0..1), w alpha test
+	uint4  has;         // diffuse, normal, env, env mask
+	float4 tint;
+	float4 lift;        // rgb, amount
+	float4 emissive;
+	float4 clip1;
+	float4 clip2;
+	float4 uvx;         // scale, offset
+	float4 cookA, cookB, cookC;
+	float4 cookAxis;    // xyz, w mode
+	float4 cookRef;
+};
+cbuffer Sprite : register(b3)
+{
+	float4 spPos;       // xyz, half-width
+	float4 spColor;
+	float4 spParams;    // kind, seed, rotation, stretch
+};
+
+Texture2D    texDiffuse : register(t0);
+Texture2D    texNormal  : register(t1);
+TextureCube  texEnv     : register(t2);
+Texture2D    texEnvMask : register(t3);
+Texture2D    texShadow  : register(t4);
+SamplerState smpWrap    : register(s0);
+SamplerComparisonState smpShadow : register(s1);
+
+struct VSIn
+{
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+	float4 nrm : NORMAL;
+	float4 tan : TANGENT;
+};
+struct VSOut
+{
+	float4 svpos : SV_Position;
+	float3 wpos  : TEXCOORD0;
+	float2 uv    : TEXCOORD1;
+	float3 n     : TEXCOORD2;
+	float3 t     : TEXCOORD3;
+	float3 b     : TEXCOORD4;
+};
+
+float3 ToWorldDir(float3 v) { return float3(dot(rot0.xyz, v), dot(rot1.xyz, v), dot(rot2.xyz, v)); }
+float3 ToWorld(float3 p) { return ToWorldDir(p * scale3.xyz) * posScale.w + posScale.xyz; }
+
+VSOut VSMain(VSIn i)
+{
+	VSOut o;
+	float3 wp = ToWorld(i.pos.xyz);
+	o.svpos = mul(viewProj, float4(wp, 1));
+	o.wpos = wp;
+	o.uv = i.uv * uvx.xy + uvx.zw;
+	o.n = ToWorldDir((i.nrm.xyz * 2 - 1) / scale3.xyz);
+	o.t = ToWorldDir((i.tan.xyz * 2 - 1) * scale3.xyz);
+	o.b = ToWorldDir(float3(i.pos.w, i.nrm.w * 2 - 1, i.tan.w * 2 - 1) * scale3.xyz);
+	return o;
+}
+
+float4 VSShadow(VSIn i) : SV_Position
+{
+	return mul(lightViewProj, float4(ToWorld(i.pos.xyz), 1));
+}
+
+float Shadow(float3 wp, float3 n)
+{
+	float4 lp = mul(lightViewProj, float4(wp + n * 0.08, 1));
+	float2 uv = float2(lp.x * 0.5 + 0.5, 0.5 - lp.y * 0.5);
+	if (any(uv < 0) || any(uv > 1) || lp.z > 1) return 1;
+	float s = 0, d = lp.z - 0.0012;
+	[unroll] for (int y = -2; y <= 2; y++)
+		[unroll] for (int x = -2; x <= 2; x++)
+			s += texShadow.SampleCmpLevelZero(smpShadow, uv + float2(x, y) * params.y * 1.3, d);
+	return s / 25;
+}
+
+float3 Lin(float3 c) { return pow(saturate(c), 2.2); }
+
+// Browning: golden at 1, dark at 1.4, black at 1.8; the texture's own light and shade kept as detail
+float3 Cooked(float3 albedo, float c)
+{
+	if (c <= 0.02) return albedo;
+	const float3 golden = float3(0.42, 0.21, 0.07), dark = float3(0.12, 0.055, 0.02), black = float3(0.018, 0.014, 0.012);
+	float  L = dot(albedo, float3(0.2126, 0.7152, 0.0722));
+	float  detail = clamp(L / 0.28, 0.6, 1.4);
+	float3 col = lerp(albedo, golden * detail, smoothstep(0.05, 1.0, c) * 0.88);
+	col = lerp(col, dark * detail, saturate((c - 1.0) / 0.45));
+	col = lerp(col, black, saturate((c - 1.45) / 0.4));
+	return col;
+}
+
+float CookAt(float3 n)
+{
+	if (cookAxis.w < 0.5) return 0;
+	if (cookAxis.w < 1.5) return cookA.x;
+	// by side: which band this normal faces, round the axis
+	float3 ax = normalize(cookAxis.xyz), e0 = normalize(cookRef.xyz), e1 = cross(ax, e0);
+	float  along = abs(dot(n, ax));
+	float  ang = atan2(dot(n, e1), dot(n, e0));
+	float  f = frac(ang / 6.2831853) * 12.0;
+	int    i0 = (int)floor(f) % 12, i1 = (i0 + 1) % 12;
+	float  bands[12] = { cookA.x, cookA.y, cookA.z, cookA.w, cookB.x, cookB.y, cookB.z, cookB.w, cookC.x, cookC.y, cookC.z, cookC.w };
+	float  b = lerp(bands[i0], bands[i1], frac(f));
+	float  mean = (dot(cookA, 1) + dot(cookB, 1) + dot(cookC, 1)) / 12.0;
+	return lerp(b, mean, saturate(along * 1.4 - 0.2));
+}
+
+float4 PSMain(VSOut i) : SV_Target
+{
+	if (any(clip1.xyz != 0) && dot(clip1.xyz, i.wpos) > clip1.w) discard;
+	if (any(clip2.xyz != 0) && dot(clip2.xyz, i.wpos) > clip2.w) discard;
+	float4 dif = has.x ? texDiffuse.Sample(smpWrap, i.uv) : float4(0.6, 0.6, 0.6, 1);
+	float alpha = dif.a * misc.y;
+	if (misc.w > 0.5) clip(alpha - misc.z);
+	float3 N0 = normalize(i.n);
+	float3 albedo = Lin(dif.rgb) * tint.rgb;
+	albedo = lerp(albedo, Lin(lift.rgb), lift.a);
+	albedo = Cooked(albedo, CookAt(N0));
+	float3 N = N0;
+	float  mask = 1;
+	if (has.y) {
+		float4 nm = texNormal.Sample(smpWrap, i.uv);
+		float3 t = normalize(i.t - N * dot(i.t, N));
+		float3 b = normalize(i.b - N * dot(i.b, N));
+		float3 d = nm.xyz * 2 - 1;
+		N = normalize(d.x * t + d.y * b + d.z * N);
+		mask = nm.a;
+	}
+	float3 V = normalize(camPos.xyz - i.wpos);
+	if (dot(N, V) < -0.2) N = -N;  // an inside face seen from inside (the pot, the bowl)
+	float3 L = keyDir.xyz;
+	float  nl = saturate(dot(N, L));
+	float  sh = Shadow(i.wpos, N);
+	float3 hemi = lerp(ground.rgb, sky.rgb, N.z * 0.5 + 0.5);
+	float3 toF = firePos.xyz - i.wpos;
+	float  df = length(toF);
+	float3 Lf = toF / max(df, 1e-3);
+	float  att = pow(saturate(1 - df / firePos.w), 2);
+	float  flick = 0.84 + 0.1 * sin(params.x * 11.3) + 0.06 * sin(params.x * 23.7 + 1.3);
+	float3 fire = fireColor.rgb * att * flick;
+	float  nlf = saturate(dot(N, Lf) * 0.85 + 0.15);
+	float3 light = hemi + keyColor.rgb * nl * sh + fire * nlf;
+	float3 H = normalize(L + V), Hf = normalize(Lf + V);
+	float  g = max(spec.w, 1);
+	float  norm = (g + 8) / 25.13;
+	float3 sp = spec.rgb * mask * norm * (pow(saturate(dot(N, H)), g) * nl * sh * keyColor.rgb + pow(saturate(dot(N, Hf)), g) * nlf * fire);
+	float3 env = 0;
+	if (has.z) {
+		float3 R = reflect(-V, N);
+		float  m = has.w ? texEnvMask.Sample(smpWrap, i.uv).r : mask;
+		float  fres = 0.35 + 0.65 * pow(1 - saturate(dot(N, V)), 4);
+		env = Lin(texEnv.SampleLevel(smpWrap, R, 2).rgb) * misc.x * m * fres * (hemi * 2.2 + keyColor.rgb * 0.25);
+	}
+	float3 col = albedo * light + sp + env + emissive.rgb;
+	return float4(col * alpha, alpha);
+}
+
+// ---- sprites: fire, steam, bubbles, salt
+struct SPOut { float4 svpos : SV_Position; float2 uv : TEXCOORD0; };
+SPOut VSSprite(uint id : SV_VertexID)
+{
+	const float2 c[6] = { float2(-1, -1), float2(1, -1), float2(1, 1), float2(-1, -1), float2(1, 1), float2(-1, 1) };
+	float2 q = c[id];
+	int    kind = (int)(spParams.x + 0.5);
+	float3 right = camRight.xyz, up = camUp.xyz;
+	if (kind == 0) { up = float3(0, 0, 1); }                       // flames stand upright
+	if (kind == 4) { right = float3(1, 0, 0); up = float3(0, 1, 0); }  // bubbles lie on the broth
+	float  cr = cos(spParams.z), sr = sin(spParams.z);
+	float2 r = float2(q.x * cr - q.y * sr, q.x * sr + q.y * cr);
+	float3 p = spPos.xyz + right * r.x * spPos.w + up * r.y * spPos.w * spParams.w;
+	SPOut o;
+	o.svpos = mul(viewProj, float4(p, 1));
+	o.uv = q;
+	return o;
+}
+
+float Hash(float2 p) { return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
+float Noise(float2 p)
+{
+	float2 i = floor(p), f = frac(p);
+	f = f * f * (3 - 2 * f);
+	return lerp(lerp(Hash(i), Hash(i + float2(1, 0)), f.x), lerp(Hash(i + float2(0, 1)), Hash(i + float2(1, 1)), f.x), f.y);
+}
+float Fbm(float2 p) { return Noise(p) * 0.55 + Noise(p * 2.03 + 1.7) * 0.3 + Noise(p * 4.1 + 3.1) * 0.15; }
+
+float4 PSSprite(SPOut i) : SV_Target
+{
+	int   kind = (int)(spParams.x + 0.5);
+	float t = params.x, seed = spParams.y;
+	float2 uv = i.uv;
+	float  r = length(uv);
+	if (kind == 0) {
+		// a tongue of flame: wide and hot at the foot, licking up and thinning, torn by rising noise
+		float h = uv.y * 0.5 + 0.5;
+		float x = uv.x + (Noise(float2(h * 3.0 - t * 2.6, seed * 7.0)) - 0.5) * 0.55 * h;
+		float w = 0.8 * sqrt(saturate(h * 5.0)) * pow(saturate(1.0 - h), 0.75) + 0.02;
+		float shape = saturate(1.0 - abs(x) / w);
+		float n = Fbm(float2(x * 2.2 + seed, h * 2.4 - t * 3.2));
+		float k = pow(shape, 1.4) * saturate(0.35 + n * 0.95) * saturate((1.0 - h) * 2.2);
+		float core = pow(shape, 3.0) * saturate(1.2 - h * 1.6);
+		float3 col = lerp(float3(0.9, 0.16, 0.02), float3(1.0, 0.5, 0.1), saturate(k * 1.6)) + float3(1.0, 0.85, 0.55) * core * 1.6;
+		return float4(col * k * spColor.rgb * spColor.a * 2.2, 0);
+	}
+	if (kind == 1) {
+		float n = Fbm(uv * 1.6 + float2(seed * 5.1, seed * 2.3 - t * 0.15));
+		float a = pow(saturate(1.0 - r), 1.6) * saturate(0.25 + n * 1.1) * spColor.a;
+		return float4(spColor.rgb * a, a);
+	}
+	if (kind == 2) {
+		float a = pow(saturate(1.0 - r), 2.5) * spColor.a;
+		return float4(spColor.rgb * a * 3.0, 0);
+	}
+	if (kind == 3) {
+		float a = pow(saturate(1.0 - r), 2.0) * spColor.a;
+		return float4(spColor.rgb * a, 0);
+	}
+	if (kind == 4) {
+		float ring = exp(-pow((r - 0.72) / 0.13, 2));
+		float hi = exp(-dot(uv - float2(-0.3, 0.3), uv - float2(-0.3, 0.3)) / 0.03);
+		float a = saturate(ring * 0.55 + hi * 0.8) * spColor.a * step(r, 1.0);
+		return float4(spColor.rgb * a, a);
+	}
+	float a = saturate((1.0 - r) * 3.0) * spColor.a;
+	return float4(spColor.rgb * a, a);
+}
+
+// ---- full-screen passes
+struct FSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+FSOut VSFull(uint id : SV_VertexID)
+{
+	FSOut o;
+	o.uv = float2((id << 1) & 2, id & 2);
+	o.pos = float4(o.uv * float2(2, -2) + float2(-1, 1), 0, 1);
+	return o;
+}
+SamplerState smpClamp : register(s2);
+cbuffer PassCB : register(b2) { float4 passArgs; };  // xy texel, z amount, w direction/strength
+
+float4 PSDown(FSOut i) : SV_Target
+{
+	float2 t = passArgs.xy;
+	float3 c = texDiffuse.Sample(smpClamp, i.uv + t * float2(-1, -1)).rgb + texDiffuse.Sample(smpClamp, i.uv + t * float2(1, -1)).rgb +
+	           texDiffuse.Sample(smpClamp, i.uv + t * float2(-1, 1)).rgb + texDiffuse.Sample(smpClamp, i.uv + t * float2(1, 1)).rgb;
+	return float4(c * 0.25, 1);
+}
+float4 PSBlur(FSOut i) : SV_Target
+{
+	const float w[5] = { 0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216 };
+	float2 d = passArgs.w > 0.5 ? float2(0, passArgs.y) : float2(passArgs.x, 0);
+	float3 c = texDiffuse.Sample(smpClamp, i.uv).rgb * w[0];
+	[unroll] for (int k = 1; k < 5; k++)
+		c += (texDiffuse.Sample(smpClamp, i.uv + d * k * 1.6).rgb + texDiffuse.Sample(smpClamp, i.uv - d * k * 1.6).rgb) * w[k];
+	return float4(c, 1);
+}
+float4 PSBack(FSOut i) : SV_Target
+{
+	float3 c = texDiffuse.Sample(smpClamp, i.uv).rgb;
+	float  l = dot(c, float3(0.299, 0.587, 0.114));
+	c = lerp(float3(l, l, l), c, 0.72) * 0.62;
+	return float4(c, passArgs.z);
+}
+float3 ACES(float3 c)
+{
+	const float3x3 inM = { 0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777 };
+	const float3x3 outM = { 1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602 };
+	c = mul(c, inM);
+	float3 a = c * (c + 0.0245786) - 0.000090537;
+	float3 b = c * (0.983729 * c + 0.4329510) + 0.238081;
+	c = mul(a / b, outM);
+	return saturate(c);
+}
+float4 PSComposite(FSOut i) : SV_Target
+{
+	float4 c = texDiffuse.Sample(smpClamp, i.uv);
+	if (c.a <= 0.0001) return 0;
+	float3 rgb = c.rgb / c.a;
+	rgb = ACES(rgb * passArgs.w / 0.6);
+	rgb = pow(rgb, 1 / 2.2);
+	float a = saturate(c.a) * passArgs.z;
+	return float4(rgb * a, a);
+}
+)";
+
+		struct CBFrame
+		{
+			float viewProj[16];
+			float lightViewProj[16];
+			float camPos[4];
+			float keyDir[4];
+			float keyColor[4];
+			float sky[4];
+			float ground[4];
+			float firePos[4];
+			float fireColor[4];
+			float params[4];
+			float camRight[4];
+			float camUp[4];
+		};
+		struct CBObject
+		{
+			float         rot0[4], rot1[4], rot2[4];
+			float         posScale[4];
+			float         scale3[4];
+			float         spec[4];
+			float         misc[4];
+			std::uint32_t has[4];
+			float         tint[4];
+			float         lift[4];
+			float         emissive[4];
+			float         clip1[4];
+			float         clip2[4];
+			float         uvx[4];
+			float         cook[12];
+			float         cookAxis[4];
+			float         cookRef[4];
+		};
+		struct CBSprite
+		{
+			float pos[4];
+			float color[4];
+			float params[4];
+		};
+
+		template <class T>
+		void Release(T*& a_p)
+		{
+			if (a_p) {
+				a_p->Release();
+				a_p = nullptr;
+			}
+		}
+
+		std::mutex    g_mtx;
+		Frame         g_frame;
+		bool          g_failed = false, g_ready = false;
+		ID3D11Device* g_dev = nullptr;
+
+		ID3D11VertexShader* g_vs = nullptr;
+		ID3D11VertexShader* g_vsShadow = nullptr;
+		ID3D11VertexShader* g_vsFull = nullptr;
+		ID3D11VertexShader* g_vsSprite = nullptr;
+		ID3D11PixelShader*  g_ps = nullptr;
+		ID3D11PixelShader*  g_psSprite = nullptr;
+		ID3D11PixelShader*  g_psDown = nullptr;
+		ID3D11PixelShader*  g_psBlur = nullptr;
+		ID3D11PixelShader*  g_psBack = nullptr;
+		ID3D11PixelShader*  g_psComposite = nullptr;
+		std::vector<char>   g_vsCode;
+		ID3D11Buffer*       g_cbFrame = nullptr;
+		ID3D11Buffer*       g_cbObject = nullptr;
+		ID3D11Buffer*       g_cbPass = nullptr;
+		ID3D11Buffer*       g_cbSprite = nullptr;
+		ID3D11Buffer*       g_dummyVB = nullptr;
+		ID3D11SamplerState* g_smpWrap = nullptr;
+		ID3D11SamplerState* g_smpShadow = nullptr;
+		ID3D11SamplerState* g_smpClamp = nullptr;
+		ID3D11RasterizerState*   g_rsNoCull = nullptr;
+		ID3D11RasterizerState*   g_rsShadow = nullptr;
+		ID3D11DepthStencilState* g_dsOn = nullptr;
+		ID3D11DepthStencilState* g_dsRead = nullptr;
+		ID3D11DepthStencilState* g_dsOff = nullptr;
+		ID3D11BlendState*        g_bsOpaque = nullptr;
+		ID3D11BlendState*        g_bsPremul = nullptr;
+		ID3D11BlendState*        g_bsAlpha = nullptr;
+		ID3D11BlendState*        g_bsAdd = nullptr;
+		std::unordered_map<std::uint64_t, ID3D11InputLayout*> g_layouts;
+
+		// size-dependent targets
+		UINT                      g_w = 0, g_h = 0, g_msaa = 1;
+		DXGI_FORMAT               g_backFmt = DXGI_FORMAT_UNKNOWN;
+		ID3D11Texture2D*          g_color = nullptr;  // MSAA, linear HDR, premultiplied
+		ID3D11RenderTargetView*   g_colorRTV = nullptr;
+		ID3D11Texture2D*          g_depth = nullptr;
+		ID3D11DepthStencilView*   g_depthDSV = nullptr;
+		ID3D11Texture2D*          g_resolved = nullptr;
+		ID3D11ShaderResourceView* g_resolvedSRV = nullptr;
+		ID3D11Texture2D*          g_bg = nullptr;  // a copy of the frame
+		ID3D11ShaderResourceView* g_bgSRV = nullptr;
+		ID3D11Texture2D*          g_q[2]{};  // quarter size, for the blur
+		ID3D11RenderTargetView*   g_qRTV[2]{};
+		ID3D11ShaderResourceView* g_qSRV[2]{};
+		constexpr UINT            kShadow = 2048;
+		ID3D11Texture2D*          g_shadow = nullptr;
+		ID3D11DepthStencilView*   g_shadowDSV = nullptr;
+		ID3D11ShaderResourceView* g_shadowSRV = nullptr;
+
+		// the meshes waiting to be measured, and what came back
+		struct MeasureJob
+		{
+			std::uint64_t id;
+			ID3D11Buffer* vb;
+			std::uint64_t desc;
+			std::uint32_t count;
+		};
+		std::mutex                                              g_measureMtx;
+		std::vector<MeasureJob>                                 g_measureJobs;
+		std::unordered_map<std::uint64_t, std::array<float, 6>> g_measured;
+
+		ID3DBlob* Compile(const char* a_entry, const char* a_target)
+		{
+			ID3DBlob* code = nullptr;
+			ID3DBlob* err = nullptr;
+			const HRESULT hr = D3DCompile(kShader, std::strlen(kShader), "Hearthcooking", nullptr, nullptr, a_entry, a_target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err);
+			if (FAILED(hr)) {
+				spdlog::error("Kitchen renderer: shader {} failed: {}", a_entry, err ? static_cast<const char*>(err->GetBufferPointer()) : "?");
+				Release(err);
+				Release(code);
+				return nullptr;
+			}
+			Release(err);
+			return code;
+		}
+
+		bool Init(ID3D11Device* a_dev)
+		{
+			g_dev = a_dev;
+			auto vs = [&](const char* e, ID3D11VertexShader** out, bool keep) {
+				auto* b = Compile(e, "vs_5_0");
+				if (!b) {
+					return false;
+				}
+				const bool ok = SUCCEEDED(a_dev->CreateVertexShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, out));
+				if (keep) {
+					g_vsCode.assign(static_cast<const char*>(b->GetBufferPointer()), static_cast<const char*>(b->GetBufferPointer()) + b->GetBufferSize());
+				}
+				b->Release();
+				return ok;
+			};
+			auto ps = [&](const char* e, ID3D11PixelShader** out) {
+				auto* b = Compile(e, "ps_5_0");
+				if (!b) {
+					return false;
+				}
+				const bool ok = SUCCEEDED(a_dev->CreatePixelShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, out));
+				b->Release();
+				return ok;
+			};
+			if (!vs("VSMain", &g_vs, true) || !vs("VSShadow", &g_vsShadow, false) || !vs("VSFull", &g_vsFull, false) || !vs("VSSprite", &g_vsSprite, false) ||
+				!ps("PSMain", &g_ps) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
+				!ps("PSComposite", &g_psComposite)) {
+				return false;
+			}
+			auto cb = [&](UINT size, ID3D11Buffer** out) {
+				D3D11_BUFFER_DESC d{};
+				d.ByteWidth = (size + 15) & ~15u;
+				d.Usage = D3D11_USAGE_DYNAMIC;
+				d.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+				d.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+				return SUCCEEDED(a_dev->CreateBuffer(&d, nullptr, out));
+			};
+			if (!cb(sizeof(CBFrame), &g_cbFrame) || !cb(sizeof(CBObject), &g_cbObject) || !cb(16, &g_cbPass) || !cb(sizeof(CBSprite), &g_cbSprite)) {
+				return false;
+			}
+			// stand-ins for attributes a mesh doesn't have: no UV, a normal facing up, a tangent along x
+			{
+				const std::uint8_t dummy[16] = { 0, 0, 0, 0, 128, 128, 255, 128, 255, 128, 128, 128, 0, 0, 0, 0 };
+				D3D11_BUFFER_DESC  d{};
+				d.ByteWidth = sizeof(dummy);
+				d.Usage = D3D11_USAGE_IMMUTABLE;
+				d.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+				D3D11_SUBRESOURCE_DATA s{ dummy, 0, 0 };
+				if (FAILED(a_dev->CreateBuffer(&d, &s, &g_dummyVB))) {
+					return false;
+				}
+			}
+			D3D11_SAMPLER_DESC sd{};
+			sd.Filter = D3D11_FILTER_ANISOTROPIC;
+			sd.MaxAnisotropy = 8;
+			sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+			sd.MaxLOD = D3D11_FLOAT32_MAX;
+			a_dev->CreateSamplerState(&sd, &g_smpWrap);
+			sd.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+			sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+			sd.BorderColor[0] = sd.BorderColor[1] = sd.BorderColor[2] = sd.BorderColor[3] = 1.0f;
+			sd.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+			sd.MaxAnisotropy = 1;
+			a_dev->CreateSamplerState(&sd, &g_smpShadow);
+			sd = {};
+			sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+			sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+			sd.MaxLOD = D3D11_FLOAT32_MAX;
+			a_dev->CreateSamplerState(&sd, &g_smpClamp);
+			D3D11_RASTERIZER_DESC rd{};
+			rd.FillMode = D3D11_FILL_SOLID;
+			rd.CullMode = D3D11_CULL_NONE;
+			rd.DepthClipEnable = TRUE;
+			rd.MultisampleEnable = TRUE;
+			a_dev->CreateRasterizerState(&rd, &g_rsNoCull);
+			rd.MultisampleEnable = FALSE;
+			rd.DepthBias = 300;
+			rd.SlopeScaledDepthBias = 2.0f;
+			a_dev->CreateRasterizerState(&rd, &g_rsShadow);
+			D3D11_DEPTH_STENCIL_DESC dd{};
+			dd.DepthEnable = TRUE;
+			dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+			dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+			a_dev->CreateDepthStencilState(&dd, &g_dsOn);
+			dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+			a_dev->CreateDepthStencilState(&dd, &g_dsRead);
+			dd.DepthEnable = FALSE;
+			a_dev->CreateDepthStencilState(&dd, &g_dsOff);
+			D3D11_BLEND_DESC bd{};
+			bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+			a_dev->CreateBlendState(&bd, &g_bsOpaque);
+			auto& rt = bd.RenderTarget[0];
+			rt.BlendEnable = TRUE;
+			rt.SrcBlend = D3D11_BLEND_ONE;
+			rt.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+			rt.BlendOp = D3D11_BLEND_OP_ADD;
+			rt.SrcBlendAlpha = D3D11_BLEND_ONE;
+			rt.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+			rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+			a_dev->CreateBlendState(&bd, &g_bsPremul);
+			// light added on top (fire, embers): the colour adds, the coverage stays as it was
+			rt.SrcBlend = D3D11_BLEND_ONE;
+			rt.DestBlend = D3D11_BLEND_ONE;
+			rt.SrcBlendAlpha = D3D11_BLEND_ZERO;
+			rt.DestBlendAlpha = D3D11_BLEND_ONE;
+			a_dev->CreateBlendState(&bd, &g_bsAdd);
+			rt.SrcBlend = D3D11_BLEND_SRC_ALPHA;
+			rt.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+			rt.SrcBlendAlpha = D3D11_BLEND_ZERO;
+			rt.DestBlendAlpha = D3D11_BLEND_ONE;
+			a_dev->CreateBlendState(&bd, &g_bsAlpha);
+			// the shadow map
+			D3D11_TEXTURE2D_DESC td{};
+			td.Width = td.Height = kShadow;
+			td.MipLevels = td.ArraySize = 1;
+			td.Format = DXGI_FORMAT_R32_TYPELESS;
+			td.SampleDesc.Count = 1;
+			td.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+			if (FAILED(a_dev->CreateTexture2D(&td, nullptr, &g_shadow))) {
+				return false;
+			}
+			D3D11_DEPTH_STENCIL_VIEW_DESC dsv{};
+			dsv.Format = DXGI_FORMAT_D32_FLOAT;
+			dsv.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+			a_dev->CreateDepthStencilView(g_shadow, &dsv, &g_shadowDSV);
+			D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
+			srv.Format = DXGI_FORMAT_R32_FLOAT;
+			srv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			srv.Texture2D.MipLevels = 1;
+			a_dev->CreateShaderResourceView(g_shadow, &srv, &g_shadowSRV);
+			spdlog::info("Kitchen renderer ready");
+			return g_shadowDSV && g_shadowSRV;
+		}
+
+		void FreeTargets()
+		{
+			Release(g_colorRTV);
+			Release(g_color);
+			Release(g_depthDSV);
+			Release(g_depth);
+			Release(g_resolvedSRV);
+			Release(g_resolved);
+			Release(g_bgSRV);
+			Release(g_bg);
+			for (int k = 0; k < 2; ++k) {
+				Release(g_qRTV[k]);
+				Release(g_qSRV[k]);
+				Release(g_q[k]);
+			}
+			g_w = g_h = 0;
+		}
+
+		DXGI_FORMAT Typed(DXGI_FORMAT f)
+		{
+			switch (f) {
+			case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+				return DXGI_FORMAT_R8G8B8A8_UNORM;
+			case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+				return DXGI_FORMAT_B8G8R8A8_UNORM;
+			case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+				return DXGI_FORMAT_R10G10B10A2_UNORM;
+			case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+				return DXGI_FORMAT_R16G16B16A16_FLOAT;
+			default:
+				return f;
+			}
+		}
+
+		bool Targets(const D3D11_TEXTURE2D_DESC& a_back)
+		{
+			if (g_w == a_back.Width && g_h == a_back.Height && g_backFmt == a_back.Format && g_color) {
+				return true;
+			}
+			FreeTargets();
+			g_w = a_back.Width;
+			g_h = a_back.Height;
+			g_backFmt = a_back.Format;
+			UINT q = 0;
+			g_msaa = 4;
+			if (FAILED(g_dev->CheckMultisampleQualityLevels(DXGI_FORMAT_R16G16B16A16_FLOAT, 4, &q)) || q == 0) {
+				g_msaa = 1;
+			}
+			D3D11_TEXTURE2D_DESC td{};
+			td.Width = g_w;
+			td.Height = g_h;
+			td.MipLevels = td.ArraySize = 1;
+			td.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			td.SampleDesc.Count = g_msaa;
+			td.BindFlags = D3D11_BIND_RENDER_TARGET;
+			bool ok = SUCCEEDED(g_dev->CreateTexture2D(&td, nullptr, &g_color)) && SUCCEEDED(g_dev->CreateRenderTargetView(g_color, nullptr, &g_colorRTV));
+			td.Format = DXGI_FORMAT_D32_FLOAT;
+			td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+			ok = ok && SUCCEEDED(g_dev->CreateTexture2D(&td, nullptr, &g_depth)) && SUCCEEDED(g_dev->CreateDepthStencilView(g_depth, nullptr, &g_depthDSV));
+			td.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			td.SampleDesc.Count = 1;
+			td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+			ok = ok && SUCCEEDED(g_dev->CreateTexture2D(&td, nullptr, &g_resolved)) && SUCCEEDED(g_dev->CreateShaderResourceView(g_resolved, nullptr, &g_resolvedSRV));
+			D3D11_TEXTURE2D_DESC bd = a_back;
+			bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+			bd.MiscFlags = 0;
+			bd.CPUAccessFlags = 0;
+			bd.Usage = D3D11_USAGE_DEFAULT;
+			bd.SampleDesc.Count = 1;
+			bd.SampleDesc.Quality = 0;
+			bd.MipLevels = 1;
+			D3D11_SHADER_RESOURCE_VIEW_DESC sv{};
+			sv.Format = Typed(a_back.Format);
+			sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			sv.Texture2D.MipLevels = 1;
+			ok = ok && SUCCEEDED(g_dev->CreateTexture2D(&bd, nullptr, &g_bg)) && SUCCEEDED(g_dev->CreateShaderResourceView(g_bg, &sv, &g_bgSRV));
+			td.Width = (std::max)(1u, g_w / 4);
+			td.Height = (std::max)(1u, g_h / 4);
+			td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+			for (int k = 0; k < 2; ++k) {
+				ok = ok && SUCCEEDED(g_dev->CreateTexture2D(&td, nullptr, &g_q[k])) && SUCCEEDED(g_dev->CreateRenderTargetView(g_q[k], nullptr, &g_qRTV[k])) &&
+				     SUCCEEDED(g_dev->CreateShaderResourceView(g_q[k], nullptr, &g_qSRV[k]));
+			}
+			if (!ok) {
+				spdlog::error("Kitchen renderer: couldn't make its {}x{} targets (back buffer format {})", g_w, g_h, static_cast<int>(a_back.Format));
+				FreeTargets();
+				return false;
+			}
+			spdlog::info("Kitchen renderer: {}x{}, {}x MSAA, back buffer format {}", g_w, g_h, g_msaa, static_cast<int>(a_back.Format));
+			return true;
+		}
+
+		// Where each attribute sits in a vertex, from the BSGraphics::VertexDesc
+		UINT AttrOffset(std::uint64_t a_desc, int a_attr) { return static_cast<UINT>((a_desc >> (4 * a_attr + 2)) & 0x3C); }
+		bool FullPrecision(std::uint64_t a_desc)
+		{
+			const auto flags = static_cast<std::uint16_t>(a_desc >> 44);
+			// full precision positions take 16 bytes (the flag isn't always set on the renderer's copy): see where the next
+			// attribute starts
+			UINT next = static_cast<UINT>(a_desc & 0xF) * 4;
+			for (int attr : { 1, 3, 4, 5 }) {
+				if (flags & (1 << attr)) {
+					next = (std::min)(next, AttrOffset(a_desc, attr));
+				}
+			}
+			return (flags & 0x400) != 0 || next >= 16;
+		}
+
+		ID3D11InputLayout* Layout(std::uint64_t a_desc)
+		{
+			if (auto it = g_layouts.find(a_desc); it != g_layouts.end()) {
+				return it->second;
+			}
+			const auto flags = static_cast<std::uint16_t>(a_desc >> 44);
+			const bool full = FullPrecision(a_desc);
+			D3D11_INPUT_ELEMENT_DESC e[4]{};
+			e[0] = { "POSITION", 0, full ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R16G16B16A16_FLOAT, 0, AttrOffset(a_desc, 0), D3D11_INPUT_PER_VERTEX_DATA, 0 };
+			e[1] = (flags & (1 << 1)) ? D3D11_INPUT_ELEMENT_DESC{ "TEXCOORD", 0, DXGI_FORMAT_R16G16_FLOAT, 0, AttrOffset(a_desc, 1), D3D11_INPUT_PER_VERTEX_DATA, 0 }
+			                          : D3D11_INPUT_ELEMENT_DESC{ "TEXCOORD", 0, DXGI_FORMAT_R16G16_FLOAT, 1, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+			e[2] = (flags & (1 << 3)) ? D3D11_INPUT_ELEMENT_DESC{ "NORMAL", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, AttrOffset(a_desc, 3), D3D11_INPUT_PER_VERTEX_DATA, 0 }
+			                          : D3D11_INPUT_ELEMENT_DESC{ "NORMAL", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 4, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+			e[3] = (flags & (1 << 4)) ? D3D11_INPUT_ELEMENT_DESC{ "TANGENT", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, AttrOffset(a_desc, 4), D3D11_INPUT_PER_VERTEX_DATA, 0 }
+			                          : D3D11_INPUT_ELEMENT_DESC{ "TANGENT", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+			ID3D11InputLayout* il = nullptr;
+			if (FAILED(g_dev->CreateInputLayout(e, 4, g_vsCode.data(), g_vsCode.size(), &il))) {
+				spdlog::warn("Kitchen renderer: no input layout for vertex format {:016X}", a_desc);
+			}
+			g_layouts[a_desc] = il;
+			return il;
+		}
+
+		float Half(std::uint16_t h)
+		{
+			const std::uint32_t s = (h >> 15) & 1, e = (h >> 10) & 0x1F, m = h & 0x3FF;
+			float               v;
+			if (e == 0) {
+				v = std::ldexp(static_cast<float>(m), -24);
+			} else if (e == 31) {
+				v = m ? 0.0f : 65504.0f;
+			} else {
+				v = std::ldexp(static_cast<float>(m | 0x400), static_cast<int>(e) - 25);
+			}
+			return s ? -v : v;
+		}
+
+		// Copies a vertex buffer back from the graphics card and finds the bounds of its positions
+		void Measure(ID3D11DeviceContext* c, const MeasureJob& a_job)
+		{
+			std::array<float, 6> out{ 1e9f, 1e9f, 1e9f, -1e9f, -1e9f, -1e9f };
+			D3D11_BUFFER_DESC    bd{};
+			a_job.vb->GetDesc(&bd);
+			D3D11_BUFFER_DESC sd{};
+			sd.ByteWidth = bd.ByteWidth;
+			sd.Usage = D3D11_USAGE_STAGING;
+			sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			ID3D11Buffer* staging = nullptr;
+			const UINT    stride = static_cast<UINT>(a_job.desc & 0xF) * 4;
+			if (stride > 0 && SUCCEEDED(g_dev->CreateBuffer(&sd, nullptr, &staging)) && staging) {
+				c->CopyResource(staging, a_job.vb);
+				D3D11_MAPPED_SUBRESOURCE m{};
+				if (SUCCEEDED(c->Map(staging, 0, D3D11_MAP_READ, 0, &m))) {
+					const auto* p = static_cast<const std::uint8_t*>(m.pData);
+					const bool  full = FullPrecision(a_job.desc);
+					const UINT  off = AttrOffset(a_job.desc, 0);
+					const UINT  n = (std::min)(a_job.count, bd.ByteWidth / stride);
+					for (UINT k = 0; k < n; ++k) {
+						const auto* v = p + static_cast<std::size_t>(k) * stride + off;
+						float       xyz[3];
+						if (full) {
+							std::memcpy(xyz, v, sizeof(xyz));
+						} else {
+							std::uint16_t hv[3];
+							std::memcpy(hv, v, sizeof(hv));
+							for (int i = 0; i < 3; ++i) {
+								xyz[i] = Half(hv[i]);
+							}
+						}
+						for (int i = 0; i < 3; ++i) {
+							out[i] = (std::min)(out[i], xyz[i]);
+							out[3 + i] = (std::max)(out[3 + i], xyz[i]);
+						}
+					}
+					c->Unmap(staging, 0);
+				}
+				staging->Release();
+			}
+			if (out[0] > out[3]) {
+				out = { -1, -1, -1, 1, 1, 1 };  // couldn't read it: a unit box
+			}
+			std::lock_guard lk(g_measureMtx);
+			g_measured[a_job.id] = out;
+		}
+
+		template <class T>
+		void Upload(ID3D11DeviceContext* a_ctx, ID3D11Buffer* a_buf, const T& a_data)
+		{
+			D3D11_MAPPED_SUBRESOURCE m{};
+			if (SUCCEEDED(a_ctx->Map(a_buf, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+				std::memcpy(m.pData, &a_data, sizeof(T));
+				a_ctx->Unmap(a_buf, 0);
+			}
+		}
+
+		// The game's own state, put back exactly afterwards (as Dear ImGui's DX11 backend does)
+		struct Saved
+		{
+			UINT                      vpCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+			D3D11_VIEWPORT            vp[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]{};
+			UINT                      scCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+			D3D11_RECT                sc[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]{};
+			ID3D11RasterizerState*    rs = nullptr;
+			ID3D11BlendState*         bs = nullptr;
+			FLOAT                     bf[4]{};
+			UINT                      mask = 0;
+			ID3D11DepthStencilState*  ds = nullptr;
+			UINT                      ref = 0;
+			ID3D11ShaderResourceView* srv[5]{};
+			ID3D11SamplerState*       smp[3]{};
+			ID3D11PixelShader*        ps = nullptr;
+			ID3D11VertexShader*       vs = nullptr;
+			ID3D11GeometryShader*     gs = nullptr;
+			ID3D11Buffer*             vcb[4]{};
+			ID3D11Buffer*             pcb[4]{};
+			D3D11_PRIMITIVE_TOPOLOGY  topo{};
+			ID3D11Buffer*             ib = nullptr;
+			DXGI_FORMAT               ibFmt{};
+			UINT                      ibOff = 0;
+			ID3D11Buffer*             vb[2]{};
+			UINT                      stride[2]{}, offset[2]{};
+			ID3D11InputLayout*        il = nullptr;
+			ID3D11RenderTargetView*   rtv = nullptr;
+			ID3D11DepthStencilView*   dsv = nullptr;
+
+			void Take(ID3D11DeviceContext* c)
+			{
+				c->RSGetViewports(&vpCount, vp);
+				c->RSGetScissorRects(&scCount, sc);
+				c->RSGetState(&rs);
+				c->OMGetBlendState(&bs, bf, &mask);
+				c->OMGetDepthStencilState(&ds, &ref);
+				c->PSGetShaderResources(0, 5, srv);
+				c->PSGetSamplers(0, 3, smp);
+				c->PSGetShader(&ps, nullptr, nullptr);
+				c->VSGetShader(&vs, nullptr, nullptr);
+				c->GSGetShader(&gs, nullptr, nullptr);
+				c->VSGetConstantBuffers(0, 4, vcb);
+				c->PSGetConstantBuffers(0, 4, pcb);
+				c->IAGetPrimitiveTopology(&topo);
+				c->IAGetIndexBuffer(&ib, &ibFmt, &ibOff);
+				c->IAGetVertexBuffers(0, 2, vb, stride, offset);
+				c->IAGetInputLayout(&il);
+				c->OMGetRenderTargets(1, &rtv, &dsv);
+			}
+			void Put(ID3D11DeviceContext* c)
+			{
+				c->RSSetViewports(vpCount, vp);
+				c->RSSetScissorRects(scCount, sc);
+				c->RSSetState(rs);
+				c->OMSetBlendState(bs, bf, mask);
+				c->OMSetDepthStencilState(ds, ref);
+				c->PSSetShaderResources(0, 5, srv);
+				c->PSSetSamplers(0, 3, smp);
+				c->PSSetShader(ps, nullptr, 0);
+				c->VSSetShader(vs, nullptr, 0);
+				c->GSSetShader(gs, nullptr, 0);
+				c->VSSetConstantBuffers(0, 4, vcb);
+				c->PSSetConstantBuffers(0, 4, pcb);
+				c->IASetPrimitiveTopology(topo);
+				c->IASetIndexBuffer(ib, ibFmt, ibOff);
+				c->IASetVertexBuffers(0, 2, vb, stride, offset);
+				c->IASetInputLayout(il);
+				c->OMSetRenderTargets(1, &rtv, dsv);
+				Release(rs);
+				Release(bs);
+				Release(ds);
+				for (auto*& s : srv) {
+					Release(s);
+				}
+				for (auto*& s : smp) {
+					Release(s);
+				}
+				Release(ps);
+				Release(vs);
+				Release(gs);
+				for (auto*& b : vcb) {
+					Release(b);
+				}
+				for (auto*& b : pcb) {
+					Release(b);
+				}
+				Release(ib);
+				for (auto*& b : vb) {
+					Release(b);
+				}
+				Release(il);
+				Release(rtv);
+				Release(dsv);
+			}
+		};
+
+		void FullScreen(ID3D11DeviceContext* c, ID3D11RenderTargetView* a_rtv, UINT w, UINT h, ID3D11PixelShader* a_ps, ID3D11ShaderResourceView* a_src,
+			const float (&a_pass)[4], ID3D11BlendState* a_bs)
+		{
+			D3D11_VIEWPORT vp{ 0, 0, static_cast<float>(w), static_cast<float>(h), 0, 1 };
+			c->RSSetViewports(1, &vp);
+			c->OMSetRenderTargets(1, &a_rtv, nullptr);
+			c->OMSetBlendState(a_bs, nullptr, 0xFFFFFFFF);
+			Upload(c, g_cbPass, a_pass);
+			c->PSSetConstantBuffers(2, 1, &g_cbPass);
+			c->PSSetShader(a_ps, nullptr, 0);
+			c->PSSetShaderResources(0, 1, &a_src);
+			c->Draw(3, 0);
+			ID3D11ShaderResourceView* none = nullptr;
+			c->PSSetShaderResources(0, 1, &none);
+		}
+
+		// 4x4 helpers (row-major, clip = M * v)
+		using M4 = std::array<float, 16>;
+		M4 Mul(const M4& a, const M4& b)
+		{
+			M4 r{};
+			for (int i = 0; i < 4; ++i) {
+				for (int j = 0; j < 4; ++j) {
+					float s = 0;
+					for (int k = 0; k < 4; ++k) {
+						s += a[i * 4 + k] * b[k * 4 + j];
+					}
+					r[i * 4 + j] = s;
+				}
+			}
+			return r;
+		}
+		M4 LookAt(const float e[3], const float t[3], const float up[3])
+		{
+			float f[3] = { t[0] - e[0], t[1] - e[1], t[2] - e[2] };
+			const float fl = std::sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+			for (auto& v : f) {
+				v /= fl;
+			}
+			float r[3] = { f[1] * up[2] - f[2] * up[1], f[2] * up[0] - f[0] * up[2], f[0] * up[1] - f[1] * up[0] };
+			const float rl = std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+			for (auto& v : r) {
+				v /= rl;
+			}
+			const float u[3] = { r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0] };
+			auto dot = [](const float* a, const float* b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+			return { r[0], r[1], r[2], -dot(r, e), u[0], u[1], u[2], -dot(u, e), -f[0], -f[1], -f[2], dot(f, e), 0, 0, 0, 1 };
+		}
+		M4 Ortho(float l, float r, float b, float t, float n, float f)
+		{
+			return { 2 / (r - l), 0, 0, -(r + l) / (r - l), 0, 2 / (t - b), 0, -(t + b) / (t - b), 0, 0, 1 / (n - f), n / (n - f), 0, 0, 0, 1 };
+		}
+
+		std::chrono::steady_clock::time_point g_t0 = std::chrono::steady_clock::now();
+	}
+
+	void Submit(Frame&& a_frame)
+	{
+		std::lock_guard lk(g_mtx);
+		g_frame = std::move(a_frame);
+	}
+
+	void Clear()
+	{
+		std::lock_guard lk(g_mtx);
+		g_frame = Frame{};
+	}
+
+	void RequestMeasure(std::uint64_t a_id, ID3D11Buffer* a_vb, std::uint64_t a_desc, std::uint32_t a_count)
+	{
+		if (!a_vb) {
+			return;
+		}
+		std::lock_guard lk(g_measureMtx);
+		if (g_measured.contains(a_id)) {
+			return;
+		}
+		for (const auto& j : g_measureJobs) {
+			if (j.id == a_id) {
+				return;
+			}
+		}
+		a_vb->AddRef();  // kept alive until the render thread has read it
+		g_measureJobs.push_back({ a_id, a_vb, a_desc, a_count });
+	}
+
+	bool MeasureResult(std::uint64_t a_id, float (&a_min)[3], float (&a_max)[3])
+	{
+		std::lock_guard lk(g_measureMtx);
+		const auto      it = g_measured.find(a_id);
+		if (it == g_measured.end()) {
+			return false;
+		}
+		for (int i = 0; i < 3; ++i) {
+			a_min[i] = it->second[i];
+			a_max[i] = it->second[3 + i];
+		}
+		return true;
+	}
+
+	void Draw(IDXGISwapChain* a_sc, ID3D11Device* a_dev, ID3D11DeviceContext* c)
+	{
+		std::lock_guard lk(g_mtx);
+		if (g_failed || !a_sc || !a_dev || !c) {
+			return;
+		}
+		if (!g_ready) {
+			if (!g_frame.show) {
+				return;
+			}
+			g_ready = Init(a_dev);
+			if (!g_ready) {
+				g_failed = true;
+				spdlog::error("Kitchen renderer: couldn't start - the kitchen won't show");
+				return;
+			}
+		}
+		// the meshes waiting to be measured (a few a frame)
+		{
+			std::vector<MeasureJob> jobs;
+			{
+				std::lock_guard ml(g_measureMtx);
+				const std::size_t n = (std::min<std::size_t>)(g_measureJobs.size(), 8);
+				jobs.assign(g_measureJobs.begin(), g_measureJobs.begin() + n);
+				g_measureJobs.erase(g_measureJobs.begin(), g_measureJobs.begin() + n);
+			}
+			for (const auto& j : jobs) {
+				Measure(c, j);
+				j.vb->Release();
+			}
+		}
+		if (!g_frame.show) {
+			return;
+		}
+		ID3D11Texture2D* back = nullptr;
+		if (FAILED(a_sc->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back))) || !back) {
+			return;
+		}
+		D3D11_TEXTURE2D_DESC bdsc{};
+		back->GetDesc(&bdsc);
+		if (!Targets(bdsc)) {
+			back->Release();
+			g_failed = true;
+			return;
+		}
+		ID3D11RenderTargetView*       backRTV = nullptr;
+		D3D11_RENDER_TARGET_VIEW_DESC rvd{};
+		rvd.Format = Typed(bdsc.Format);
+		rvd.ViewDimension = bdsc.SampleDesc.Count > 1 ? D3D11_RTV_DIMENSION_TEXTURE2DMS : D3D11_RTV_DIMENSION_TEXTURE2D;
+		a_dev->CreateRenderTargetView(back, &rvd, &backRTV);
+		if (!backRTV) {
+			back->Release();
+			return;
+		}
+		Saved saved;
+		saved.Take(c);
+
+		const float time = std::chrono::duration<float>(std::chrono::steady_clock::now() - g_t0).count();
+		c->VSSetShader(g_vsFull, nullptr, 0);
+		c->GSSetShader(nullptr, nullptr, 0);
+		c->IASetInputLayout(nullptr);
+		c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		c->RSSetState(g_rsNoCull);
+		c->OMSetDepthStencilState(g_dsOff, 0);
+		ID3D11SamplerState* smp[3] = { g_smpWrap, g_smpShadow, g_smpClamp };
+		c->PSSetSamplers(0, 3, smp);
+
+		// 1. the world behind: blurred and darkened, as Skyrim's menus do
+		if (g_frame.blur > 0.001f && bdsc.SampleDesc.Count == 1) {
+			c->CopyResource(g_bg, back);
+			const UINT  qw = (std::max)(1u, g_w / 4), qh = (std::max)(1u, g_h / 4);
+			const float down[4] = { 1.0f / g_w, 1.0f / g_h, 0, 0 };
+			FullScreen(c, g_qRTV[0], qw, qh, g_psDown, g_bgSRV, down, g_bsOpaque);
+			for (int k = 0; k < 2; ++k) {
+				const float h[4] = { 1.0f / qw, 1.0f / qh, 0, 0 }, v[4] = { 1.0f / qw, 1.0f / qh, 0, 1 };
+				FullScreen(c, g_qRTV[1], qw, qh, g_psBlur, g_qSRV[0], h, g_bsOpaque);
+				FullScreen(c, g_qRTV[0], qw, qh, g_psBlur, g_qSRV[1], v, g_bsOpaque);
+			}
+			const float b[4] = { 0, 0, g_frame.blur, 0 };
+			FullScreen(c, backRTV, g_w, g_h, g_psBack, g_qSRV[0], b, g_bsAlpha);
+		}
+
+		// 2. the frame's constants: our camera, the key light's shadow camera, the lights
+		CBFrame fr{};
+		std::memcpy(fr.viewProj, g_frame.viewProj, sizeof(fr.viewProj));
+		{
+			const float* kd = g_frame.keyDir;
+			const float  kl = std::sqrt(kd[0] * kd[0] + kd[1] * kd[1] + kd[2] * kd[2]);
+			const float  dir[3] = { kd[0] / kl, kd[1] / kl, kd[2] / kl };
+			const float* sc = g_frame.shadowCenter;
+			const float  lp[3] = { sc[0] + dir[0] * 60, sc[1] + dir[1] * 60, sc[2] + dir[2] * 60 };
+			const float  up[3] = { 0, 1, 0 };
+			const M4     lv = LookAt(lp, sc, up);
+			const M4     lo = Ortho(-g_frame.shadowHalf[0], g_frame.shadowHalf[0], -g_frame.shadowHalf[1], g_frame.shadowHalf[1], 10, 120);
+			const M4     lvp = Mul(lo, lv);
+			std::memcpy(fr.lightViewProj, lvp.data(), sizeof(fr.lightViewProj));
+			std::memcpy(fr.keyDir, dir, sizeof(dir));
+		}
+		auto lin = [](int hex, float k, float* out) {
+			for (int i = 0; i < 3; ++i) {
+				const float v = ((hex >> (16 - 8 * i)) & 0xFF) / 255.0f;
+				out[i] = std::pow(v, 2.2f) * k;
+			}
+		};
+		lin(0xffe0bc, 1.05f, fr.keyColor);
+		lin(0xffd9a8, 0.36f, fr.sky);
+		lin(0x1a120a, 0.36f, fr.ground);
+		std::memcpy(fr.firePos, g_frame.fire, sizeof(fr.firePos));
+		std::memcpy(fr.fireColor, g_frame.fireColor, sizeof(float) * 3);
+		std::memcpy(fr.camPos, g_frame.camPos, sizeof(float) * 3);
+		std::memcpy(fr.camRight, g_frame.camRight, sizeof(float) * 3);
+		std::memcpy(fr.camUp, g_frame.camUp, sizeof(float) * 3);
+		fr.params[0] = time;
+		fr.params[1] = 1.0f / kShadow;
+		fr.params[2] = g_frame.exposure;
+		Upload(c, g_cbFrame, fr);
+		ID3D11Buffer* cbs[2] = { g_cbFrame, g_cbObject };
+		c->VSSetConstantBuffers(0, 2, cbs);
+		c->PSSetConstantBuffers(0, 2, cbs);
+
+		auto bindMesh = [&](const Item& it) -> bool {
+			auto* il = Layout(it.desc);
+			if (!il || !it.vb || !it.ib) {
+				return false;
+			}
+			const UINT    stride = static_cast<UINT>(it.desc & 0xF) * 4;
+			ID3D11Buffer* vbs[2] = { it.vb, g_dummyVB };
+			UINT          strides[2] = { stride, 0 }, offs[2] = { 0, 0 };
+			c->IASetInputLayout(il);
+			c->IASetVertexBuffers(0, 2, vbs, strides, offs);
+			c->IASetIndexBuffer(it.ib, DXGI_FORMAT_R16_UINT, 0);
+			CBObject ob{};
+			for (int k = 0; k < 3; ++k) {
+				ob.rot0[k] = it.rot[k];
+				ob.rot1[k] = it.rot[3 + k];
+				ob.rot2[k] = it.rot[6 + k];
+				ob.posScale[k] = it.pos[k];
+				ob.scale3[k] = it.scale3[k] != 0.0f ? it.scale3[k] : 1.0f;
+				ob.spec[k] = it.specColor[k] * it.specScale;
+				ob.tint[k] = it.tint[k];
+				ob.emissive[k] = it.emissive[k];
+				ob.cookAxis[k] = it.cookAxis[k];
+				ob.cookRef[k] = it.cookRef[k];
+			}
+			ob.posScale[3] = it.scale;
+			ob.spec[3] = it.gloss;
+			ob.misc[0] = it.envScale;
+			ob.misc[1] = it.alpha;
+			ob.misc[2] = it.alphaRef;
+			ob.misc[3] = it.test ? 1.0f : 0.0f;
+			ob.has[0] = it.diffuse != nullptr;
+			ob.has[1] = it.normal != nullptr;
+			ob.has[2] = it.env != nullptr;
+			ob.has[3] = it.envMask != nullptr;
+			std::memcpy(ob.lift, it.lift, sizeof(ob.lift));
+			std::memcpy(ob.clip1, it.clip, sizeof(ob.clip1));
+			std::memcpy(ob.clip2, it.clip2, sizeof(ob.clip2));
+			std::memcpy(ob.uvx, it.uv, sizeof(ob.uvx));
+			std::memcpy(ob.cook, it.cook, sizeof(ob.cook));
+			ob.cookAxis[3] = static_cast<float>(it.cookMode);
+			Upload(c, g_cbObject, ob);
+			return true;
+		};
+
+		// 3. the key light's shadows
+		{
+			c->OMSetRenderTargets(0, nullptr, g_shadowDSV);
+			c->ClearDepthStencilView(g_shadowDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
+			D3D11_VIEWPORT vp{ 0, 0, static_cast<float>(kShadow), static_cast<float>(kShadow), 0, 1 };
+			c->RSSetViewports(1, &vp);
+			c->RSSetState(g_rsShadow);
+			c->OMSetDepthStencilState(g_dsOn, 0);
+			c->VSSetShader(g_vsShadow, nullptr, 0);
+			c->PSSetShader(nullptr, nullptr, 0);
+			for (const auto& it : g_frame.items) {
+				if (!it.blend && it.shadow && bindMesh(it)) {
+					c->DrawIndexed(it.indexCount, 0, 0);
+				}
+			}
+		}
+
+		// 4. the kitchen, lit, into our multisampled HDR target; then the fire and the steam
+		{
+			const float clear[4] = { 0, 0, 0, 0 };
+			c->ClearRenderTargetView(g_colorRTV, clear);
+			c->ClearDepthStencilView(g_depthDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
+			c->OMSetRenderTargets(1, &g_colorRTV, g_depthDSV);
+			D3D11_VIEWPORT vp{ 0, 0, static_cast<float>(g_w), static_cast<float>(g_h), 0, 1 };
+			c->RSSetViewports(1, &vp);
+			c->RSSetState(g_rsNoCull);
+			c->VSSetShader(g_vs, nullptr, 0);
+			c->PSSetShader(g_ps, nullptr, 0);
+			c->PSSetShaderResources(4, 1, &g_shadowSRV);
+			auto drawPass = [&](bool a_blend) {
+				c->OMSetBlendState(a_blend ? g_bsPremul : g_bsOpaque, nullptr, 0xFFFFFFFF);
+				c->OMSetDepthStencilState(a_blend ? g_dsRead : g_dsOn, 0);
+				for (const auto& it : g_frame.items) {
+					if (it.blend != a_blend || !bindMesh(it)) {
+						continue;
+					}
+					ID3D11ShaderResourceView* t[4] = { it.diffuse, it.normal, it.env, it.envMask };
+					c->PSSetShaderResources(0, 4, t);
+					c->DrawIndexed(it.indexCount, 0, 0);
+				}
+			};
+			drawPass(false);
+			drawPass(true);
+			// the sprites: soft ones first (steam, smoke, bubbles, salt), then the light (fire, embers, glow) on top
+			if (!g_frame.sprites.empty()) {
+				c->IASetInputLayout(nullptr);
+				c->VSSetShader(g_vsSprite, nullptr, 0);
+				c->PSSetShader(g_psSprite, nullptr, 0);
+				c->VSSetConstantBuffers(3, 1, &g_cbSprite);
+				c->PSSetConstantBuffers(3, 1, &g_cbSprite);
+				c->OMSetDepthStencilState(g_dsRead, 0);
+				for (int pass = 0; pass < 2; ++pass) {
+					c->OMSetBlendState(pass == 0 ? g_bsPremul : g_bsAdd, nullptr, 0xFFFFFFFF);
+					for (const auto& s : g_frame.sprites) {
+						const bool additive = s.kind == Sprite::Kind::Flame || s.kind == Sprite::Kind::Ember || s.kind == Sprite::Kind::Glow;
+						if (additive != (pass == 1)) {
+							continue;
+						}
+						CBSprite sp{};
+						std::memcpy(sp.pos, s.pos, sizeof(float) * 3);
+						sp.pos[3] = s.size;
+						std::memcpy(sp.color, s.color, sizeof(sp.color));
+						sp.params[0] = static_cast<float>(static_cast<int>(s.kind));
+						sp.params[1] = s.seed;
+						sp.params[2] = s.rot;
+						sp.params[3] = s.stretch;
+						Upload(c, g_cbSprite, sp);
+						c->Draw(6, 0);
+					}
+				}
+			}
+			ID3D11ShaderResourceView* none[6]{};
+			c->PSSetShaderResources(0, 6, none);
+			ID3D11RenderTargetView* noRT = nullptr;
+			c->OMSetRenderTargets(1, &noRT, nullptr);
+			if (g_msaa > 1) {
+				c->ResolveSubresource(g_resolved, 0, g_color, 0, DXGI_FORMAT_R16G16B16A16_FLOAT);
+			} else {
+				c->CopyResource(g_resolved, g_color);
+			}
+		}
+
+		// 5. onto the screen: tone mapped, faded in as it arrives
+		{
+			c->IASetInputLayout(nullptr);
+			c->VSSetShader(g_vsFull, nullptr, 0);
+			c->RSSetState(g_rsNoCull);
+			c->OMSetDepthStencilState(g_dsOff, 0);
+			const float p[4] = { 0, 0, g_frame.reveal, g_frame.exposure };
+			FullScreen(c, backRTV, g_w, g_h, g_psComposite, g_resolvedSRV, p, g_bsPremul);
+		}
+
+		saved.Put(c);
+		backRTV->Release();
+		back->Release();
+	}
+}
