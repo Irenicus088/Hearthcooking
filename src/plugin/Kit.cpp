@@ -243,8 +243,9 @@ namespace Kit
 		}
 		// the clutter: the first of each that the game has, in this order
 		g_decor.clear();
-		static constexpr const char* kWant[] = { "jug", "basket", "sack", "bottle of wine", "eidar cheese wheel", "garlic", "cabbage", "tankard", "candlestick",
-			"pitcher", "leek", "red apple", "loaf of bread", "goat cheese wheel" };
+		// (no vegetables or fruit: they'd be taken for the recipe's own)
+		static constexpr const char* kWant[] = { "jug", "basket", "sack", "bottle of wine", "eidar cheese wheel", "tankard", "candlestick", "pitcher",
+			"loaf of bread", "goat cheese wheel", "wooden plate", "mead" };
 		for (const char* want : kWant) {
 			const Form* pick = nullptr;
 			for (const auto& f : forms) {

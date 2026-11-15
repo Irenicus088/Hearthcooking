@@ -21,6 +21,7 @@ namespace Scene
 			float                         world3[3]{ 1, 1, 1 };
 			bool                          used = false, placed = false, hidden = false;
 			bool                          measured = false, asked = false;
+			int                           tries = 0;  // frames spent waiting for its measurement
 			hc::Vec3                      bmin, bmax;
 			ID3D11ShaderResourceView*     skin = nullptr;
 		};
@@ -163,10 +164,17 @@ namespace Scene
 			}
 			hc::Vec3 lo{ 1e9, 1e9, 1e9 }, hi{ -1e9, -1e9, -1e9 };
 			bool     all = true, any = false;
+			int      shapes = 0, noData = 0;
+			std::string kinds;
 			RE::BSVisit::TraverseScenegraphGeometries(a_p.node.get(), [&](RE::BSGeometry* a_geo) {
 				auto* tri = a_geo ? a_geo->AsTriShape() : nullptr;
 				auto* rd = a_geo ? a_geo->GetGeometryRuntimeData().rendererData : nullptr;
+				++shapes;
+				if (a_p.tries == 0 && a_geo && a_geo->GetRTTI()) {
+					kinds += fmt::format("{}'{}' ", a_geo->GetRTTI()->name, a_geo->name.c_str());
+				}
 				if (!tri || !rd || !rd->vertexBuffer) {
+					++noData;
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
 				auto*         vb = reinterpret_cast<::ID3D11Buffer*>(rd->vertexBuffer);
@@ -196,11 +204,30 @@ namespace Scene
 				return RE::BSVisit::BSVisitControl::kContinue;
 			});
 			a_p.asked = true;
+			if (a_p.tries == 0) {
+				spdlog::info("Mesh {}: {} shapes ({} without vertex data): {}", a_p.model, shapes, noData, kinds);
+			}
+			++a_p.tries;
 			if (all && any) {
 				a_p.measured = true;
 				a_p.bmin = lo;
 				a_p.bmax = hi;
 				spdlog::info("Measured {}: ({:.1f}, {:.1f}, {:.1f}) .. ({:.1f}, {:.1f}, {:.1f})", a_p.model, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z);
+			} else if (a_p.tries > 45) {
+				// the graphics card never said: go by the mesh's bounding sphere, so it shows at all
+				const auto&  wb = a_p.node->worldBound;
+				const auto&  w = a_p.node->world;
+				const float  sc = w.scale != 0.0f ? w.scale : 1.0f;
+				const auto   d = wb.center - w.translate;
+				const auto   rt = w.rotate.Transpose();
+				const double cx = (rt.entry[0][0] * d.x + rt.entry[0][1] * d.y + rt.entry[0][2] * d.z) / sc;
+				const double cy = (rt.entry[1][0] * d.x + rt.entry[1][1] * d.y + rt.entry[1][2] * d.z) / sc;
+				const double cz = (rt.entry[2][0] * d.x + rt.entry[2][1] * d.y + rt.entry[2][2] * d.z) / sc;
+				const double r = wb.radius > 0.0f ? wb.radius / sc * 0.75 : 5.0;
+				a_p.measured = true;
+				a_p.bmin = { cx - r, cy - r, cz - r * 0.8 };
+				a_p.bmax = { cx + r, cy + r, cz + r * 0.8 };
+				spdlog::warn("Measured {} by its bounding sphere (radius {:.1f}): {} of {} shapes had no vertex data to read", a_p.model, r, noData, shapes);
 			}
 		}
 

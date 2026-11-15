@@ -2105,8 +2105,10 @@ namespace Cook
 					const double ls = 12.0 / lie.d[0];
 					const bool   out = g_hold == Hold::LadleOut;
 					const double yaw = out ? -kPi * 0.5 : g_ladleA, up = out ? 0.15 : 1.05;
-					const Quat   q = RotZ(yaw) * RotY(-up) * lie.q;
-					const Vec3   dir = q.Rotate({ 1, 0, 0 });
+					// end over end: the game's ladle has its cup at the far end of its length, opening the other way
+					const Quat   lean = RotZ(yaw) * RotY(-up);
+					const Quat   q = lean * RotY(kPi) * lie.q;
+					const Vec3   dir = lean.Rotate({ 1, 0, 0 });  // up the handle, out of the pot
 					const Vec3   bowl = out ? g_ladleOutAt : Vec3{ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ };
 					const Vec3   c = bowl + dir * (lie.d[0] * ls * 0.4);
 					Scene::Place(P.ladle, c - q.Rotate(lie.c) * ls, q, static_cast<float>(ls));
