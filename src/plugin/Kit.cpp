@@ -100,6 +100,10 @@ namespace Kit
 				}
 				return In(x, "commontable") ? 10 : In(x, "kitchen") ? 9 : In(x, "uppertable") || In(x, "noble") ? 7 : 3;
 			case Role::Pot:
+				// not the cooking station (also called "Cooking Pot"): that's the whole fire pit with a pot built in
+				if (f.type == 'F' || Any(x, { "furniture", "crafting" })) {
+					return 0;
+				}
 				if (Any(x, { "potato", "potion", "pottery", "spot", "teapot", "potema", "pothook", "flowerpot", "chamber" }) || Any(n, { "potato", "potion" })) {
 					return 0;
 				}

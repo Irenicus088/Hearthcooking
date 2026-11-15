@@ -179,6 +179,9 @@ namespace Audio
 		if (!Init()) {
 			return;
 		}
+		if (!Config::Get().sound) {
+			return;
+		}
 		const float vol = g_muted ? 0.0f : a_voice.volume * kMaster * Level(a_voice.name);
 		if (vol <= 0.0001f) {
 			return;
@@ -233,6 +236,9 @@ namespace Audio
 		std::lock_guard lk(g_mtx);
 		if (!Init()) {
 			return;
+		}
+		if (!Config::Get().sound) {
+			a_volume = 0.0f;
 		}
 		auto& l = g_loops[a_name];
 		if (!l.voice) {

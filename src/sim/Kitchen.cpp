@@ -417,7 +417,7 @@ namespace hc
 						b.potA += a_swirl * dt * (0.55 + 0.45 * (1.0 - b.potR / ri));
 						b.bob += dt;
 						b.p = { kPotX + m::Cos(b.potA) * b.potR, kPotY + m::Sin(b.potA) * b.potR,
-							kLiquidZ - b.r * 0.35 + 0.12 * m::Sin(b.bob * 2.1) };
+							kLiquidZ - b.r * 0.8 + 0.1 * m::Sin(b.bob * 2.1) };
 						b.q.Integrate({ 0.0, 0.0, a_swirl * 0.6 }, dt);
 					}
 					break;

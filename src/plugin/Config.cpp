@@ -59,6 +59,7 @@ namespace Config
 		put("Kitchen", "Zoom", f(v.zoom));
 		put("Play", "MouseSpeed", f(v.mouseSpeed));
 		put("Play", "UiScale", f(v.uiScale));
+		put("Play", "Sound", v.sound ? "1" : "0");
 		put("Play", "Volume", f(v.volume));
 		put("Play", "Ambience", f(v.ambience));
 		put("Play", "EffectsVolume", f(v.effectsVolume));
@@ -75,6 +76,7 @@ namespace Config
 		v.zoom = std::clamp(Float("Kitchen", "Zoom", v.zoom), 0.5f, 2.0f);
 		v.mouseSpeed = std::clamp(Float("Play", "MouseSpeed", v.mouseSpeed), 0.1f, 5.0f);
 		v.uiScale = std::clamp(Float("Play", "UiScale", v.uiScale), 0.5f, 2.0f);
+		v.sound = Bool("Play", "Sound", v.sound);
 		v.volume = std::clamp(Float("Play", "Volume", v.volume), 0.0f, 2.0f);
 		v.ambience = std::clamp(Float("Play", "Ambience", v.ambience), 0.0f, 2.0f);
 		v.effectsVolume = std::clamp(Float("Play", "EffectsVolume", v.effectsVolume), 0.0f, 2.0f);

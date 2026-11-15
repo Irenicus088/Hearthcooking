@@ -135,11 +135,13 @@ namespace Cook
 			bool                      wentWhole = false;  // into the pot without being cut
 		};
 
+		// A piece: a slice of the ingredient's own mesh (between two cuts, x0..x1 along its length, centred on its middle,
+		// at the board's scale), with a cut face at each end
 		struct Piece
 		{
-			Scene::Id prop = -1;
+			Scene::Id prop = -1, capA = -1, capB = -1;
 			int       unit = 0;
-			float     uv[4]{ 0.35f, 0.35f, 0, 0 };
+			double    x0 = 0.0, x1 = 0.0;
 		};
 
 		struct Grain
@@ -618,7 +620,7 @@ namespace Cook
 					}
 					Scene::Hide(u.prop, true);
 					const int k = static_cast<int>(g_units.size());
-					u.clothAt = { k < 5 ? -32.5 : -25.5, 13.0 - (k % 5) * 6.6, 0.0 };
+					u.clothAt = { k < 5 ? -31.5 : -25.5, 8.5 - (k % 5) * 6.0, 0.0 };
 					g_units.push_back(std::move(u));
 				}
 			}
@@ -639,25 +641,91 @@ namespace Cook
 		}
 
 		// ---------------------------------------------------------------- the pieces
+		// How thick it is at a point along its length (round things narrow toward their ends)
+		std::pair<double, double> Cross(const Unit& u, double a_x)
+		{
+			const double L = u.boardLen, dy = Thick(u, L, 1), dz = Thick(u, L, 2);
+			const double t = Clamp(std::abs(a_x) * 2.0 / L, 0.0, 1.0);
+			double       f = 1.0;
+			if (u.dims[0] < 1.6 * u.dims[1]) {
+				f = std::sqrt((std::max)(0.04, 1.0 - t * t));  // an apple, a cabbage, a potato
+			} else if (t > 0.85) {
+				f = std::sqrt((std::max)(0.08, 1.0 - std::pow((t - 0.85) / 0.15, 2.0)));  // a leek, a carrot: only the tips
+			}
+			return { dy * f * 0.96, dz * f * 0.96 };
+		}
+
+		// The colour inside it
+		void Flesh(const Unit& u, float (&a_out)[3])
+		{
+			std::string n = u.name;
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			auto has = [&](std::initializer_list<const char*> ws) {
+				for (const char* w : ws) {
+					if (n.find(w) != std::string::npos) {
+						return true;
+					}
+				}
+				return false;
+			};
+			float c[3] = { 0.92f, 0.88f, 0.76f };
+			if (has({ "beef", "venison", "meat", "horker", "mammoth", "goat", "horse", "dog", "rabbit", "haunch", "leg", "steak" })) {
+				c[0] = 0.72f, c[1] = 0.3f, c[2] = 0.27f;
+			} else if (has({ "salmon" })) {
+				c[0] = 0.95f, c[1] = 0.55f, c[2] = 0.4f;
+			} else if (has({ "chicken", "pheasant", "fish", "clam", "mudcrab" })) {
+				c[0] = 0.93f, c[1] = 0.8f, c[2] = 0.72f;
+			} else if (has({ "carrot" })) {
+				c[0] = 0.95f, c[1] = 0.55f, c[2] = 0.18f;
+			} else if (has({ "tomato" })) {
+				c[0] = 0.86f, c[1] = 0.25f, c[2] = 0.15f;
+			} else if (has({ "cabbage", "leek" })) {
+				c[0] = 0.86f, c[1] = 0.9f, c[2] = 0.68f;
+			} else if (has({ "cheese" })) {
+				c[0] = 0.96f, c[1] = 0.88f, c[2] = 0.58f;
+			} else if (has({ "apple", "pear" })) {
+				c[0] = 0.96f, c[1] = 0.92f, c[2] = 0.74f;
+			} else if (has({ "potato", "yam", "gourd" })) {
+				c[0] = 0.94f, c[1] = 0.88f, c[2] = 0.66f;
+			}
+			std::memcpy(a_out, c, sizeof(c));
+		}
+
+		int NewPiece(int a_unit, int a_body, double a_x0, double a_x1, bool a_caps)
+		{
+			auto& u = g_units[a_unit];
+			Piece p;
+			p.unit = a_unit;
+			p.x0 = a_x0;
+			p.x1 = a_x1;
+			p.prop = u.model.empty() ? -1 : Scene::Add(u.model);
+			if (p.prop < 0) {
+				p.prop = Add("Chunk");  // its mesh won't load: a plain piece
+			}
+			if (a_caps) {
+				p.capA = Add("Cap");
+				p.capB = Add("Cap");
+			}
+			if (static_cast<int>(g_pieces.size()) <= a_body) {
+				g_pieces.resize(a_body + 1);
+			}
+			g_pieces[a_body] = p;
+			return a_body;
+		}
+
 		void AddPiece(int a_unit, double a_x0, double a_len)
 		{
 			auto&        u = g_units[a_unit];
-			const double dy = Thick(u, u.boardLen, 1) * 0.9, dz = Thick(u, u.boardLen, 2) * 0.9;
-			const double lx = -u.boardLen * 0.5 + a_x0 + a_len * 0.5 + 0.18;  // board-local, nudged off the knife
-			const int    b = g_chunks.Add(a_unit, { lx, L::kLaneY[u.lane], L::kBoardH * 0.5 + dz * 0.5 }, { a_len, dy, dz }, static_cast<unsigned>(g_pieces.size() * 31 + 7));
-			if (b < 0) {
-				return;
+			const double x0 = a_x0 - u.boardLen * 0.5, x1 = x0 + a_len;  // along it, from its middle
+			const auto [dy, dz] = Cross(u, (x0 + x1) * 0.5);
+			const double lx = (x0 + x1) * 0.5 + 0.22;  // board-local, nudged off the knife
+			const int    b = g_chunks.Add(a_unit, { lx, L::kLaneY[u.lane], L::kBoardH * 0.5 + Thick(u, u.boardLen, 2) * 0.5 }, { a_len, dy, dz },
+					 static_cast<unsigned>(g_pieces.size() * 31 + 7));
+			if (b >= 0) {
+				NewPiece(a_unit, b, x0, x1, true);
+				// a fresh slice lies as it was cut, not turned
+				g_chunks.At(b).q = {};
 			}
-			Piece p;
-			p.unit = a_unit;
-			p.prop = Add("Chunk");
-			p.uv[0] = p.uv[1] = 0.3f;
-			p.uv[2] = Hash(b, 1) * 0.7f;
-			p.uv[3] = Hash(b, 2) * 0.7f;
-			if (static_cast<int>(g_pieces.size()) <= b) {
-				g_pieces.resize(b + 1);
-			}
-			g_pieces[b] = p;
 		}
 
 		// The whole part left on the board goes over as the last piece
@@ -1287,13 +1355,9 @@ namespace Cook
 								Fit(u);
 								u.wentWhole = true;
 								const double len = u.boardLen;
-								const int    b = g_chunks.AddFree(ui, g_carry, {}, { len * 0.6, Thick(u, len, 1) * 0.6, Thick(u, len, 2) * 0.6 }, static_cast<unsigned>(ui * 13 + 5));
+								const int    b = g_chunks.AddFree(ui, g_carry, {}, { len, Thick(u, len, 1), Thick(u, len, 2) }, static_cast<unsigned>(ui * 13 + 5));
 								if (b >= 0) {
-									if (static_cast<int>(g_pieces.size()) <= b) {
-										g_pieces.resize(b + 1);
-									}
-									g_pieces[b].unit = ui;
-									g_pieces[b].prop = Add("Chunk");
+									NewPiece(ui, b, -len * 0.5, len * 0.5, false);
 								}
 							} else {
 								++g_tossedIn;
@@ -1644,32 +1708,59 @@ namespace Cook
 		}
 
 		// ---------------------------------------------------------------- every frame: the kitchen as it looks
+		// A cut face: a disk the inside's colour, at a_x along the frame (x along the ingredient), facing out that way
+		void PlaceCap(Scene::Id a_cap, const Unit& u, const Vec3& a_c, const Quat& a_frame, double a_x, bool a_plus)
+		{
+			if (a_cap < 0) {
+				return;
+			}
+			const auto [dy, dz] = Cross(u, a_x);
+			const Quat q = a_plus ? a_frame : a_frame * RotZ(kPi);
+			Scene::Place(a_cap, a_c + a_frame.Rotate({ a_x + (a_plus ? -0.015 : 0.015), 0.0, 0.0 }), q, 1.0f);
+			Scene::Stretch(a_cap, 1.0f, static_cast<float>(dy), static_cast<float>(dz));
+			auto& cl = Scene::LookOf(a_cap);
+			cl.skin = nullptr;
+			Flesh(u, cl.tint);
+			Scene::Hide(a_cap, false);
+		}
+
+		// The ingredient's own mesh, lying along the frame's x with its middle at a_c, cut to x0..x1 (none if equal)
+		void PlaceSlice(Scene::Id a_id, Unit& u, const Vec3& a_c, const Quat& a_frame, double a_x0, double a_x1)
+		{
+			if (!Fit(u)) {
+				Scene::Hide(a_id, true);
+				return;
+			}
+			const double s = u.boardLen / u.dims[0];
+			const Quat   q = a_frame * u.lie;
+			Scene::Place(a_id, a_c - q.Rotate(u.center) * s, q, static_cast<float>(s));
+			Scene::Hide(a_id, false);
+			auto&      lk = Scene::LookOf(a_id);
+			const Vec3 n = a_frame.Rotate({ 1, 0, 0 });
+			const double base = n.Dot(a_c);
+			const bool   cut = a_x1 > a_x0;
+			lk.clip[0] = cut ? static_cast<float>(n.x) : 0.0f;
+			lk.clip[1] = cut ? static_cast<float>(n.y) : 0.0f;
+			lk.clip[2] = cut ? static_cast<float>(n.z) : 0.0f;
+			lk.clip[3] = static_cast<float>(base + a_x1);
+			lk.clip2[0] = cut ? static_cast<float>(-n.x) : 0.0f;
+			lk.clip2[1] = cut ? static_cast<float>(-n.y) : 0.0f;
+			lk.clip2[2] = cut ? static_cast<float>(-n.z) : 0.0f;
+			lk.clip2[3] = static_cast<float>(-(base + a_x0));
+		}
+
 		void PlaceBoardUnit(Unit& u)
 		{
 			const Vec3 at = g_boardPose.ToWorld({ 0.0, L::kLaneY[u.lane], L::kBoardH * 0.5 + Thick(u, u.boardLen, 2) * 0.5 });
-			Lay(u, at, u.boardLen, RotY(g_boardPose.tilt));
-			// cut off past the knife's last cut (a plane across the board)
-			auto&        lk = Scene::LookOf(u.prop);
-			const double xEnd = L::kBoardX + (u.cut.wholeEnd - u.boardLen * 0.5);
-			lk.clip[0] = 1.0f;
-			lk.clip[1] = lk.clip[2] = 0.0f;
-			lk.clip[3] = static_cast<float>(xEnd);
-			// the cut end
+			const Quat frame = RotY(g_boardPose.tilt);
+			const double xEnd = u.cut.wholeEnd - u.boardLen * 0.5;  // the knife's last cut, from its middle
+			// what's still whole: from its left end to the last cut
+			PlaceSlice(u.prop, u, at, frame, -u.boardLen, u.cut.count > 0 ? xEnd : u.boardLen);
 			if (u.cut.count > 0) {
 				if (u.cap < 0) {
 					u.cap = Add("Cap");
 				}
-				Scene::Place(u.cap, { xEnd - 0.02, at.y, at.z }, {}, 1.0f);
-				Scene::Stretch(u.cap, 1.0f, static_cast<float>(Thick(u, u.boardLen, 1) * 0.92), static_cast<float>(Thick(u, u.boardLen, 2) * 0.92));
-				auto& cl = Scene::LookOf(u.cap);
-				cl.skin = Scene::Skin(u.prop);
-				cl.uv[0] = cl.uv[1] = 0.2f;
-				cl.uv[2] = cl.uv[3] = 0.4f;
-				cl.lift[0] = 0.92f;
-				cl.lift[1] = 0.88f;
-				cl.lift[2] = 0.74f;
-				cl.lift[3] = 0.35f;
-				Scene::Hide(u.cap, false);
+				PlaceCap(u.cap, u, at, frame, xEnd, true);
 			}
 		}
 
@@ -1856,7 +1947,9 @@ namespace Cook
 					break;
 				}
 				if (u.at != Unit::At::Board) {
-					Scene::LookOf(u.prop).clip[0] = 0.0f;
+					auto& lk = Scene::LookOf(u.prop);
+					lk.clip[0] = lk.clip[1] = lk.clip[2] = 0.0f;
+					lk.clip2[0] = lk.clip2[1] = lk.clip2[2] = 0.0f;
 					Scene::Hide(u.cap, true);
 				}
 			}
@@ -1911,34 +2004,37 @@ namespace Cook
 					Scene::Place(P.knife, { L::kBoardX + 5.0, L::kBoardY - 9.2, 0.12 }, RotZ(-kPi * 0.5) * RotY(kPi * 0.5), 1.0f);
 				}
 			}
-			// ---- the pieces
+			// ---- the pieces: slices of the ingredient's own mesh, with their cut faces
 			for (int b = 0; b < g_chunks.Count() && b < static_cast<int>(g_pieces.size()); ++b) {
 				const auto& body = g_chunks.At(b);
 				auto&       pc = g_pieces[b];
-				if (pc.prop < 0) {
+				if (pc.prop < 0 || g_units.empty()) {
 					continue;
 				}
 				if (body.state == hc::Chunks::State::None) {
 					Scene::Hide(pc.prop, true);
+					Scene::Hide(pc.capA, true);
+					Scene::Hide(pc.capB, true);
 					continue;
 				}
-				Quat q = body.q;
-				if (body.state == hc::Chunks::State::Board) {
-					q = RotY(g_boardPose.tilt) * body.q;
-				}
-				Scene::Place(pc.prop, body.p, q, 1.0f);
-				Scene::Stretch(pc.prop, static_cast<float>(body.size.x), static_cast<float>(body.size.y), static_cast<float>(body.size.z));
+				auto&      u = g_units[(std::min)(pc.unit, static_cast<int>(g_units.size()) - 1)];
+				const Quat frame = body.state == hc::Chunks::State::Board ? RotY(g_boardPose.tilt) * body.q : body.q;
+				const double xc = (pc.x0 + pc.x1) * 0.5;
+				const Vec3   c = body.p - frame.Rotate({ xc, 0.0, 0.0 });  // where its whole would have its middle
+				const bool   cut = pc.capA >= 0;
+				PlaceSlice(pc.prop, u, c, frame, cut ? pc.x0 : 0.0, cut ? pc.x1 : 0.0);
 				auto& lk = Scene::LookOf(pc.prop);
-				const auto& u = g_units[(std::min)(pc.unit, static_cast<int>(g_units.size()) - 1)];
-				lk.skin = Scene::Skin(u.prop);
-				std::memcpy(lk.uv, pc.uv, sizeof(lk.uv));
-				lk.lift[0] = 0.9f;
-				lk.lift[1] = 0.86f;
-				lk.lift[2] = 0.72f;
-				lk.lift[3] = 0.28f;
 				lk.cookMode = 1;
 				lk.cook[0] = static_cast<float>(body.charred ? 1.7 : body.cooked * 0.6);
-				Scene::Hide(pc.prop, false);
+				if (cut) {
+					PlaceCap(pc.capA, u, c, frame, pc.x0, false);
+					PlaceCap(pc.capB, u, c, frame, pc.x1, true);
+					for (auto cap : { pc.capA, pc.capB }) {
+						auto& cl = Scene::LookOf(cap);
+						cl.cookMode = 1;
+						cl.cook[0] = lk.cook[0];
+					}
+				}
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
 			if (P.broth >= 0 && g_pot) {
