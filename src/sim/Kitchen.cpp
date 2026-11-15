@@ -174,47 +174,53 @@ namespace hc
 	}
 
 	// ------------------------------------------------------------------ cutting
-	double Cutting::Chop(double a_x)
+	bool Cutting::Chop(double a_x)
 	{
-		if (finished || a_x <= x0 + 0.35 || a_x >= wholeEnd - 0.2) {
-			return 0.0;
+		constexpr double kMin = 0.3;  // a thinner sliver than this isn't a cut
+		if (finished || cutCount >= kMaxCuts || a_x <= x0 + kMin || a_x >= x1 - kMin) {
+			return false;
 		}
-		const double len = wholeEnd - a_x;
-		if (count < kMaxPieces) {
-			pieces[count++] = len;
+		int at = 0;
+		while (at < cutCount && cuts[at] < a_x) {
+			++at;
 		}
-		wholeEnd = a_x;
-		return len;
+		if ((at > 0 && a_x - cuts[at - 1] < kMin) || (at < cutCount && cuts[at] - a_x < kMin)) {
+			return false;
+		}
+		for (int k = cutCount; k > at; --k) {
+			cuts[k] = cuts[k - 1];
+		}
+		cuts[at] = a_x;
+		++cutCount;
+		return true;
 	}
 
-	double Cutting::Finish()
+	void Cutting::Piece(int a_i, double& a_a, double& a_b) const
 	{
-		if (finished) {
-			return 0.0;
-		}
-		finished = true;
-		const double len = wholeEnd - x0;
-		if (len > 0.05 && count < kMaxPieces) {
-			pieces[count++] = len;
-		}
-		return len;
+		a_a = a_i == 0 ? x0 : cuts[a_i - 1];
+		a_b = a_i == cutCount ? x1 : cuts[a_i];
 	}
 
 	double Cutting::Score() const
 	{
-		if (count <= 1) {
+		const int n = Pieces();
+		if (n <= 1) {
 			return 0.05;  // went in whole
 		}
 		double mean = 0.0;
-		for (int i = 0; i < count; ++i) {
-			mean += pieces[i];
+		for (int i = 0; i < n; ++i) {
+			double a, b;
+			Piece(i, a, b);
+			mean += b - a;
 		}
-		mean /= count;
+		mean /= n;
 		double var = 0.0;
-		for (int i = 0; i < count; ++i) {
-			var += (pieces[i] - mean) * (pieces[i] - mean);
+		for (int i = 0; i < n; ++i) {
+			double a, b;
+			Piece(i, a, b);
+			var += (b - a - mean) * (b - a - mean);
 		}
-		const double sd = m::Sqrt(var / count);
+		const double sd = m::Sqrt(var / n);
 		const double even = m::Clamp(1.0 - sd / mean * 1.8, 0.0, 1.0);
 		const double size = m::Clamp(1.0 - m::Abs(mean - target) / target * 0.9, 0.0, 1.0);
 		return 0.55 * even + 0.45 * size;

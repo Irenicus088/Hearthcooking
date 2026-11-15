@@ -67,6 +67,13 @@ static void TestCutting()
 	d.Chop(4.0);
 	d.Finish();
 	CHECK(d.Score() < 0.45, "two big hunks score %.2f", d.Score());
+	Cutting m;
+	m.target = 1.5;
+	for (double x = 1.5; x < m.x1 - 0.5; x += 1.5) {  // left to right works as well
+		m.Chop(x);
+	}
+	CHECK(m.Pieces() == 6 && m.Score() > 0.85, "left to right: %d pieces, score %.2f", m.Pieces(), m.Score());
+	CHECK(!m.Chop(1.6), "too near another cut");
 	Cutting e;
 	e.Finish();
 	CHECK(e.Score() < 0.1, "whole scores %.2f", e.Score());

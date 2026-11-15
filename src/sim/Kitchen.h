@@ -128,21 +128,22 @@ namespace hc
 	};
 
 	// ------------------------------------------------------------------ cutting
-	// An ingredient on the board, along x from x0. Chops cut the part still whole from its right end; every piece cut
-	// off, and what's left at the end, is scored for how even the pieces are and how near the size the recipe wants.
+	// An ingredient on the board, x0..x1 along its length. A chop splits whichever piece is under the knife, wherever
+	// it comes down; the pieces are scored for how even they are and how near the size the recipe wants.
 	struct Cutting
 	{
-		static constexpr int kMaxPieces = 24;
-		double x0 = 0.0, x1 = layout::kWholeLen;  // board-local x of the whole thing when it was laid down
-		double wholeEnd = layout::kWholeLen;       // the right end of the part still whole
-		double target = 1.5;                       // the piece length the recipe wants
-		double pieces[kMaxPieces]{};
-		int    count = 0;
-		bool   finished = false;  // what was left became the last piece
+		static constexpr int kMaxCuts = 31;
+		double x0 = 0.0, x1 = layout::kWholeLen;
+		double target = 1.5;        // the piece length the recipe wants
+		double cuts[kMaxCuts]{};    // where the knife has gone through, left to right
+		int    cutCount = 0;
+		bool   finished = false;    // gone off the board
 
-		// Board-local x where the knife came down: returns the length cut off (0 if the knife missed the whole part)
-		double Chop(double a_x);
-		double Finish();  // the rest becomes a piece (when it goes in the pot); returns its length
+		// Where the knife came down: true if it cut (not too near an end or another cut)
+		bool   Chop(double a_x);
+		int    Pieces() const { return cutCount + 1; }
+		void   Piece(int a_i, double& a_a, double& a_b) const;  // the i-th piece, left to right
+		void   Finish() { finished = true; }
 		double Score() const;
 	};
 

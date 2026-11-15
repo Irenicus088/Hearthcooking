@@ -112,7 +112,8 @@ namespace Cook
 			int                       ing = 0;
 			Role                      role = Role::Toss;
 			std::string               name, model;
-			Scene::Id                 prop = -1, cap = -1;
+			Scene::Id                 prop = -1;
+			std::vector<Scene::Id>    segs, caps;  // on the board: a slice of its mesh per piece, and the cut faces
 			enum class At
 			{
 				Cloth,
@@ -466,8 +467,8 @@ namespace Cook
 			double x, y, size;
 			bool   back;  // against the back of the hearth (taken by the oven)
 		};
-		constexpr Spot kSpots[] = { { -17.0, 17.4, 6.0, false }, { -9.5, 17.8, 5.0, false }, { -2.5, 17.5, 5.0, false }, { 2.0, 17.8, 4.0, false },
-			{ 27.0, 17.0, 6.0, true }, { 33.5, 16.0, 5.0, true }, { 34.5, -15.5, 5.0, false }, { -17.0, -15.5, 5.0, false } };
+		// (only on the hearth: nothing on the table)
+		constexpr Spot kSpots[] = { { 27.0, 17.0, 6.0, true }, { 33.5, 16.0, 5.0, true }, { 34.5, -15.5, 5.0, false } };
 
 		void BuildKitchen(bool a_oven, hc::Flow a_flow)
 		{
@@ -570,7 +571,6 @@ namespace Cook
 			a_u.boardLen = Clamp(a_u.dims[0] * 0.5, 4.0, 9.0);
 			a_u.cut.x0 = 0.0;
 			a_u.cut.x1 = a_u.boardLen;
-			a_u.cut.wholeEnd = a_u.boardLen;
 			a_u.cut.target = (std::max)(0.6, a_u.boardLen / 6.0);
 			a_u.fitted = true;
 			return true;
@@ -615,7 +615,7 @@ namespace Cook
 							u.dims[1] = 0.8;
 							u.dims[2] = 0.7;
 							u.boardLen = 5.0;
-							u.cut.x1 = u.cut.wholeEnd = 5.0;
+							u.cut.x1 = 5.0;
 						}
 					}
 					Scene::Hide(u.prop, true);
@@ -713,12 +713,25 @@ namespace Cook
 			return a_body;
 		}
 
-		void AddPiece(int a_unit, double a_x0, double a_len)
+		// How far apart the pieces of one thing sit on the board, so the cuts show
+		double Spread(int a_k, int a_n) { return (a_k - (a_n - 1) * 0.5) * 0.18; }
+
+		void HideBoardBits(Unit& u)
+		{
+			for (auto id : u.segs) {
+				Scene::Hide(id, true);
+			}
+			for (auto id : u.caps) {
+				Scene::Hide(id, true);
+			}
+		}
+
+		void AddPiece(int a_unit, double a_x0, double a_len, double a_shift)
 		{
 			auto&        u = g_units[a_unit];
 			const double x0 = a_x0 - u.boardLen * 0.5, x1 = x0 + a_len;  // along it, from its middle
 			const auto [dy, dz] = Cross(u, (x0 + x1) * 0.5);
-			const double lx = (x0 + x1) * 0.5 + 0.22;  // board-local, nudged off the knife
+			const double lx = (x0 + x1) * 0.5 + a_shift;  // board-local
 			const int    b = g_chunks.Add(a_unit, { lx, L::kLaneY[u.lane], L::kBoardH * 0.5 + Thick(u, u.boardLen, 2) * 0.5 }, { a_len, dy, dz },
 					 static_cast<unsigned>(g_pieces.size() * 31 + 7));
 			if (b >= 0) {
@@ -736,18 +749,20 @@ namespace Cook
 				if (u.at != Unit::At::Board || u.cut.finished) {
 					continue;
 				}
-				const double x0 = u.cut.x0, len = u.cut.Finish();
-				if (len > 0.05) {
-					AddPiece(i, x0, len);
+				const int n = u.cut.Pieces();
+				for (int k = 0; k < n; ++k) {
+					double a, b;
+					u.cut.Piece(k, a, b);
+					AddPiece(i, a, b - a, Spread(k, n));
 				}
-				if (u.cut.count <= 1) {
-					u.wentWhole = true;
-				}
+				u.wentWhole = n <= 1;
+				u.cut.Finish();
 				Scene::Hide(u.prop, true);
-				Scene::Hide(u.cap, true);
+				HideBoardBits(u);
 				u.at = Unit::At::Pot;  // on its way
 			}
 		}
+
 
 		// ---------------------------------------------------------------- starting a dish
 		void BrothColour()
@@ -922,7 +937,7 @@ namespace Cook
 			// the dish itself, on the plate or in the bowl
 			for (auto& u : g_units) {
 				Scene::Hide(u.prop, true);
-				Scene::Hide(u.cap, true);
+				HideBoardBits(u);
 			}
 			for (auto& p : g_pieces) {
 				Scene::Hide(p.prop, true);
@@ -1606,10 +1621,7 @@ namespace Cook
 							continue;
 						}
 						const double x = (g_knifeX - L::kBoardX) + u.boardLen * 0.5;
-						const double before = u.cut.wholeEnd;
-						const double len = u.cut.Chop(x);
-						if (len > 0.0) {
-							AddPiece(i, before - len, len);
+						if (u.cut.Chop(x)) {
 							cut = true;
 						}
 					}
@@ -1753,14 +1765,33 @@ namespace Cook
 		{
 			const Vec3 at = g_boardPose.ToWorld({ 0.0, L::kLaneY[u.lane], L::kBoardH * 0.5 + Thick(u, u.boardLen, 2) * 0.5 });
 			const Quat frame = RotY(g_boardPose.tilt);
-			const double xEnd = u.cut.wholeEnd - u.boardLen * 0.5;  // the knife's last cut, from its middle
-			// what's still whole: from its left end to the last cut
-			PlaceSlice(u.prop, u, at, frame, -u.boardLen, u.cut.count > 0 ? xEnd : u.boardLen);
-			if (u.cut.count > 0) {
-				if (u.cap < 0) {
-					u.cap = Add("Cap");
+			const int  n = u.cut.Pieces();
+			// a slice of its own mesh per piece (the first is the thing itself), nudged apart so the cuts show
+			if (u.segs.empty()) {
+				u.segs.push_back(u.prop);
+			}
+			while (static_cast<int>(u.segs.size()) < n) {
+				const auto id = u.model.empty() ? Add("Chunk") : Scene::Add(u.model);
+				u.segs.push_back(id >= 0 ? id : Add("Chunk"));
+			}
+			while (static_cast<int>(u.caps.size()) < 2 * (n - 1)) {
+				u.caps.push_back(Add("Cap"));
+			}
+			const double half = u.boardLen * 0.5;
+			for (int k = 0; k < n; ++k) {
+				double a, b;
+				u.cut.Piece(k, a, b);
+				const Vec3 c = at + frame.Rotate({ Spread(k, n), 0.0, 0.0 });
+				PlaceSlice(u.segs[k], u, c, frame, n > 1 ? a - half : 0.0, n > 1 ? b - half : 0.0);
+				if (k > 0) {
+					PlaceCap(u.caps[2 * (k - 1) + 1], u, c, frame, a - half, false);
 				}
-				PlaceCap(u.cap, u, at, frame, xEnd, true);
+				if (k < n - 1) {
+					PlaceCap(u.caps[2 * k], u, c, frame, b - half, true);
+				}
+			}
+			for (int k = n; k < static_cast<int>(u.segs.size()); ++k) {
+				Scene::Hide(u.segs[k], true);
 			}
 		}
 
@@ -1943,14 +1974,23 @@ namespace Cook
 					break;
 				default:
 					Scene::Hide(u.prop, true);
-					Scene::Hide(u.cap, true);
+					HideBoardBits(u);
 					break;
 				}
 				if (u.at != Unit::At::Board) {
 					auto& lk = Scene::LookOf(u.prop);
 					lk.clip[0] = lk.clip[1] = lk.clip[2] = 0.0f;
 					lk.clip2[0] = lk.clip2[1] = lk.clip2[2] = 0.0f;
-					Scene::Hide(u.cap, true);
+					if (u.at != Unit::At::Pot && u.at != Unit::At::Gone) {
+						for (auto id : u.segs) {
+							if (id != u.prop) {
+								Scene::Hide(id, true);
+							}
+						}
+						for (auto id : u.caps) {
+							Scene::Hide(id, true);
+						}
+					}
 				}
 			}
 			if (g_hold == Hold::Meat && g_holdUnit >= 0) {
@@ -1976,7 +2016,13 @@ namespace Cook
 			if (P.knife >= 0) {
 				if (g_knifeOn || g_knifeAnim >= 0) {
 					const double a = g_knifeAnim < 0 ? 0.0 : g_knifeAnim < 0.06 ? g_knifeAnim / 0.06 : 1.0 - (g_knifeAnim - 0.06) / 0.14;
-					const double z = kBoardTop + 2.6 * (1.0 - Clamp(a, 0.0, 1.0));
+					double       top = 0.0;  // how tall what's on its lane stands
+					for (const auto& u : g_units) {
+						if (u.at == Unit::At::Board && u.lane == g_knifeLane) {
+							top = (std::max)(top, Thick(u, u.boardLen, 2));
+						}
+					}
+					const double z = kBoardTop + (top + 1.6) * (1.0 - Clamp(a, 0.0, 1.0));
 					if (Game(Kit::Role::Knife)) {
 						// the game's knife on its edge across the lane: long along y, its blade's depth up, its thin side along x
 						Lie lie;
@@ -2026,6 +2072,8 @@ namespace Cook
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.cookMode = 1;
 				lk.cook[0] = static_cast<float>(body.charred ? 1.7 : body.cooked * 0.6);
+				lk.shadow = body.state != hc::Chunks::State::Pot;
+				Scene::LookOf(pc.capA).shadow = Scene::LookOf(pc.capB).shadow = lk.shadow;
 				if (cut) {
 					PlaceCap(pc.capA, u, c, frame, pc.x0, false);
 					PlaceCap(pc.capB, u, c, frame, pc.x1, true);
@@ -2457,7 +2505,7 @@ namespace Cook
 						if (u.role == Role::Chop) {
 							auto& e = by[u.name];
 							++e.first;
-							e.second += u.cut.count > 0 || u.at == Unit::At::Pot;
+							e.second += u.cut.cutCount > 0 || u.at == Unit::At::Pot;
 						}
 					}
 					for (const auto& [name, c] : by) {

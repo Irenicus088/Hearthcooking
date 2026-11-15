@@ -244,12 +244,11 @@ namespace Kit
 		// the clutter: the first of each that the game has, in this order
 		g_decor.clear();
 		// (no vegetables or fruit: they'd be taken for the recipe's own)
-		static constexpr const char* kWant[] = { "jug", "basket", "sack", "bottle of wine", "eidar cheese wheel", "tankard", "candlestick", "pitcher",
-			"loaf of bread", "goat cheese wheel", "wooden plate", "mead" };
+		static constexpr const char* kWant[] = { "jug", "basket", "tankard", "candlestick", "pitcher", "sack" };
 		for (const char* want : kWant) {
 			const Form* pick = nullptr;
 			for (const auto& f : forms) {
-				if ((f.type == 'M' || f.type == 'A' || f.type == 'I') && (f.name == want || (f.name.find(want) == 0 && f.name.size() < std::strlen(want) + 8))) {
+				if (f.type == 'M' && (f.name == want || (f.name.find(want) == 0 && f.name.size() < std::strlen(want) + 8))) {
 					pick = &f;
 					break;
 				}
