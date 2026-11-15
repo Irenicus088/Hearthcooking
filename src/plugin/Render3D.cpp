@@ -39,8 +39,8 @@ cbuffer Object : register(b1)
 	float4 tint;
 	float4 lift;        // rgb, amount
 	float4 emissive;
-	float4 clip1;
-	float4 clip2;
+	float4 clips[6];
+	float4 flesh;       // rgb, w on: cut faces
 	float4 uvx;         // scale, offset
 	float4 cookA, cookB, cookC;
 	float4 cookAxis;    // xyz, w mode
@@ -99,6 +99,27 @@ float4 VSShadow(VSIn i) : SV_Position
 	return mul(lightViewProj, float4(ToWorld(i.pos.xyz), 1));
 }
 
+struct VSShadowOut { float4 svpos : SV_Position; float3 wpos : TEXCOORD0; };
+VSShadowOut VSShadowCut(VSIn i)
+{
+	VSShadowOut o;
+	o.wpos = ToWorld(i.pos.xyz);
+	o.svpos = mul(lightViewProj, float4(o.wpos, 1));
+	return o;
+}
+
+bool Clipped(float3 p)
+{
+	[unroll] for (int k = 0; k < 6; k++)
+		if (any(clips[k].xyz != 0) && dot(clips[k].xyz, p) > clips[k].w) return true;
+	return false;
+}
+
+void PSShadowCut(VSShadowOut i)
+{
+	if (Clipped(i.wpos)) discard;
+}
+
 float Shadow(float3 wp, float3 n)
 {
 	float4 lp = mul(lightViewProj, float4(wp + n * 0.08, 1));
@@ -142,10 +163,48 @@ float CookAt(float3 n)
 	return lerp(b, mean, saturate(along * 1.4 - 0.2));
 }
 
-float4 PSMain(VSOut i) : SV_Target
+// A cut piece: the inside of its skin, seen through a cut, is drawn as the cut face itself - flat, the flesh's colour,
+// where the eye's ray first crosses into the kept part (so any number of cuts give a solid piece)
+bool CutFace(VSOut i, out float3 q, out float3 n)
 {
-	if (any(clip1.xyz != 0) && dot(clip1.xyz, i.wpos) > clip1.w) discard;
-	if (any(clip2.xyz != 0) && dot(clip2.xyz, i.wpos) > clip2.w) discard;
+	q = i.wpos;
+	n = 0;
+	float3 e = camPos.xyz, d = i.wpos - e;
+	if (flesh.w < 0.5 || dot(normalize(i.n), -d) > 0) return false;  // its skin's outside: drawn as it is
+	float best = -1;
+	[unroll] for (int k = 0; k < 6; k++) {
+		float3 pn = clips[k].xyz;
+		if (all(pn == 0)) continue;
+		float de = dot(pn, e) - clips[k].w, dd = dot(pn, d);
+		if (de > 0 && dd < 0) {
+			float t = -de / dd;
+			if (t > best) { best = t; n = pn; }
+		}
+	}
+	if (best < 0) return false;
+	q = e + d * best;
+	return true;
+}
+
+float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
+{
+	if (cut) {
+		// the flesh, faintly mottled by the skin's texture so it isn't a flat card
+		float4 tx = has.x ? texDiffuse.Sample(smpWrap, q.xy * 0.37 + q.z * 0.21) : float4(0.5, 0.5, 0.5, 1);
+		float  m = 0.9 + 0.2 * dot(tx.rgb, float3(0.33, 0.33, 0.34));
+		float3 alb = Cooked(Lin(flesh.rgb) * m, CookAt(cn));
+		float3 V = normalize(camPos.xyz - q);
+		float  nl = saturate(dot(cn, keyDir.xyz));
+		float  sh = Shadow(q, cn);
+		float3 hemi = lerp(ground.rgb, sky.rgb, cn.z * 0.5 + 0.5);
+		float3 toF = firePos.xyz - q;
+		float  df = length(toF);
+		float  att = pow(saturate(1 - df / firePos.w), 2);
+		float3 fire = fireColor.rgb * att * saturate(dot(cn, toF / max(df, 1e-3)) * 0.85 + 0.15);
+		float3 H = normalize(keyDir.xyz + V);
+		float3 col = alb * (hemi + keyColor.rgb * nl * sh + fire) + pow(saturate(dot(cn, H)), 40) * nl * sh * keyColor.rgb * 0.12;
+		return float4(col, 1);
+	}
 	float4 dif = has.x ? texDiffuse.Sample(smpWrap, i.uv) : float4(0.6, 0.6, 0.6, 1);
 	float a = dif.a * misc.y;
 	if (misc.w > 0.5) clip(a - misc.z);
@@ -194,6 +253,23 @@ float4 PSMain(VSOut i) : SV_Target
 	float3 col = albedo * light + sp + env + emissive.rgb;
 	return float4(col * alpha, alpha);
 }
+
+float4 PSMain(VSOut i) : SV_Target
+{
+	if (Clipped(i.wpos)) discard;
+	return Shade(i, false, i.wpos, 0);
+}
+
+float4 PSCut(VSOut i, out float depth : SV_Depth) : SV_Target
+{
+	if (Clipped(i.wpos)) discard;
+	float3 q, n;
+	bool   cut = CutFace(i, q, n);
+	float4 c = mul(viewProj, float4(q, 1));
+	depth = c.z / c.w;
+	return Shade(i, cut, q, n);
+}
+
 
 // ---- sprites: fire, steam, bubbles, salt
 struct SPOut { float4 svpos : SV_Position; float2 uv : TEXCOORD0; };
@@ -347,8 +423,8 @@ float4 PSComposite(FSOut i) : SV_Target
 			float         tint[4];
 			float         lift[4];
 			float         emissive[4];
-			float         clip1[4];
-			float         clip2[4];
+			float         clips[6][4];
+			float         flesh[4];
 			float         uvx[4];
 			float         cook[12];
 			float         cookAxis[4];
@@ -360,6 +436,16 @@ float4 PSComposite(FSOut i) : SV_Target
 			float color[4];
 			float params[4];
 		};
+
+		bool HasClips(const Item& a_it)
+		{
+			for (const auto& p : a_it.clips) {
+				if (p[0] != 0.0f || p[1] != 0.0f || p[2] != 0.0f) {
+					return true;
+				}
+			}
+			return false;
+		}
 
 		template <class T>
 		void Release(T*& a_p)
@@ -380,6 +466,9 @@ float4 PSComposite(FSOut i) : SV_Target
 		ID3D11VertexShader* g_vsFull = nullptr;
 		ID3D11VertexShader* g_vsSprite = nullptr;
 		ID3D11PixelShader*  g_ps = nullptr;
+		ID3D11PixelShader*  g_psCut = nullptr;
+		ID3D11VertexShader* g_vsShadowCut = nullptr;
+		ID3D11PixelShader*  g_psShadowCut = nullptr;
 		ID3D11PixelShader*  g_psSprite = nullptr;
 		ID3D11PixelShader*  g_psDown = nullptr;
 		ID3D11PixelShader*  g_psBlur = nullptr;
@@ -434,7 +523,14 @@ float4 PSComposite(FSOut i) : SV_Target
 		};
 		std::mutex                                              g_measureMtx;
 		std::vector<MeasureJob>                                 g_measureJobs;
-		std::unordered_map<std::uint64_t, std::array<float, 6>> g_measured;
+		// What came back, by vertex buffer: each keeps its buffer alive, so the game can't free it and hand the same
+		// address to another mesh while we still answer for it (a new kitchen's apple came out the size of an old cap)
+		struct Measured
+		{
+			std::array<float, 6> box;
+			ID3D11Buffer*        vb = nullptr;
+		};
+		std::unordered_map<std::uint64_t, Measured> g_measured;
 
 		ID3DBlob* Compile(const char* a_entry, const char* a_target)
 		{
@@ -475,8 +571,8 @@ float4 PSComposite(FSOut i) : SV_Target
 				b->Release();
 				return ok;
 			};
-			if (!vs("VSMain", &g_vs, true) || !vs("VSShadow", &g_vsShadow, false) || !vs("VSFull", &g_vsFull, false) || !vs("VSSprite", &g_vsSprite, false) ||
-				!ps("PSMain", &g_ps) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
+			if (!vs("VSMain", &g_vs, true) || !vs("VSShadow", &g_vsShadow, false) || !vs("VSShadowCut", &g_vsShadowCut, false) || !vs("VSFull", &g_vsFull, false) || !vs("VSSprite", &g_vsSprite, false) ||
+				!ps("PSMain", &g_ps) || !ps("PSCut", &g_psCut) || !ps("PSShadowCut", &g_psShadowCut) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
 				!ps("PSComposite", &g_psComposite)) {
 				return false;
 			}
@@ -776,7 +872,15 @@ float4 PSComposite(FSOut i) : SV_Target
 				out = { -1, -1, -1, 1, 1, 1 };  // couldn't read it: a unit box
 			}
 			std::lock_guard lk(g_measureMtx);
-			g_measured[a_job.id] = out;
+			auto&           e = g_measured[a_job.id];
+			if (e.vb && e.vb != a_job.vb) {
+				e.vb->Release();
+			}
+			if (e.vb == a_job.vb) {
+				a_job.vb->Release();  // already held
+			}
+			e.box = out;
+			e.vb = a_job.vb;  // the job's reference, kept
 		}
 
 		template <class T>
@@ -972,6 +1076,17 @@ float4 PSComposite(FSOut i) : SV_Target
 		g_measureJobs.push_back({ a_id, a_vb, a_desc, a_count });
 	}
 
+	void ForgetMeasures()
+	{
+		std::lock_guard lk(g_measureMtx);
+		for (auto& [id, e] : g_measured) {
+			if (e.vb) {
+				e.vb->Release();
+			}
+		}
+		g_measured.clear();
+	}
+
 	bool MeasureResult(std::uint64_t a_id, float (&a_min)[3], float (&a_max)[3])
 	{
 		std::lock_guard lk(g_measureMtx);
@@ -980,8 +1095,8 @@ float4 PSComposite(FSOut i) : SV_Target
 			return false;
 		}
 		for (int i = 0; i < 3; ++i) {
-			a_min[i] = it->second[i];
-			a_max[i] = it->second[3 + i];
+			a_min[i] = it->second.box[i];
+			a_max[i] = it->second.box[3 + i];
 		}
 		return true;
 	}
@@ -1013,8 +1128,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				g_measureJobs.erase(g_measureJobs.begin(), g_measureJobs.begin() + n);
 			}
 			for (const auto& j : jobs) {
-				Measure(c, j);
-				j.vb->Release();
+				Measure(c, j);  // keeps the job's reference
 			}
 		}
 		if (!g_frame.show) {
@@ -1142,8 +1256,8 @@ float4 PSComposite(FSOut i) : SV_Target
 			ob.has[2] = it.env != nullptr;
 			ob.has[3] = it.envMask != nullptr;
 			std::memcpy(ob.lift, it.lift, sizeof(ob.lift));
-			std::memcpy(ob.clip1, it.clip, sizeof(ob.clip1));
-			std::memcpy(ob.clip2, it.clip2, sizeof(ob.clip2));
+			std::memcpy(ob.clips, it.clips, sizeof(ob.clips));
+			std::memcpy(ob.flesh, it.flesh, sizeof(ob.flesh));
 			std::memcpy(ob.uvx, it.uv, sizeof(ob.uvx));
 			std::memcpy(ob.cook, it.cook, sizeof(ob.cook));
 			ob.cookAxis[3] = static_cast<float>(it.cookMode);
@@ -1163,6 +1277,9 @@ float4 PSComposite(FSOut i) : SV_Target
 			c->PSSetShader(nullptr, nullptr, 0);
 			for (const auto& it : g_frame.items) {
 				if (!it.blend && it.shadow && bindMesh(it)) {
+					const bool cut = HasClips(it);
+					c->VSSetShader(cut ? g_vsShadowCut : g_vsShadow, nullptr, 0);
+					c->PSSetShader(cut ? g_psShadowCut : nullptr, nullptr, 0);
 					c->DrawIndexed(it.indexCount, 0, 0);
 				}
 			}
@@ -1189,6 +1306,7 @@ float4 PSComposite(FSOut i) : SV_Target
 					}
 					ID3D11ShaderResourceView* t[4] = { it.diffuse, it.normal, it.env, it.envMask };
 					c->PSSetShaderResources(0, 4, t);
+					c->PSSetShader(it.flesh[3] > 0.5f ? g_psCut : g_ps, nullptr, 0);
 					c->DrawIndexed(it.indexCount, 0, 0);
 				}
 			};

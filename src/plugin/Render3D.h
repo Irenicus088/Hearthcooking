@@ -39,8 +39,8 @@ namespace Render3D
 		float tint[3]{ 1, 1, 1 };      // multiplies the colour
 		float lift[4]{};               // rgb, amount: lerps the colour toward rgb (raw dough, the broth's colour)
 		float emissive[3]{};           // light of its own (embers, a burning log), linear
-		float clip[4]{};               // a plane (world): what's past n.p > d isn't drawn; n = 0 for none
-		float clip2[4]{};
+		float clips[6][4]{};           // planes (world): what's past n.p > d isn't drawn; n = 0 for none
+		float flesh[4]{};              // rgb, on: the inside seen through a cut is drawn as a flat face this colour
 		float uv[4]{ 1, 1, 0, 0 };     // uv scale and offset (a piece shows a patch of its ingredient's skin)
 		int   cookMode = 0;            // 0 none, 1 all over (cook[0]), 2 by side round an axis (the spit)
 		float cook[12]{};              // how browned: 0 raw, 1 golden, 1.4 dark, 1.8 black
@@ -95,6 +95,7 @@ namespace Render3D
 	// don't say which way they're long, and the board needs to lay them along it. Ask on the main thread, collect later.
 	void RequestMeasure(std::uint64_t a_id, ID3D11Buffer* a_vb, std::uint64_t a_desc, std::uint32_t a_vertexCount);
 	bool MeasureResult(std::uint64_t a_id, float (&a_min)[3], float (&a_max)[3]);  // true once it's in
+	void ForgetMeasures();  // the kitchen's meshes are let go: their buffers too
 
 	// Render thread (Present), before the interface draws.
 	void Draw(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11DeviceContext* a_ctx);

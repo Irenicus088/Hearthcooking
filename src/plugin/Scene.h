@@ -18,8 +18,8 @@ namespace Scene
 		float tint[3]{ 1, 1, 1 };
 		float lift[4]{};
 		float emissive[3]{};
-		float clip[4]{};     // a world plane: n.p > d isn't drawn
-		float clip2[4]{};
+		float clips[6][4]{};  // world planes: n.p > d isn't drawn (n = 0 for none) - a piece cut from the whole
+		float flesh[4]{};     // rgb, 1: where it's cut, the inside shows this colour (a solid cut face)
 		float uv[4]{ 1, 1, 0, 0 };
 		int   cookMode = 0;  // see Render3D::Item
 		float cook[12]{};

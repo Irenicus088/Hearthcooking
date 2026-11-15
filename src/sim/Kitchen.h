@@ -128,21 +128,28 @@ namespace hc
 	};
 
 	// ------------------------------------------------------------------ cutting
-	// An ingredient on the board, x0..x1 along its length. A chop splits whichever piece is under the knife, wherever
-	// it comes down; the pieces are scored for how even they are and how near the size the recipe wants.
+	// An ingredient on the board, x0..x1 along its length and 0..width across it. Chops across split whichever piece
+	// is under the knife; with the knife turned, chops along it split it lengthwise, so the two together dice it. The
+	// pieces are scored for how even they are and how near the size the recipe wants, both ways.
 	struct Cutting
 	{
-		static constexpr int kMaxCuts = 31;
+		static constexpr int kMaxCuts = 15;
 		double x0 = 0.0, x1 = layout::kWholeLen;
-		double target = 1.5;        // the piece length the recipe wants
-		double cuts[kMaxCuts]{};    // where the knife has gone through, left to right
+		double width = 0.0;         // across it (0: not known, only the cuts across count)
+		double target = 1.5;        // the piece size the recipe wants
+		double cuts[kMaxCuts]{};    // where the knife has gone through across it, left to right
 		int    cutCount = 0;
+		double along[kMaxCuts]{};   // and along it, 0..width, front to back
+		int    alongCount = 0;
 		bool   finished = false;    // gone off the board
 
 		// Where the knife came down: true if it cut (not too near an end or another cut)
 		bool   Chop(double a_x);
-		int    Pieces() const { return cutCount + 1; }
-		void   Piece(int a_i, double& a_a, double& a_b) const;  // the i-th piece, left to right
+		bool   ChopAlong(double a_y);
+		int    Pieces() const { return cutCount + 1; }   // across
+		int    Strips() const { return alongCount + 1; } // along
+		void   Piece(int a_i, double& a_a, double& a_b) const;  // the i-th piece across, left to right
+		void   Strip(int a_j, double& a_a, double& a_b) const;  // the j-th strip along, 0..width
 		void   Finish() { finished = true; }
 		double Score() const;
 	};
@@ -153,7 +160,7 @@ namespace hc
 	class Chunks
 	{
 	public:
-		static constexpr int kMax = 96;
+		static constexpr int kMax = 256;
 
 		enum class State
 		{

@@ -86,6 +86,20 @@ static void TestCutting()
 	r.Finish();
 	CHECK(r.Score() < good - 0.2, "ragged cuts score %.2f", r.Score());
 	std::printf("cuts: even %.2f, ragged %.2f, two hunks %.2f\n", good, r.Score(), d.Score());
+	// diced: across and along, both even and the right size
+	Cutting dice;
+	dice.target = 1.5;
+	dice.width = 6.0;
+	for (double x = 1.5; x < dice.x1 - 0.5; x += 1.5) {
+		dice.Chop(x);
+	}
+	Cutting sliced = dice;
+	for (double y = 1.5; y < dice.width - 0.5; y += 1.5) {
+		dice.ChopAlong(y);
+	}
+	CHECK(dice.Strips() == 4 && dice.Score() > 0.85, "diced: %d x %d, score %.2f", dice.Pieces(), dice.Strips(), dice.Score());
+	CHECK(sliced.Score() < dice.Score() - 0.15, "only sliced %.2f vs diced %.2f", sliced.Score(), dice.Score());
+	CHECK(!dice.ChopAlong(1.6), "too near another cut along");
 }
 
 // Lays 3 ingredients' pieces on the board's lanes and tips the board into the pot, held at a_y.

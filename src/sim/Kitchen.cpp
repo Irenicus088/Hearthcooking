@@ -1,5 +1,7 @@
 #include "Kitchen.h"
 
+#include <algorithm>
+
 namespace hc
 {
 	namespace
@@ -174,56 +176,77 @@ namespace hc
 	}
 
 	// ------------------------------------------------------------------ cutting
-	bool Cutting::Chop(double a_x)
+	namespace
 	{
-		constexpr double kMin = 0.3;  // a thinner sliver than this isn't a cut
-		if (finished || cutCount >= kMaxCuts || a_x <= x0 + kMin || a_x >= x1 - kMin) {
-			return false;
+		constexpr double kMinCut = 0.3;  // a thinner sliver than this isn't a cut
+
+		bool Insert(double* a_cuts, int& a_count, double a_lo, double a_hi, double a_x)
+		{
+			if (a_count >= Cutting::kMaxCuts || a_x <= a_lo + kMinCut || a_x >= a_hi - kMinCut) {
+				return false;
+			}
+			int at = 0;
+			while (at < a_count && a_cuts[at] < a_x) {
+				++at;
+			}
+			if ((at > 0 && a_x - a_cuts[at - 1] < kMinCut) || (at < a_count && a_cuts[at] - a_x < kMinCut)) {
+				return false;
+			}
+			for (int k = a_count; k > at; --k) {
+				a_cuts[k] = a_cuts[k - 1];
+			}
+			a_cuts[at] = a_x;
+			++a_count;
+			return true;
 		}
-		int at = 0;
-		while (at < cutCount && cuts[at] < a_x) {
-			++at;
+
+		void Span(const double* a_cuts, int a_count, double a_lo, double a_hi, int a_i, double& a_a, double& a_b)
+		{
+			a_a = a_i == 0 ? a_lo : a_cuts[a_i - 1];
+			a_b = a_i == a_count ? a_hi : a_cuts[a_i];
 		}
-		if ((at > 0 && a_x - cuts[at - 1] < kMin) || (at < cutCount && cuts[at] - a_x < kMin)) {
-			return false;
+
+		// The pieces' sizes one way: their mean and spread
+		void Spread(const double* a_cuts, int a_count, double a_lo, double a_hi, double& a_mean, double& a_sd)
+		{
+			const int n = a_count + 1;
+			a_mean = (a_hi - a_lo) / n;
+			double var = 0.0;
+			for (int i = 0; i < n; ++i) {
+				double a, b;
+				Span(a_cuts, a_count, a_lo, a_hi, i, a, b);
+				var += (b - a - a_mean) * (b - a - a_mean);
+			}
+			a_sd = m::Sqrt(var / n);
 		}
-		for (int k = cutCount; k > at; --k) {
-			cuts[k] = cuts[k - 1];
-		}
-		cuts[at] = a_x;
-		++cutCount;
-		return true;
 	}
 
-	void Cutting::Piece(int a_i, double& a_a, double& a_b) const
-	{
-		a_a = a_i == 0 ? x0 : cuts[a_i - 1];
-		a_b = a_i == cutCount ? x1 : cuts[a_i];
-	}
+	bool Cutting::Chop(double a_x) { return !finished && Insert(cuts, cutCount, x0, x1, a_x); }
+
+	bool Cutting::ChopAlong(double a_y) { return !finished && width > 0.0 && Insert(along, alongCount, 0.0, width, a_y); }
+
+	void Cutting::Piece(int a_i, double& a_a, double& a_b) const { Span(cuts, cutCount, x0, x1, a_i, a_a, a_b); }
+
+	void Cutting::Strip(int a_j, double& a_a, double& a_b) const { Span(along, alongCount, 0.0, width, a_j, a_a, a_b); }
 
 	double Cutting::Score() const
 	{
-		const int n = Pieces();
-		if (n <= 1) {
+		if (cutCount == 0 && alongCount == 0) {
 			return 0.05;  // went in whole
 		}
-		double mean = 0.0;
-		for (int i = 0; i < n; ++i) {
-			double a, b;
-			Piece(i, a, b);
-			mean += b - a;
+		double mx, sx;
+		Spread(cuts, cutCount, x0, x1, mx, sx);
+		auto size = [&](double a_mean) { return m::Clamp(1.0 - m::Abs(a_mean - target) / target * 0.9, 0.0, 1.0); };
+		double even = m::Clamp(1.0 - sx / mx * 1.8, 0.0, 1.0);
+		double sz = size(mx);
+		if (width > 0.0) {
+			// diced: across and along both count
+			double my, sy;
+			Spread(along, alongCount, 0.0, width, my, sy);
+			even = 0.5 * even + 0.5 * m::Clamp(1.0 - sy / my * 1.8, 0.0, 1.0);
+			sz = 0.5 * sz + 0.5 * size(my);
 		}
-		mean /= n;
-		double var = 0.0;
-		for (int i = 0; i < n; ++i) {
-			double a, b;
-			Piece(i, a, b);
-			var += (b - a - mean) * (b - a - mean);
-		}
-		const double sd = m::Sqrt(var / n);
-		const double even = m::Clamp(1.0 - sd / mean * 1.8, 0.0, 1.0);
-		const double size = m::Clamp(1.0 - m::Abs(mean - target) / target * 0.9, 0.0, 1.0);
-		return 0.55 * even + 0.45 * size;
+		return 0.55 * even + 0.45 * sz;
 	}
 
 	// ------------------------------------------------------------------ pieces in flight
@@ -254,7 +277,10 @@ namespace hc
 		b.ing = a_ing;
 		b.local = a_local;
 		b.size = a_size;
-		b.r = m::Max(0.35, 0.5 * m::Max(a_size.x, m::Max(a_size.y, a_size.z)) * 0.85);
+		// about as round as its middle size, not its longest side (a thin slice is not a ball)
+		double d[3] = { a_size.x, a_size.y, a_size.z };
+		std::sort(d, d + 3);
+		b.r = m::Max(0.3, 0.5 * d[1] * 0.9);
 		b.q = Quat::FromAxisAngle({ 0, 0, 1 }, rng.Range(-0.35, 0.35));
 		b.bob = rng.Range(0.0, 6.28);
 		return _n++;
@@ -448,7 +474,8 @@ namespace hc
 						continue;
 					}
 					const Vec3   n = d * (1.0 / dist);
-					const double push = (minD - dist) * (c.state == State::Board ? 1.0 : 0.5);
+					// eased apart, never flung: pieces that start out touching would otherwise burst off the board
+					const double push = m::Min(0.02, (minD - dist) * (c.state == State::Board ? 1.0 : 0.5));
 					a.p -= n * push;
 					if (c.state == State::Free) {
 						c.p += n * push;

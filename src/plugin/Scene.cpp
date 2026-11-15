@@ -180,7 +180,7 @@ namespace Scene
 				auto*         vb = reinterpret_cast<::ID3D11Buffer*>(rd->vertexBuffer);
 				std::uint64_t desc = 0;
 				std::memcpy(&desc, &rd->vertexDesc, sizeof(desc));
-				const auto id = reinterpret_cast<std::uint64_t>(vb);
+				const auto id = reinterpret_cast<std::uint64_t>(vb) ^ (static_cast<std::uint64_t>(tri->GetTrishapeRuntimeData().vertexCount) << 48) ^ (desc * 0x9E3779B97F4A7C15ull);
 				if (!a_p.asked) {
 					Render3D::RequestMeasure(id, vb, desc, tri->GetTrishapeRuntimeData().vertexCount);
 				}
@@ -429,6 +429,7 @@ namespace Scene
 			Remove(i);
 		}
 		g_props.clear();
+		Render3D::ForgetMeasures();
 	}
 
 	void Place(Id a_id, const hc::Vec3& a_pos, const hc::Quat& a_rot, float a_scale)
@@ -685,8 +686,8 @@ namespace Scene
 				std::memcpy(it.tint, lk.tint, sizeof(it.tint));
 				std::memcpy(it.lift, lk.lift, sizeof(it.lift));
 				std::memcpy(it.emissive, lk.emissive, sizeof(it.emissive));
-				std::memcpy(it.clip, lk.clip, sizeof(it.clip));
-				std::memcpy(it.clip2, lk.clip2, sizeof(it.clip2));
+				std::memcpy(it.clips, lk.clips, sizeof(it.clips));
+				std::memcpy(it.flesh, lk.flesh, sizeof(it.flesh));
 				std::memcpy(it.uv, lk.uv, sizeof(it.uv));
 				it.cookMode = lk.cookMode;
 				std::memcpy(it.cook, lk.cook, sizeof(it.cook));

@@ -113,7 +113,7 @@ namespace Cook
 			Role                      role = Role::Toss;
 			std::string               name, model;
 			Scene::Id                 prop = -1;
-			std::vector<Scene::Id>    segs, caps;  // on the board: a slice of its mesh per piece, and the cut faces
+			std::vector<Scene::Id>    segs;  // on the board: its own mesh cut to each piece (the cut faces drawn from inside)
 			enum class At
 			{
 				Cloth,
@@ -136,13 +136,15 @@ namespace Cook
 			bool                      wentWhole = false;  // into the pot without being cut
 		};
 
-		// A piece: a slice of the ingredient's own mesh (between two cuts, x0..x1 along its length, centred on its middle,
-		// at the board's scale), with a cut face at each end
+		// A piece: the ingredient's own mesh cut to a box (x along its length, y across, z up; about its middle, at the
+		// board's scale; whole where cut is false), its body's middle at mid in the same frame
 		struct Piece
 		{
-			Scene::Id prop = -1, capA = -1, capB = -1;
+			Scene::Id prop = -1;
 			int       unit = 0;
-			double    x0 = 0.0, x1 = 0.0;
+			double    box[6]{};  // x0 x1 y0 y1 z0 z1
+			Vec3      mid;
+			bool      cut = false;
 		};
 
 		struct Grain
@@ -215,6 +217,7 @@ namespace Cook
 		hc::Chunks::Board g_boardPose, g_boardPrev;
 		double g_knifeX = L::kBoardX, g_knifeY = L::kBoardY, g_knifeAnim = -1;
 		bool   g_knifeOn = false, g_knifeCut = false;
+		bool   g_knifeAlong = false;  // turned to cut along the food (the second way, for dice)
 		int    g_knifeLane = -1;
 		double g_ladleA = -kPi * 0.6, g_ladleR = 3.6, g_lastStir = 0, g_stirred = 0;
 		Vec3   g_ladleOutAt;
@@ -553,6 +556,8 @@ namespace Cook
 		// ---------------------------------------------------------------- the ingredients
 		const Recipes::Ingredient& Ing(const Unit& a_u) { return g_recipe->ings[a_u.ing]; }
 
+		double Thick(const Unit& a_u, double a_len, int a_k) { return a_u.dims[a_k] * a_len / a_u.dims[0]; }
+
 		// How it lies flat: its longest side along x, its shortest up
 		bool Fit(Unit& a_u)
 		{
@@ -572,6 +577,7 @@ namespace Cook
 			a_u.cut.x0 = 0.0;
 			a_u.cut.x1 = a_u.boardLen;
 			a_u.cut.target = (std::max)(0.6, a_u.boardLen / 6.0);
+			a_u.cut.width = Thick(a_u, a_u.boardLen, 1) * 0.96;
 			a_u.fitted = true;
 			return true;
 		}
@@ -590,7 +596,6 @@ namespace Cook
 			Scene::Hide(a_u.prop, false);
 		}
 
-		double Thick(const Unit& a_u, double a_len, int a_k) { return a_u.dims[a_k] * a_len / a_u.dims[0]; }
 
 		void BuildUnits()
 		{
@@ -691,20 +696,17 @@ namespace Cook
 			std::memcpy(a_out, c, sizeof(c));
 		}
 
-		int NewPiece(int a_unit, int a_body, double a_x0, double a_x1, bool a_caps)
+		int NewPiece(int a_unit, int a_body, const double (&a_box)[6], const Vec3& a_mid, bool a_cut)
 		{
 			auto& u = g_units[a_unit];
 			Piece p;
 			p.unit = a_unit;
-			p.x0 = a_x0;
-			p.x1 = a_x1;
+			std::copy(std::begin(a_box), std::end(a_box), p.box);
+			p.mid = a_mid;
+			p.cut = a_cut;
 			p.prop = u.model.empty() ? -1 : Scene::Add(u.model);
 			if (p.prop < 0) {
 				p.prop = Add("Chunk");  // its mesh won't load: a plain piece
-			}
-			if (a_caps) {
-				p.capA = Add("Cap");
-				p.capB = Add("Cap");
 			}
 			if (static_cast<int>(g_pieces.size()) <= a_body) {
 				g_pieces.resize(a_body + 1);
@@ -721,27 +723,21 @@ namespace Cook
 			for (auto id : u.segs) {
 				Scene::Hide(id, true);
 			}
-			for (auto id : u.caps) {
-				Scene::Hide(id, true);
-			}
 		}
 
-		void AddPiece(int a_unit, double a_x0, double a_len, double a_shift)
+		// Its pieces stacked in layers when it's diced both ways (a horizontal cut or two, as a cook would), so a
+		// tall thing comes apart in dice rather than in posts
+		int Layers(const Unit& u)
 		{
-			auto&        u = g_units[a_unit];
-			const double x0 = a_x0 - u.boardLen * 0.5, x1 = x0 + a_len;  // along it, from its middle
-			const auto [dy, dz] = Cross(u, (x0 + x1) * 0.5);
-			const double lx = (x0 + x1) * 0.5 + a_shift;  // board-local
-			const int    b = g_chunks.Add(a_unit, { lx, L::kLaneY[u.lane], L::kBoardH * 0.5 + Thick(u, u.boardLen, 2) * 0.5 }, { a_len, dy, dz },
-					 static_cast<unsigned>(g_pieces.size() * 31 + 7));
-			if (b >= 0) {
-				NewPiece(a_unit, b, x0, x1, true);
-				// a fresh slice lies as it was cut, not turned
-				g_chunks.At(b).q = {};
+			const auto& c = u.cut;
+			if (c.cutCount == 0 || c.alongCount == 0) {
+				return 1;
 			}
+			const double cell = 0.5 * ((c.x1 - c.x0) / c.Pieces() + c.width / c.Strips());
+			return static_cast<int>(Clamp(std::round(Thick(u, u.boardLen, 2) / cell), 1.0, 3.0));
 		}
-
-		// The whole part left on the board goes over as the last piece
+		// What's on the board goes over: a body per piece, diced pieces in layers, empty corners (past a round thing's
+		// edge) left out
 		void FinishBoard()
 		{
 			for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
@@ -749,13 +745,48 @@ namespace Cook
 				if (u.at != Unit::At::Board || u.cut.finished) {
 					continue;
 				}
-				const int n = u.cut.Pieces();
-				for (int k = 0; k < n; ++k) {
-					double a, b;
-					u.cut.Piece(k, a, b);
-					AddPiece(i, a, b - a, Spread(k, n));
+				const int    nx = u.cut.Pieces(), ny = u.cut.Strips(), nz = Layers(u);
+				const bool   cut = nx * ny > 1;
+				const double half = u.boardLen * 0.5, w = u.cut.width, h = Thick(u, u.boardLen, 2);
+				for (int ix = 0; ix < nx; ++ix) {
+					double xa, xb;
+					u.cut.Piece(ix, xa, xb);
+					xa -= half, xb -= half;
+					const auto [cy, cz] = Cross(u, Clamp(0.0, xa, xb));  // its fullest, within this piece
+					const double ry = (std::max)(0.2, cy * 0.5), rz = (std::max)(0.2, cz * 0.5);
+					for (int iy = 0; iy < ny; ++iy) {
+						double ya, yb;
+						u.cut.Strip(iy, ya, yb);
+						ya -= w * 0.5, yb -= w * 0.5;
+						if (!cut || ny == 1) {
+							ya = -ry, yb = ry;
+						}
+						for (int iz = 0; iz < nz; ++iz) {
+							double za = -h * 0.5 + h * iz / nz, zb = -h * 0.5 + h * (iz + 1) / nz;
+							if (nz == 1) {
+								za = -rz, zb = rz;
+							}
+							// is there anything in this cell?
+							const double py = Clamp(0.0, ya, yb) / ry, pz = Clamp(0.0, za, zb) / rz;
+							if (py * py + pz * pz > 0.92) {
+								continue;
+							}
+							// the body: what of the cell the thing fills
+							const double ey0 = (std::max)(ya, -ry), ey1 = (std::min)(yb, ry), ez0 = (std::max)(za, -rz), ez1 = (std::min)(zb, rz);
+							const Vec3   mid{ (xa + xb) * 0.5, (ey0 + ey1) * 0.5, (ez0 + ez1) * 0.5 };
+							const Vec3   size{ xb - xa, (std::max)(0.2, ey1 - ey0), (std::max)(0.2, ez1 - ez0) };
+							const Vec3   local{ mid.x + Spread(ix, nx), L::kLaneY[u.lane] + mid.y + Spread(iy, ny), L::kBoardH * 0.5 + h * 0.5 + mid.z };
+							const int    b = g_chunks.Add(i, local, size, static_cast<unsigned>(g_pieces.size() * 31 + 7));
+							if (b < 0) {
+								continue;
+							}
+							const double box[6] = { cut ? xa : -1e7, cut ? xb : 1e7, ny > 1 ? ya : -1e7, ny > 1 ? yb : 1e7, nz > 1 ? za : -1e7, nz > 1 ? zb : 1e7 };
+							NewPiece(i, b, box, mid, cut);
+							g_chunks.At(b).q = {};  // a fresh piece lies as it was cut, not turned
+						}
+					}
 				}
-				u.wentWhole = n <= 1;
+				u.wentWhole = !cut;
 				u.cut.Finish();
 				Scene::Hide(u.prop, true);
 				HideBoardBits(u);
@@ -799,6 +830,7 @@ namespace Cook
 			g_boardY = L::kBoardY;
 			g_knifeAnim = -1;
 			g_knifeOn = false;
+			g_knifeAlong = false;
 			g_ladleA = -kPi * 0.6;
 			g_ladleR = 3.6;
 			g_pinch = 0;
@@ -1372,7 +1404,8 @@ namespace Cook
 								const double len = u.boardLen;
 								const int    b = g_chunks.AddFree(ui, g_carry, {}, { len, Thick(u, len, 1), Thick(u, len, 2) }, static_cast<unsigned>(ui * 13 + 5));
 								if (b >= 0) {
-									NewPiece(ui, b, -len * 0.5, len * 0.5, false);
+									const double box[6] = { -1e7, 1e7, -1e7, 1e7, -1e7, 1e7 };
+									NewPiece(ui, b, box, {}, false);
 								}
 							} else {
 								++g_tossedIn;
@@ -1560,6 +1593,9 @@ namespace Cook
 			Overlay::MousePos(mx, my);
 			for (const auto& p : Overlay::TakePresses()) {
 				if (p.button == 1 && p.down) {
+					if (g_hold == Hold::None && g_flow == hc::Flow::Pot && g_phase == Phase::Cooking) {
+						g_knifeAlong = !g_knifeAlong;  // the knife turns: across, along
+					}
 					Cancel();
 					continue;
 				}
@@ -1598,8 +1634,20 @@ namespace Cook
 					g_knifeOn = true;
 					g_knifeLane = best;
 					if (g_knifeAnim < 0) {
-						g_knifeX = L::kBoardX + Clamp(lx, -L::kBoardW * 0.5 + 1.0, L::kBoardW * 0.5 - 1.0);
-						g_knifeY = g_boardY + (best >= 0 ? L::kLaneY[best] : ly);
+						if (g_knifeAlong && best >= 0) {
+							// along the food: over its middle, wherever across it the mouse is
+							double w = 1.0;
+							for (const auto& u : g_units) {
+								if (u.at == Unit::At::Board && u.lane == best) {
+									w = (std::max)(w, u.cut.width);
+								}
+							}
+							g_knifeX = L::kBoardX;
+							g_knifeY = g_boardY + L::kLaneY[best] + Clamp(ly - L::kLaneY[best], -w * 0.5 + 0.2, w * 0.5 - 0.2);
+						} else {
+							g_knifeX = L::kBoardX + Clamp(lx, -L::kBoardW * 0.5 + 1.0, L::kBoardW * 0.5 - 1.0);
+							g_knifeY = g_boardY + (best >= 0 ? L::kLaneY[best] : ly);
+						}
 					}
 				}
 			}
@@ -1620,9 +1668,12 @@ namespace Cook
 						if (u.at != Unit::At::Board || u.lane != g_knifeLane || u.cut.finished) {
 							continue;
 						}
-						const double x = (g_knifeX - L::kBoardX) + u.boardLen * 0.5;
-						if (u.cut.Chop(x)) {
-							cut = true;
+						if (g_knifeAlong) {
+							const double y = (g_knifeY - g_boardY - L::kLaneY[u.lane]) + u.cut.width * 0.5;
+							cut |= u.cut.ChopAlong(y);
+						} else {
+							const double x = (g_knifeX - L::kBoardX) + u.boardLen * 0.5;
+							cut |= u.cut.Chop(x);
 						}
 					}
 					Audio::Take(cut ? "chop_" : "thunk_", cut ? 0.8f : 0.5f, 0.08f, static_cast<float>(Clamp((g_knifeX - 0.0) / 40.0, -0.8, 0.8)));
@@ -1720,24 +1771,9 @@ namespace Cook
 		}
 
 		// ---------------------------------------------------------------- every frame: the kitchen as it looks
-		// A cut face: a disk the inside's colour, at a_x along the frame (x along the ingredient), facing out that way
-		void PlaceCap(Scene::Id a_cap, const Unit& u, const Vec3& a_c, const Quat& a_frame, double a_x, bool a_plus)
-		{
-			if (a_cap < 0) {
-				return;
-			}
-			const auto [dy, dz] = Cross(u, a_x);
-			const Quat q = a_plus ? a_frame : a_frame * RotZ(kPi);
-			Scene::Place(a_cap, a_c + a_frame.Rotate({ a_x + (a_plus ? -0.015 : 0.015), 0.0, 0.0 }), q, 1.0f);
-			Scene::Stretch(a_cap, 1.0f, static_cast<float>(dy), static_cast<float>(dz));
-			auto& cl = Scene::LookOf(a_cap);
-			cl.skin = nullptr;
-			Flesh(u, cl.tint);
-			Scene::Hide(a_cap, false);
-		}
-
-		// The ingredient's own mesh, lying along the frame's x with its middle at a_c, cut to x0..x1 (none if equal)
-		void PlaceSlice(Scene::Id a_id, Unit& u, const Vec3& a_c, const Quat& a_frame, double a_x0, double a_x1)
+		// The ingredient's own mesh, laid in the frame (x along it, y across, z up) with its middle at a_c, cut to the
+		// box (a bound past 1e6 is no cut); the inside shows through the cuts as solid flesh
+		void PlacePiece(Scene::Id a_id, Unit& u, const Vec3& a_c, const Quat& a_frame, const double (&a_box)[6], bool a_cut)
 		{
 			if (!Fit(u)) {
 				Scene::Hide(a_id, true);
@@ -1747,26 +1783,31 @@ namespace Cook
 			const Quat   q = a_frame * u.lie;
 			Scene::Place(a_id, a_c - q.Rotate(u.center) * s, q, static_cast<float>(s));
 			Scene::Hide(a_id, false);
-			auto&      lk = Scene::LookOf(a_id);
-			const Vec3 n = a_frame.Rotate({ 1, 0, 0 });
-			const double base = n.Dot(a_c);
-			const bool   cut = a_x1 > a_x0;
-			lk.clip[0] = cut ? static_cast<float>(n.x) : 0.0f;
-			lk.clip[1] = cut ? static_cast<float>(n.y) : 0.0f;
-			lk.clip[2] = cut ? static_cast<float>(n.z) : 0.0f;
-			lk.clip[3] = static_cast<float>(base + a_x1);
-			lk.clip2[0] = cut ? static_cast<float>(-n.x) : 0.0f;
-			lk.clip2[1] = cut ? static_cast<float>(-n.y) : 0.0f;
-			lk.clip2[2] = cut ? static_cast<float>(-n.z) : 0.0f;
-			lk.clip2[3] = static_cast<float>(-(base + a_x0));
+			auto& lk = Scene::LookOf(a_id);
+			for (int k = 0; k < 6; ++k) {
+				const int    axis = k / 2;
+				const bool   hi = (k & 1) != 0;
+				const double v = a_box[k];
+				const Vec3   n = a_frame.Rotate({ axis == 0 ? 1.0 : 0.0, axis == 1 ? 1.0 : 0.0, axis == 2 ? 1.0 : 0.0 }) * (hi ? 1.0 : -1.0);
+				const bool   on = a_cut && std::abs(v) < 1e6;
+				lk.clips[k][0] = on ? static_cast<float>(n.x) : 0.0f;
+				lk.clips[k][1] = on ? static_cast<float>(n.y) : 0.0f;
+				lk.clips[k][2] = on ? static_cast<float>(n.z) : 0.0f;
+				lk.clips[k][3] = static_cast<float>(n.Dot(a_c) + (hi ? v : -v));
+			}
+			float fl[3];
+			Flesh(u, fl);
+			std::copy(fl, fl + 3, lk.flesh);
+			lk.flesh[3] = a_cut ? 1.0f : 0.0f;
 		}
 
 		void PlaceBoardUnit(Unit& u)
 		{
-			const Vec3 at = g_boardPose.ToWorld({ 0.0, L::kLaneY[u.lane], L::kBoardH * 0.5 + Thick(u, u.boardLen, 2) * 0.5 });
-			const Quat frame = RotY(g_boardPose.tilt);
-			const int  n = u.cut.Pieces();
-			// a slice of its own mesh per piece (the first is the thing itself), nudged apart so the cuts show
+			const double h = Thick(u, u.boardLen, 2);
+			const Vec3   at = g_boardPose.ToWorld({ 0.0, L::kLaneY[u.lane], L::kBoardH * 0.5 + h * 0.5 });
+			const Quat   frame = RotY(g_boardPose.tilt);
+			const int    nx = u.cut.Pieces(), ny = u.cut.Strips(), n = nx * ny;
+			// its own mesh cut to each piece (the first is the thing itself), nudged apart so the cuts show
 			if (u.segs.empty()) {
 				u.segs.push_back(u.prop);
 			}
@@ -1774,20 +1815,16 @@ namespace Cook
 				const auto id = u.model.empty() ? Add("Chunk") : Scene::Add(u.model);
 				u.segs.push_back(id >= 0 ? id : Add("Chunk"));
 			}
-			while (static_cast<int>(u.caps.size()) < 2 * (n - 1)) {
-				u.caps.push_back(Add("Cap"));
-			}
-			const double half = u.boardLen * 0.5;
-			for (int k = 0; k < n; ++k) {
+			const double half = u.boardLen * 0.5, w = u.cut.width;
+			for (int ix = 0; ix < nx; ++ix) {
 				double a, b;
-				u.cut.Piece(k, a, b);
-				const Vec3 c = at + frame.Rotate({ Spread(k, n), 0.0, 0.0 });
-				PlaceSlice(u.segs[k], u, c, frame, n > 1 ? a - half : 0.0, n > 1 ? b - half : 0.0);
-				if (k > 0) {
-					PlaceCap(u.caps[2 * (k - 1) + 1], u, c, frame, a - half, false);
-				}
-				if (k < n - 1) {
-					PlaceCap(u.caps[2 * k], u, c, frame, b - half, true);
+				u.cut.Piece(ix, a, b);
+				for (int iy = 0; iy < ny; ++iy) {
+					double ya, yb;
+					u.cut.Strip(iy, ya, yb);
+					const double box[6] = { nx > 1 ? a - half : -1e7, nx > 1 ? b - half : 1e7, ny > 1 ? ya - w * 0.5 : -1e7, ny > 1 ? yb - w * 0.5 : 1e7, -1e7, 1e7 };
+					const Vec3   c = at + frame.Rotate({ Spread(ix, nx), Spread(iy, ny), 0.0 });
+					PlacePiece(u.segs[ix * ny + iy], u, c, frame, box, n > 1);
 				}
 			}
 			for (int k = n; k < static_cast<int>(u.segs.size()); ++k) {
@@ -1979,16 +2016,13 @@ namespace Cook
 				}
 				if (u.at != Unit::At::Board) {
 					auto& lk = Scene::LookOf(u.prop);
-					lk.clip[0] = lk.clip[1] = lk.clip[2] = 0.0f;
-					lk.clip2[0] = lk.clip2[1] = lk.clip2[2] = 0.0f;
+					std::memset(lk.clips, 0, sizeof(lk.clips));
+					lk.flesh[3] = 0.0f;
 					if (u.at != Unit::At::Pot && u.at != Unit::At::Gone) {
 						for (auto id : u.segs) {
 							if (id != u.prop) {
 								Scene::Hide(id, true);
 							}
-						}
-						for (auto id : u.caps) {
-							Scene::Hide(id, true);
 						}
 					}
 				}
@@ -2028,14 +2062,18 @@ namespace Cook
 						Lie lie;
 						if (LieOf(P.knife, lie)) {
 							static const double kCyc[3][3] = { { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 } };
-							const Quat   q = FromRows(kCyc) * lie.q;
+							const Quat   q = (g_knifeAlong ? RotZ(kPi * 0.5) : Quat{}) * FromRows(kCyc) * lie.q;
 							const double ks = 8.5 / lie.d[0];
 							const Vec3   c{ g_knifeX, g_knifeY, z + lie.d[1] * ks * 0.5 };
 							Scene::Place(P.knife, c - q.Rotate(lie.c) * ks, q, static_cast<float>(ks));
 							Scene::Hide(P.knife, false);
 						}
 					} else {
-						Scene::Place(P.knife, { g_knifeX, g_knifeY - 3.8, z }, {}, 1.0f);
+						if (g_knifeAlong) {
+							Scene::Place(P.knife, { g_knifeX - 3.8, g_knifeY, z }, RotZ(-kPi * 0.5), 1.0f);
+						} else {
+							Scene::Place(P.knife, { g_knifeX, g_knifeY - 3.8, z }, {}, 1.0f);
+						}
 					}
 				} else if (Game(Kit::Role::Knife)) {
 					Lie lie;
@@ -2050,7 +2088,7 @@ namespace Cook
 					Scene::Place(P.knife, { L::kBoardX + 5.0, L::kBoardY - 9.2, 0.12 }, RotZ(-kPi * 0.5) * RotY(kPi * 0.5), 1.0f);
 				}
 			}
-			// ---- the pieces: slices of the ingredient's own mesh, with their cut faces
+			// ---- the pieces: the ingredient's own mesh, cut to each
 			for (int b = 0; b < g_chunks.Count() && b < static_cast<int>(g_pieces.size()); ++b) {
 				const auto& body = g_chunks.At(b);
 				auto&       pc = g_pieces[b];
@@ -2059,30 +2097,16 @@ namespace Cook
 				}
 				if (body.state == hc::Chunks::State::None) {
 					Scene::Hide(pc.prop, true);
-					Scene::Hide(pc.capA, true);
-					Scene::Hide(pc.capB, true);
 					continue;
 				}
 				auto&      u = g_units[(std::min)(pc.unit, static_cast<int>(g_units.size()) - 1)];
 				const Quat frame = body.state == hc::Chunks::State::Board ? RotY(g_boardPose.tilt) * body.q : body.q;
-				const double xc = (pc.x0 + pc.x1) * 0.5;
-				const Vec3   c = body.p - frame.Rotate({ xc, 0.0, 0.0 });  // where its whole would have its middle
-				const bool   cut = pc.capA >= 0;
-				PlaceSlice(pc.prop, u, c, frame, cut ? pc.x0 : 0.0, cut ? pc.x1 : 0.0);
+				const Vec3 c = body.p - frame.Rotate(pc.mid);  // where its whole would have its middle
+				PlacePiece(pc.prop, u, c, frame, pc.box, pc.cut);
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.cookMode = 1;
 				lk.cook[0] = static_cast<float>(body.charred ? 1.7 : body.cooked * 0.6);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
-				Scene::LookOf(pc.capA).shadow = Scene::LookOf(pc.capB).shadow = lk.shadow;
-				if (cut) {
-					PlaceCap(pc.capA, u, c, frame, pc.x0, false);
-					PlaceCap(pc.capB, u, c, frame, pc.x1, true);
-					for (auto cap : { pc.capA, pc.capB }) {
-						auto& cl = Scene::LookOf(cap);
-						cl.cookMode = 1;
-						cl.cook[0] = lk.cook[0];
-					}
-				}
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
 			if (P.broth >= 0 && g_pot) {
@@ -2448,6 +2472,8 @@ namespace Cook
 					} else if (g_phase == Phase::Book) {
 						Post(Act::Leave);
 					}
+				} else if (key == 0x13 && g_phase == Phase::Cooking && g_flow == hc::Flow::Pot) {  // R
+					g_knifeAlong = !g_knifeAlong;
 				} else if (key == 0x23) {  // H
 					g_help = !g_help;
 				} else if (key == 0x32 || key == Overlay::kPadSoundKey) {  // M
@@ -2509,7 +2535,7 @@ namespace Cook
 						}
 					}
 					for (const auto& [name, c] : by) {
-						s.push_back({ fmt::format("Chop the {}{}", name, c.first > 1 ? fmt::format(" ({})", c.first) : ""), c.second >= c.first });
+						s.push_back({ fmt::format("Dice the {}{}", name, c.first > 1 ? fmt::format(" ({})", c.first) : ""), c.second >= c.first });
 					}
 					unitsDone(Role::Chop, { Unit::At::Pot }, "Tip in the ", "");
 				}
@@ -2586,8 +2612,12 @@ namespace Cook
 			default:
 				break;
 			}
+			if (g_flow == hc::Flow::Pot && g_pot && !g_served && g_hold == Hold::None && g_pot->Cooked() >= 0.92) {
+				return "It's ready: drag the ladle out of the pot and let go over the bowl";
+			}
 			if (g_knifeOn) {
-				return "Click to chop. Small, even pieces from the right-hand end";
+				return g_knifeAlong ? "Click to cut along it. Right-click (or R) turns the knife back across"
+				                    : "Click to chop across. Right-click (or R) turns the knife to cut along: both ways makes dice";
 			}
 			for (const auto& st : Steps()) {
 				if (!st.done) {
@@ -2821,6 +2851,68 @@ namespace Cook
 			Text(dl, F.sans, ImVec2(W * 0.5f - tw * 0.5f, y + (S(25) - F.sans->FontSize) * 0.5f), kWhite, hint, 0.07f, 0.9f);
 		}
 
+		// How done it is: raw, nearly, ready (the window that grades best), over; the bowl or plate lights up when it's ready
+		void Meter()
+		{
+			double v = -1.0, lo = 0.9, hi = 1.3, top = 2.0;
+			Vec3   at;
+			const char* warn = nullptr;
+			if (g_flow == hc::Flow::Pot && g_pot && g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn > 0) {
+				v = g_pot->Cooked(), lo = 0.92, hi = 1.3, top = 2.0;
+				at = { L::kPotX, L::kPotY + L::kPotR + 1.5, L::kPotRim + 3.0 };
+				if (g_pot->Burn() > 0.25) {
+					warn = "Catching on the bottom: stir!";
+				}
+			} else if (g_flow == hc::Flow::Spit && g_spit) {
+				bool on = false;
+				for (const auto& u : g_units) {
+					on |= u.at == Unit::At::Spit;
+				}
+				if (on) {
+					v = g_spit->Mean(), lo = 0.9, hi = 1.3, top = 1.9;
+					at = { L::kFireX, L::kFireY + 4.0, L::kSpitZ + 7.0 };
+					if (g_spit->Spread() > 0.25) {
+						warn = "One side's browner: keep turning";
+					}
+				}
+			} else if (g_flow == hc::Flow::Oven && g_oven && g_oven->InOven()) {
+				v = g_oven->Brown(), lo = 0.85, hi = 1.2, top = 1.8;
+				at = { L::kOvenX, L::kOvenY + 4.0, L::kOvenFloorZ + 14.0 };
+			}
+			if (v < 0.0 || g_served) {
+				return;
+			}
+			float sx = 0, sy = 0;
+			if (!Scene::Project(at, sx, sy)) {
+				return;
+			}
+			auto*       dl = ImGui::GetForegroundDrawList();
+			const float w = S(240), h = S(12);
+			const float x0 = sx - w * 0.5f, y0 = sy - S(40);
+			auto        X = [&](double a_v) { return x0 + w * static_cast<float>(Clamp(a_v / top, 0.0, 1.0)); };
+			dl->AddRectFilled(ImVec2(x0 - S(10), y0 - S(30)), ImVec2(x0 + w + S(10), y0 + h + S(10)), IM_COL32(0, 0, 0, 120), S(6));
+			dl->AddRectFilled(ImVec2(x0, y0), ImVec2(X(lo), y0 + h), IM_COL32(120, 110, 95, 200), S(3), ImDrawFlags_RoundCornersLeft);
+			dl->AddRectFilled(ImVec2(X(lo), y0), ImVec2(X(hi), y0 + h), IM_COL32(205, 168, 72, 235));
+			dl->AddRectFilled(ImVec2(X(hi), y0), ImVec2(x0 + w, y0 + h), IM_COL32(120, 52, 34, 210), S(3), ImDrawFlags_RoundCornersRight);
+			dl->AddRectFilled(ImVec2(x0, y0), ImVec2(X(v), y0 + h), IM_COL32(255, 255, 255, 45), S(3));
+			const float mx = X(v);
+			dl->AddTriangleFilled(ImVec2(mx - S(7), y0 - S(9)), ImVec2(mx + S(7), y0 - S(9)), ImVec2(mx, y0 + S(1)), IM_COL32(250, 240, 220, 250));
+			dl->AddLine(ImVec2(mx, y0), ImVec2(mx, y0 + h), IM_COL32(250, 240, 220, 250), S(2));
+			const bool  ready = v >= lo && v <= hi;
+			const char* word = v < lo * 0.65 ? "Raw" : v < lo ? "Nearly there" : v <= hi ? "Ready" : "Overdone";
+			const std::string label = warn ? fmt::format("{} - {}", word, warn) : std::string(word);
+			Text(dl, F.sans, ImVec2(x0, y0 - S(28)), ready ? IM_COL32(255, 220, 130, 255) : kWhite, label, 0.05f, 0.95f);
+			// where it goes, glowing once it's ready
+			if (ready || g_hold == Hold::LadleOut || g_hold == Hold::Meat || g_hold == Hold::Bread) {
+				float bx = 0, by = 0;
+				if (Scene::Project({ L::kServeX, L::kServeY, 2.0 }, bx, by)) {
+					const float p = 0.5f + 0.5f * static_cast<float>(std::sin(g_clock * 4.0));
+					const float r = (std::max)(S(30), Scene::PixelsPerUnit({ L::kServeX, L::kServeY, 2.0 }) * 5.5f);
+					dl->AddCircle(ImVec2(bx, by), r + S(6) * p, IM_COL32(255, 214, 120, static_cast<int>(120 + 100 * p)), 48, S(3));
+				}
+			}
+		}
+
 		void ToastLine(float W, float H)
 		{
 			const double t = g_clock - g_toastAt;
@@ -2843,9 +2935,9 @@ namespace Cook
 			std::vector<std::string> lines;
 			lines.push_back("Hold the left button to pick things up; let go to put them down. The right button puts back what you're holding.");
 			if (g_flow == hc::Flow::Pot) {
-				lines.push_back("Drag ingredients onto the board, and click along them with the knife from the right-hand end: small, even pieces.");
+				lines.push_back("Drag ingredients onto the board and click to chop across them; right-click (or R) turns the knife to cut along them. Both ways makes dice: small and even scores best.");
 				lines.push_back("Grab the board by its left end and drag right to tip it into the pot. Line it up with the pot first.");
-				lines.push_back("Hold the ladle in the pot and stir round. Lift it out over the bowl to serve when it's cooked through.");
+				lines.push_back("Hold the ladle in the pot and stir round. When the meter says it's ready, drag the ladle out of the pot and let go over the bowl to serve.");
 			} else if (g_flow == hc::Flow::Spit) {
 				lines.push_back("Drag the meat onto the spit. Hold the crank's handle and turn it round so every side faces the fire.");
 				lines.push_back("Drag the roast onto the plate when it's brown all over.");
@@ -2856,7 +2948,7 @@ namespace Cook
 				}
 				lines.push_back("Open the door (drag it left), carry the dough into the mouth, shut the door. Peek, but each peek lets the heat out.");
 			}
-			lines.push_back("There's no gauge for the heat: watch the flames, listen to the pot. Logs from the pile make it hotter; drag a burning one out to cool it.");
+			lines.push_back("The meter shows how done it is; there's no gauge for the heat: watch the flames. Logs from the pile make it hotter; drag a burning one out to cool it.");
 			float h = S(80);
 			for (const auto& l : lines) {
 				h += F.sans->CalcTextSizeA(F.sans->FontSize, FLT_MAX, w - S(64), l.c_str()).y + S(10);
@@ -3110,6 +3202,7 @@ namespace Cook
 		case Phase::Cooking:
 			Vignette(ImGui::GetBackgroundDrawList(), W, H);
 			RecipeCard(W, H);
+			Meter();
 			HintLine(W, H);
 			if (g_confirm) {
 				ConfirmBox(W, H);
