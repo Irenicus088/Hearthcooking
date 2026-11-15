@@ -188,7 +188,10 @@ bool CutFace(VSOut i, out float3 q, out float3 n)
 	if (shape[1].x != 0 || shape[1].y != 0 || shape[1].z != 0) {
 		float3 r = q - shape[0].xyz;
 		float  lx = abs(dot(shape[1].xyz, r)), ly = dot(shape[2].xyz, r), lz = dot(shape[3].xyz, r);
-		if (pow(lx, shape[0].w) + ly * ly + lz * lz > 1.0) return false;
+		// a loose, boxy bound: an apple's cut faces reach well past the ellipsoid in its box, and were drawn as the
+		// dark inside of the skin wherever they did; only a leaf or a stem stands this far out
+		float ay = abs(ly), az = abs(lz);
+		if (pow(lx, max(shape[0].w, 4.0)) + ay * ay * ay * ay + az * az * az * az > 1.6) return false;
 	}
 	return true;
 }
