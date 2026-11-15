@@ -4,6 +4,7 @@
 
 #include "Audio.h"
 #include "Config.h"
+#include "Kit.h"
 #include "Overlay.h"
 #include "Recipes.h"
 #include "Scene.h"
@@ -153,13 +154,27 @@ namespace Cook
 
 		struct Props
 		{
-			Scene::Id kitchen = -1, cloth = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, bowl = -1, posts = -1, rod = -1,
+			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, bowl = -1, posts = -1, rod = -1,
 					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1;
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
 			Scene::Id pile[3]{ -1, -1, -1 };
 			std::vector<Scene::Id> crimps;
 			std::vector<std::pair<Scene::Id, Vec3>> fill;  // the filling on the pie (disk-local, units)
+			std::array<bool, static_cast<int>(Kit::Role::Count)> game{};  // this one is the game's own mesh (fitted), not ours
+			std::vector<std::pair<Scene::Id, int>> decor;                   // the clutter, and its spot
 		};
+
+		// Something of the game's, fitted into the space the kitchen gives it
+		struct Fitting
+		{
+			Scene::Id  id = -1;
+			Kit::Role  role = Kit::Role::Count;
+			Vec3       at;        // where its base's middle goes
+			Vec3       size;      // the space (0: any)
+			double     rotZ = 0;
+			bool       stretch = false;
+		};
+		std::vector<Fitting> g_fits;
 
 		std::recursive_mutex g_mtx;
 		Phase                g_phase = Phase::Idle;
@@ -283,61 +298,252 @@ namespace Cook
 			return g_flow == hc::Flow::Oven ? Vec3{ L::kOvenX, -0.5, L::kFireboxZ } : Vec3{ L::kFireX, L::kFireY, 0.6 };
 		}
 
+		// ---- the game's meshes: how one lies (longest side along x, shortest up) and fitting one into a space
+		struct Lie
+		{
+			Quat   q;
+			Vec3   c;          // its middle, in its own space
+			double d[3]{ 1, 1, 1 };  // long, middle, short
+		};
+
+		bool LieOf(Scene::Id a_id, Lie& a_out)
+		{
+			Vec3 mn, mx;
+			if (a_id < 0 || !Scene::Bounds(a_id, mn, mx)) {
+				return false;
+			}
+			const double e[3] = { mx.x - mn.x, mx.y - mn.y, mx.z - mn.z };
+			int          ord[3] = { 0, 1, 2 };
+			std::sort(ord, ord + 3, [&](int a, int b) { return e[a] > e[b]; });
+			double m[3][3]{};
+			for (int r = 0; r < 3; ++r) {
+				m[r][ord[r]] = 1.0;
+			}
+			const double det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+			                   m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+			if (det < 0) {
+				for (auto& v : m[1]) {
+					v = -v;
+				}
+			}
+			a_out.q = FromRows(m);
+			a_out.c = { (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, (mn.z + mx.z) * 0.5 };
+			for (int k = 0; k < 3; ++k) {
+				a_out.d[k] = (std::max)(0.05, e[ord[k]]);
+			}
+			return true;
+		}
+
+		struct Pose
+		{
+			Vec3  pos;
+			Quat  q;
+			float s = 1.0f;
+			float w[3]{ 1, 1, 1 };
+		};
+
+		// Fits a mesh's bounds into a box: its base's middle at a_at, a_size across (x, y) and high (z), turned a_rotZ
+		// (and the INI's turn and tilt for it). Uniform: as big as fits. Stretched: exactly the box.
+		bool FitBox(Scene::Id a_id, const Kit::Mesh& a_m, const Vec3& a_at, const Vec3& a_size, double a_rotZ, bool a_stretch, Pose& a_out)
+		{
+			Vec3 mn, mx;
+			if (a_id < 0 || !Scene::Bounds(a_id, mn, mx)) {
+				return false;
+			}
+			const Quat q = RotZ(a_rotZ + a_m.turn * kPi / 180.0) * RotX(a_m.tilt * kPi / 180.0);
+			Vec3       lo{ 1e9, 1e9, 1e9 }, hi{ -1e9, -1e9, -1e9 };
+			for (int c = 0; c < 8; ++c) {
+				const Vec3 v = q.Rotate({ (c & 1) ? mx.x : mn.x, (c & 2) ? mx.y : mn.y, (c & 4) ? mx.z : mn.z });
+				lo = { (std::min)(lo.x, v.x), (std::min)(lo.y, v.y), (std::min)(lo.z, v.z) };
+				hi = { (std::max)(hi.x, v.x), (std::max)(hi.y, v.y), (std::max)(hi.z, v.z) };
+			}
+			const double e[3] = { (std::max)(0.01, hi.x - lo.x), (std::max)(0.01, hi.y - lo.y), (std::max)(0.01, hi.z - lo.z) };
+			const double want[3] = { a_size.x, a_size.y, a_size.z };
+			double       r[3]{}, fit = 1e9, sum = 0;
+			int          n = 0;
+			for (int k = 0; k < 3; ++k) {
+				if (want[k] > 0) {
+					r[k] = want[k] / e[k];
+					fit = (std::min)(fit, r[k]);
+					sum += r[k];
+					++n;
+				}
+			}
+			if (n == 0) {
+				fit = 1.0;
+			}
+			Pose p;
+			p.q = q;
+			if (a_stretch && n > 0) {
+				p.s = 1.0f;
+				for (int k = 0; k < 3; ++k) {
+					p.w[k] = static_cast<float>(want[k] > 0 ? r[k] : sum / n);
+				}
+			} else {
+				p.s = static_cast<float>(fit);
+			}
+			const Vec3 bc{ (lo.x + hi.x) * 0.5 * p.s, (lo.y + hi.y) * 0.5 * p.s, lo.z * p.s };
+			p.pos = a_at - Vec3{ bc.x * p.w[0], bc.y * p.w[1], bc.z * p.w[2] };
+			a_out = p;
+			return true;
+		}
+
+		void Apply(Scene::Id a_id, const Pose& a_p)
+		{
+			Scene::Place(a_id, a_p.pos, a_p.q, a_p.s);
+			Scene::StretchWorld(a_id, a_p.w[0], a_p.w[1], a_p.w[2]);
+			Scene::Hide(a_id, false);
+		}
+
+		bool Game(Kit::Role a_r) { return P.game[static_cast<int>(a_r)]; }
+
+		// One of the kitchen's things: the game's mesh if there is one (and it loads), else ours
+		Scene::Id KitAdd(Kit::Role a_r)
+		{
+			const auto& m = Kit::Get(a_r);
+			P.game[static_cast<int>(a_r)] = false;
+			if (m.vanilla && !m.path.empty()) {
+				const auto id = Scene::Add(m.path);
+				if (id >= 0) {
+					P.game[static_cast<int>(a_r)] = true;
+					Scene::Hide(id, true);  // until it's measured and fitted
+					return id;
+				}
+				spdlog::warn("Kitchen: the game's {} ({}) didn't load; using ours", Kit::Name(a_r), m.path);
+			}
+			const auto ours = Kit::Ours(a_r);
+			return ours.empty() ? -1 : Scene::Add(ours);
+		}
+
+		// Places a fixed thing: ours exactly where it was made to go, the game's fitted into the same space
+		void Settle(Scene::Id a_id, Kit::Role a_r, const Vec3& a_at, const Vec3& a_size, double a_rotZ, bool a_stretch, const Vec3& a_oursAt, double a_oursRot = 0.0)
+		{
+			if (a_id < 0) {
+				return;
+			}
+			if (Game(a_r)) {
+				g_fits.push_back({ a_id, a_r, a_at, a_size, a_rotZ, a_stretch });
+			} else {
+				Put(a_id, a_oursAt, a_oursRot);
+			}
+		}
+
+		void Refit()
+		{
+			for (const auto& f : g_fits) {
+				Pose p;
+				if (FitBox(f.id, f.role == Kit::Role::Count ? Kit::Mesh{} : Kit::Get(f.role), f.at, f.size, f.rotZ, f.stretch, p)) {
+					Apply(f.id, p);
+				}
+			}
+		}
+
+		// A log (ours, or the game's firewood) lying along a_dir's angle at a_at, a_len long
+		void PlaceLog(Scene::Id a_id, const Vec3& a_at, double a_rotZ, double a_len, double a_tiltY = 0.0)
+		{
+			if (a_id < 0) {
+				return;
+			}
+			if (!Game(Kit::Role::Log)) {
+				Scene::Place(a_id, a_at, RotZ(a_rotZ) * RotY(a_tiltY), static_cast<float>(a_len / 8.4));
+				return;
+			}
+			Lie lie;
+			if (!LieOf(a_id, lie)) {
+				Scene::Hide(a_id, true);
+				return;
+			}
+			const double s = a_len / lie.d[0];
+			const Quat   q = RotZ(a_rotZ) * RotY(a_tiltY) * lie.q;
+			Scene::Place(a_id, a_at - q.Rotate(lie.c) * s, q, static_cast<float>(s));
+		}
+
+		// The clutter about the kitchen: where each may stand (x, y, how big), clear of the work
+		struct Spot
+		{
+			double x, y, size;
+			bool   back;  // against the back of the hearth (taken by the oven)
+		};
+		constexpr Spot kSpots[] = { { -17.0, 17.4, 6.0, false }, { -9.5, 17.8, 5.0, false }, { -2.5, 17.5, 5.0, false }, { 2.0, 17.8, 4.0, false },
+			{ 27.0, 17.0, 6.0, true }, { 33.5, 16.0, 5.0, true }, { 34.5, -15.5, 5.0, false }, { -17.0, -15.5, 5.0, false } };
+
 		void BuildKitchen(bool a_oven, hc::Flow a_flow)
 		{
 			Scene::RemoveAll();
 			P = Props{};
-			P.kitchen = Add("Kitchen");
-			Put(P.kitchen, {});
+			g_fits.clear();
+			// the table (the game's, stretched under the worktop's space) and the room (the hearth slab, the wall)
+			P.kitchen = KitAdd(Kit::Role::Table);
+			Settle(P.kitchen, Kit::Role::Table, { -16.0, 0.0, -14.0 }, { 42.0, 40.0, 14.0 }, 0.0, true, {});
+			P.room = Add("Room");
+			Put(P.room, {});
 			P.cloth = Add("Cloth");
 			Put(P.cloth, {});
 			for (int k = 0; k < 3; ++k) {
-				P.pile[k] = Add("Log");
-				Put(P.pile[k], { L::kPileX + (k == 2 ? 0.0 : (k ? 1.0 : -1.0)), L::kPileY + (k == 2 ? 0.0 : -0.4), 0.95 + (k == 2 ? 1.65 : 0.0) }, kPi * 0.5 + 0.12 * k);
+				P.pile[k] = KitAdd(Kit::Role::Log);
 			}
 			for (auto& f : P.fireLogs) {
-				f = Add("Log");
+				f = KitAdd(Kit::Role::Log);
 				Scene::Hide(f, true);
 			}
-			P.heldLog = Add("Log");
+			P.heldLog = KitAdd(Kit::Role::Log);
 			Scene::Hide(P.heldLog, true);
 			if (!a_oven) {
-				P.firepit = Add("FirePit");
-				Put(P.firepit, { L::kFireX, L::kFireY, 0.0 });
+				P.firepit = KitAdd(Kit::Role::FirePit);
+				Settle(P.firepit, Kit::Role::FirePit, { L::kFireX, L::kFireY, 0.0 }, { 2 * (L::kFireR + 1.8), 2 * (L::kFireR + 1.8), 0.0 }, 0.0, false, { L::kFireX, L::kFireY, 0.0 });
 			}
 			if (a_flow != hc::Flow::Spit) {
-				P.board = Add("Board");
-				Put(P.board, { L::kBoardX, L::kBoardY, L::kBoardH * 0.5 });
+				P.board = KitAdd(Kit::Role::Board);
 			}
 			if (a_flow == hc::Flow::Pot) {
-				P.knife = Add("Knife");
-				P.pot = Add("Pot");
-				Put(P.pot, { L::kPotX, L::kPotY, 0.0 });
+				P.knife = KitAdd(Kit::Role::Knife);
+				P.pot = KitAdd(Kit::Role::Pot);
+				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
 				P.broth = Add("Broth");
-				P.ladle = Add("Ladle");
-				P.bowl = Add("Bowl");
-				Put(P.bowl, { L::kServeX, L::kServeY, 0.0 });
+				P.ladle = KitAdd(Kit::Role::Ladle);
+				P.bowl = KitAdd(Kit::Role::Bowl);
+				Settle(P.bowl, Kit::Role::Bowl, { L::kServeX, L::kServeY, 0.0 }, { 7.0, 7.0, 0.0 }, 0.0, false, { L::kServeX, L::kServeY, 0.0 });
 			}
 			if (a_flow == hc::Flow::Spit) {
-				P.posts = Add("SpitPosts");
-				Put(P.posts, { L::kFireX, L::kFireY, 0.0 });
+				P.posts = KitAdd(Kit::Role::Spit);
+				Settle(P.posts, Kit::Role::Spit, { L::kFireX, L::kFireY, 0.0 }, { 2 * L::kSpitX1 - 2 * L::kFireX + 2.0, 0.0, L::kSpitZ + 1.4 }, 0.0, true, { L::kFireX, L::kFireY, 0.0 });
 				P.rod = Add("SpitRod");
 			}
 			if (a_flow != hc::Flow::Pot) {
-				P.plate = Add("Plate");
-				Put(P.plate, { L::kServeX, L::kServeY, 0.0 });
+				P.plate = KitAdd(Kit::Role::Plate);
+				Settle(P.plate, Kit::Role::Plate, { L::kServeX, L::kServeY, 0.0 }, { 9.4, 9.4, 0.0 }, 0.0, false, { L::kServeX, L::kServeY, 0.0 });
 			}
 			if (a_oven) {
-				P.ovenBase = Add("OvenBase");
-				Put(P.ovenBase, { L::kOvenX, L::kOvenY, 0.0 });
-				P.ovenDome = Add("OvenDome");
-				Put(P.ovenDome, { L::kOvenX, L::kOvenY, 0.0 });
+				P.ovenDome = KitAdd(Kit::Role::Oven);
+				if (Game(Kit::Role::Oven)) {
+					// the game's oven, in the space ours takes (its mouth toward you; OvenTurn in the INI if it isn't)
+					Settle(P.ovenDome, Kit::Role::Oven, { L::kOvenX, L::kOvenY - 0.5, 0.0 }, { 25.0, 23.0, L::kOvenFloorZ + 9.5 }, 0.0, true, {});
+				} else {
+					P.ovenBase = Add("OvenBase");
+					Put(P.ovenBase, { L::kOvenX, L::kOvenY, 0.0 });
+					Put(P.ovenDome, { L::kOvenX, L::kOvenY, 0.0 });
+				}
 				P.door = Add("OvenDoor");
-				P.peel = Add("Peel");
+				P.peel = KitAdd(Kit::Role::Peel);
 				P.dough = Add("Dough");
 				Scene::Hide(P.dough, true);
 				P.disk = Add("DoughDisk");
 				Scene::Hide(P.disk, true);
+			}
+			// the clutter, the game's own
+			const auto& decor = Kit::Decor();
+			int         d = 0;
+			for (int k = 0; k < static_cast<int>(std::size(kSpots)) && d < static_cast<int>(decor.size()); ++k) {
+				if (a_oven && kSpots[k].back) {
+					continue;
+				}
+				const auto id = Scene::Add(decor[d++]);
+				if (id < 0) {
+					continue;
+				}
+				Scene::Hide(id, true);
+				P.decor.emplace_back(id, k);
+				g_fits.push_back({ id, Kit::Role::Count, { kSpots[k].x, kSpots[k].y, 0.0 }, { kSpots[k].size, kSpots[k].size, kSpots[k].size * 1.8 }, Hash(k, 30) * 6.28, false });
 			}
 		}
 
@@ -350,29 +556,14 @@ namespace Cook
 			if (a_u.fitted) {
 				return true;
 			}
-			Vec3 mn, mx;
-			if (a_u.prop < 0 || !Scene::Bounds(a_u.prop, mn, mx)) {
+			Lie lie;
+			if (!LieOf(a_u.prop, lie)) {
 				return false;
 			}
-			const double e[3] = { mx.x - mn.x, mx.y - mn.y, mx.z - mn.z };
-			int          ord[3] = { 0, 1, 2 };
-			std::sort(ord, ord + 3, [&](int a, int b) { return e[a] > e[b]; });
-			double m[3][3]{};
-			for (int r = 0; r < 3; ++r) {
-				m[r][ord[r]] = 1.0;
-			}
-			// keep it a rotation (not a mirror)
-			const double det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
-			                   m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-			if (det < 0) {
-				for (auto& v : m[1]) {
-					v = -v;
-				}
-			}
-			a_u.lie = FromRows(m);
-			a_u.center = { (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, (mn.z + mx.z) * 0.5 };
+			a_u.lie = lie.q;
+			a_u.center = lie.c;
 			for (int k = 0; k < 3; ++k) {
-				a_u.dims[k] = (std::max)(0.2, e[ord[k]]);
+				a_u.dims[k] = lie.d[k];
 			}
 			a_u.boardLen = Clamp(a_u.dims[0] * 0.5, 4.0, 9.0);
 			a_u.cut.x0 = 0.0;
@@ -580,8 +771,12 @@ namespace Cook
 				g_oven = std::make_unique<hc::Oven>(a_r->pie, a_r->salted, a_r->dough);
 			}
 			if (a_r->salted) {
-				P.salt = Add("SaltBowl");
-				Put(P.salt, { L::kSaltX, L::kSaltY, 0.0 });
+				P.salt = KitAdd(Kit::Role::SaltBowl);
+				Settle(P.salt, Kit::Role::SaltBowl, { L::kSaltX, L::kSaltY, 0.0 }, { 4.4, 4.4, 0.0 }, 0.0, false, { L::kSaltX, L::kSaltY, 0.0 });
+				if (Game(Kit::Role::SaltBowl) && Kit::Get(Kit::Role::Salt).vanilla) {
+					P.saltPile = KitAdd(Kit::Role::Salt);
+					Settle(P.saltPile, Kit::Role::Salt, { L::kSaltX, L::kSaltY, 0.7 }, { 3.0, 3.0, 0.0 }, 0.0, false, {});
+				}
 			}
 			ResetHands();
 			BuildUnits();
@@ -1483,6 +1678,11 @@ namespace Cook
 			const double t = g_clock;
 			std::vector<Render3D::Sprite> sp;
 			const double heat = g_fire.Heat();
+			Refit();
+			for (int k = 0; k < 3; ++k) {
+				PlaceLog(P.pile[k], { L::kPileX + (k == 2 ? 0.0 : (k ? 1.0 : -1.0)), L::kPileY + (k == 2 ? 0.0 : -0.4), 0.95 + (k == 2 ? 1.65 : 0.0) }, kPi * 0.5 + 0.12 * k, 8.4);
+				Scene::Hide(P.pile[k], false);
+			}
 			const Vec3   fc = FireCenter();
 			// ---- the fire: its logs, flames, embers, smoke
 			for (int k = 0; k < hc::Fire::kMaxLogs; ++k) {
@@ -1505,7 +1705,7 @@ namespace Cook
 					at = { fc.x + std::cos(kA[k]) * 1.2, fc.y + std::sin(kA[k]) * 1.2, 0.95 + (k >= 3 ? 1.3 : 0.0) };
 					rz = kA[k] + kPi * 0.5;
 				}
-				Scene::Place(id, at, RotZ(rz) * RotY(k >= 3 ? 0.15 : 0.0), static_cast<float>(0.8 + 0.2 * fuel));
+				PlaceLog(id, at, rz, 8.4 * (0.8 + 0.2 * fuel), k >= 3 ? 0.15 : 0.0);
 				auto& lk = Scene::LookOf(id);
 				const float dark = static_cast<float>(0.25 + 0.75 * fuel);
 				lk.tint[0] = lk.tint[1] = lk.tint[2] = dark;
@@ -1591,7 +1791,7 @@ namespace Cook
 				const bool held = g_hold == Hold::Log || g_hold == Hold::FireLog;
 				Scene::Hide(P.heldLog, !held);
 				if (held) {
-					Scene::Place(P.heldLog, g_carry, RotZ(0.4), 1.0f);
+					PlaceLog(P.heldLog, g_carry, 0.4, 8.4);
 					auto& lk = Scene::LookOf(P.heldLog);
 					const float e = g_hold == Hold::FireLog ? 0.5f : 0.0f;
 					lk.emissive[0] = 0.9f * e;
@@ -1669,13 +1869,44 @@ namespace Cook
 			// ---- the board and knife (the pot)
 			if (P.board >= 0) {
 				const auto pose = g_flow == hc::Flow::Pot ? g_boardPose : hc::BoardPose(0.0, L::kBoardY);
-				Scene::Place(P.board, pose.c, RotY(pose.tilt), 1.0f);
+				if (Game(Kit::Role::Board)) {
+					Pose p0;
+					if (FitBox(P.board, Kit::Get(Kit::Role::Board), { 0.0, 0.0, -L::kBoardH * 0.5 }, { L::kBoardW, L::kBoardD, L::kBoardH * 2.0 }, 0.0, false, p0)) {
+						const Quat t = RotY(pose.tilt);
+						Scene::Place(P.board, pose.c + t.Rotate(p0.pos), t * p0.q, p0.s);
+						Scene::Hide(P.board, false);
+					}
+				} else {
+					Scene::Place(P.board, pose.c, RotY(pose.tilt), 1.0f);
+				}
 			}
 			if (P.knife >= 0) {
 				if (g_knifeOn || g_knifeAnim >= 0) {
 					const double a = g_knifeAnim < 0 ? 0.0 : g_knifeAnim < 0.06 ? g_knifeAnim / 0.06 : 1.0 - (g_knifeAnim - 0.06) / 0.14;
 					const double z = kBoardTop + 2.6 * (1.0 - Clamp(a, 0.0, 1.0));
-					Scene::Place(P.knife, { g_knifeX, g_knifeY - 3.8, z }, {}, 1.0f);
+					if (Game(Kit::Role::Knife)) {
+						// the game's knife on its edge across the lane: long along y, its blade's depth up, its thin side along x
+						Lie lie;
+						if (LieOf(P.knife, lie)) {
+							static const double kCyc[3][3] = { { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 } };
+							const Quat   q = FromRows(kCyc) * lie.q;
+							const double ks = 8.5 / lie.d[0];
+							const Vec3   c{ g_knifeX, g_knifeY, z + lie.d[1] * ks * 0.5 };
+							Scene::Place(P.knife, c - q.Rotate(lie.c) * ks, q, static_cast<float>(ks));
+							Scene::Hide(P.knife, false);
+						}
+					} else {
+						Scene::Place(P.knife, { g_knifeX, g_knifeY - 3.8, z }, {}, 1.0f);
+					}
+				} else if (Game(Kit::Role::Knife)) {
+					Lie lie;
+					if (LieOf(P.knife, lie)) {
+						const Quat   q = RotZ(0.2) * lie.q;
+						const double ks = 8.5 / lie.d[0];
+						const Vec3   c{ L::kBoardX + 3.0, L::kBoardY - 9.6, lie.d[2] * ks * 0.5 };
+						Scene::Place(P.knife, c - q.Rotate(lie.c) * ks, q, static_cast<float>(ks));
+						Scene::Hide(P.knife, false);
+					}
 				} else {
 					Scene::Place(P.knife, { L::kBoardX + 5.0, L::kBoardY - 9.2, 0.12 }, RotZ(-kPi * 0.5) * RotY(kPi * 0.5), 1.0f);
 				}
@@ -1772,7 +2003,19 @@ namespace Cook
 				}
 			}
 			if (P.ladle >= 0) {
-				if (g_hold == Hold::LadleOut) {
+				Lie lie;
+				if (Game(Kit::Role::Ladle) && LieOf(P.ladle, lie)) {
+					// the game's ladle: its long side along the handle, which leans out of the pot and up
+					const double ls = 12.0 / lie.d[0];
+					const bool   out = g_hold == Hold::LadleOut;
+					const double yaw = out ? -kPi * 0.5 : g_ladleA, up = out ? 0.15 : 1.05;
+					const Quat   q = RotZ(yaw) * RotY(-up) * lie.q;
+					const Vec3   dir = q.Rotate({ 1, 0, 0 });
+					const Vec3   bowl = out ? g_ladleOutAt : Vec3{ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ };
+					const Vec3   c = bowl + dir * (lie.d[0] * ls * 0.4);
+					Scene::Place(P.ladle, c - q.Rotate(lie.c) * ls, q, static_cast<float>(ls));
+					Scene::Hide(P.ladle, false);
+				} else if (g_hold == Hold::LadleOut) {
 					Scene::Place(P.ladle, g_ladleOutAt, RotZ(-kPi * 0.5), 1.0f);
 				} else {
 					const Vec3   at{ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ + 0.4 };
@@ -1797,7 +2040,16 @@ namespace Cook
 					at.z += k * 1.5;
 					rz = 0.0;
 				}
-				Scene::Place(P.peel, at, RotZ(rz), 1.0f);
+				Lie lie;
+				if (Game(Kit::Role::Peel) && LieOf(P.peel, lie)) {
+					const double ps = 21.0 / lie.d[0];
+					const Quat   q = RotZ(rz + kPi * 0.5) * lie.q;
+					const Vec3   c = at + Vec3{ 0.0, -7.0, lie.d[2] * ps * 0.5 };
+					Scene::Place(P.peel, c - q.Rotate(lie.c) * ps, q, static_cast<float>(ps));
+					Scene::Hide(P.peel, false);
+				} else {
+					Scene::Place(P.peel, at, RotZ(rz), 1.0f);
+				}
 			}
 			if (g_oven) {
 				const bool baking = g_oven->InOven() || (g_peelT >= 0 && g_peelIn);
@@ -2637,6 +2889,7 @@ namespace Cook
 
 	void OnDataLoaded()
 	{
+		Kit::Resolve();
 		Recipes::OnDataLoaded();
 		Recipes::InstallEatWatch();
 		Scene::Register();

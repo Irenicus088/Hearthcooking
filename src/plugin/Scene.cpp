@@ -18,6 +18,7 @@ namespace Scene
 			std::string                   model;
 			Look                          look;
 			float                         scale3[3]{ 1, 1, 1 };
+			float                         world3[3]{ 1, 1, 1 };
 			bool                          used = false, placed = false, hidden = false;
 			bool                          measured = false, asked = false;
 			hc::Vec3                      bmin, bmax;
@@ -425,6 +426,16 @@ namespace Scene
 		}
 	}
 
+	void StretchWorld(Id a_id, float a_x, float a_y, float a_z)
+	{
+		if (Valid(a_id)) {
+			auto& p = g_props[a_id];
+			p.world3[0] = a_x;
+			p.world3[1] = a_y;
+			p.world3[2] = a_z;
+		}
+	}
+
 	void Hide(Id a_id, bool a_hidden)
 	{
 		if (Valid(a_id)) {
@@ -578,17 +589,37 @@ namespace Scene
 				it.indexCount = static_cast<std::uint32_t>(tri->GetTrishapeRuntimeData().triangleCount) * 3;
 				it.vertexCount = tri->GetTrishapeRuntimeData().vertexCount;
 				it.name = a_geo->name.c_str();
-				const auto& w = a_geo->world;
-				for (int rr = 0; rr < 3; ++rr) {
-					for (int cc = 0; cc < 3; ++cc) {
-						it.rot[rr * 3 + cc] = w.rotate.entry[rr][cc];
+				// The geometry's place, with the prop's stretches: along its own axes (inside its rotation) and along the
+				// kitchen's (outside it). One matrix, not a pure rotation: world = W R S (rel) * s + t.
+				{
+					float rel[9], relPos[3], relScale = 1.0f;
+					Relative(p.node->world, a_geo->world, rel, relPos, relScale);
+					const auto& pw = p.node->world;
+					const float ps = pw.scale;
+					float       m[9];
+					for (int r = 0; r < 3; ++r) {
+						for (int c = 0; c < 3; ++c) {
+							float v = 0.0f;
+							for (int k = 0; k < 3; ++k) {
+								v += pw.rotate.entry[r][k] * p.scale3[k] * rel[k * 3 + c];
+							}
+							m[r * 3 + c] = p.world3[r] * v * relScale * ps;
+						}
 					}
+					float t[3];
+					for (int r = 0; r < 3; ++r) {
+						float v = 0.0f;
+						for (int k = 0; k < 3; ++k) {
+							v += pw.rotate.entry[r][k] * p.scale3[k] * relPos[k];
+						}
+						t[r] = p.world3[r] * v * ps;
+					}
+					std::memcpy(it.rot, m, sizeof(m));
+					it.pos[0] = pw.translate.x + t[0];
+					it.pos[1] = pw.translate.y + t[1];
+					it.pos[2] = pw.translate.z + t[2];
+					it.scale = 1.0f;
 				}
-				it.pos[0] = w.translate.x;
-				it.pos[1] = w.translate.y;
-				it.pos[2] = w.translate.z;
-				it.scale = w.scale;
-				std::memcpy(it.scale3, p.scale3, sizeof(it.scale3));
 				auto* set = mat->textureSet.get();
 				it.diffuse = SrvOf(mat->diffuseTexture.get());
 				if (!it.diffuse && set) {

@@ -18,7 +18,7 @@ find_package(imgui CONFIG REQUIRED)
 add_commonlibsse_plugin(${PROJECT_NAME}
     AUTHOR "evodube"
     USE_ADDRESS_LIBRARY
-    SOURCES src/plugin/main.cpp src/plugin/Config.cpp src/plugin/Overlay.cpp src/plugin/Scene.cpp src/plugin/Cook.cpp src/plugin/Recipes.cpp
+    SOURCES src/plugin/main.cpp src/plugin/Config.cpp src/plugin/Overlay.cpp src/plugin/Scene.cpp src/plugin/Cook.cpp src/plugin/Recipes.cpp src/plugin/Kit.cpp
             src/plugin/Audio.cpp src/plugin/Menu.cpp src/plugin/Render3D.cpp src/plugin/Ui.cpp
             src/sim/Kitchen.cpp)
 

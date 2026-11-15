@@ -39,7 +39,8 @@ namespace Scene
 	void  RemoveAll();
 	bool  Valid(Id a_id);
 	void  Place(Id a_id, const hc::Vec3& a_pos, const hc::Quat& a_rot, float a_scale = 1.0f);
-	void  Stretch(Id a_id, float a_x, float a_y, float a_z);  // along its own axes
+	void  Stretch(Id a_id, float a_x, float a_y, float a_z);       // along its own axes
+	void  StretchWorld(Id a_id, float a_x, float a_y, float a_z);  // along the kitchen's axes, about its origin (fitting a mesh to a space)
 	void  Hide(Id a_id, bool a_hidden);
 	Look& LookOf(Id a_id);
 	bool  Bounds(Id a_id, hc::Vec3& a_min, hc::Vec3& a_max);  // in its own space, once the graphics card has said

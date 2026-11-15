@@ -20,6 +20,15 @@ There is no heat gauge: you read the fire from its flames, the pot from its bubb
 opening the oven door (which lets the heat out). Logs from the pile make the fire hotter, burn down over about two
 minutes, and can be pulled back out.
 
+## The kitchen's things
+
+The kitchen uses the game's own meshes wherever your load order has them: the table, the cooking pot, the ladle, the
+knife, wooden bowls and plates, firewood, the salt pile, the campfire stones, the cooking spit and the Hearthfire oven
+(found among your game's furniture), and clutter set about (jugs, baskets, sacks, cheese, bread). They're found when
+the game starts, by item name and mesh file name, and fitted into the space the kitchen gives each one. Your own food
+is always drawn from its own meshes. Anything not found uses Hearthcooking's own mesh. `Hearthcooking.log` lists what
+was picked; `[Meshes]` in the INI sets any of them by hand, or turns one that faces the wrong way.
+
 ## The tiers
 
 | Tier | Effects | Price |
@@ -40,8 +49,9 @@ stay what they are across saves, and merchants buy them as food.
   `tests/kitchen_test.cpp`, which plays careful and careless cooks by script.
 - `src/plugin` - the SKSE plugin. `Cook` runs the kitchen and its interface, `Recipes` reads the game's recipes and makes
   the tiered dishes, `Scene` and `Render3D` draw the kitchen (our own meshes, and the food's own meshes from your game)
-  with Skyrim Yacht's renderer, extended with browning, cut planes and fire, steam and salt sprites.
-- `tools/make_meshes.py` makes every kitchen mesh and texture (nothing of Bethesda's ships), `tools/make_sounds.py`
+  with Skyrim Yacht's renderer, extended with browning, cut planes, fitting meshes into a space, and fire, steam and salt
+  sprites. `Kit` finds the game's meshes for the kitchen's things.
+- `tools/make_meshes.py` makes Hearthcooking's own meshes and textures, the fallbacks (nothing of Bethesda's ships), `tools/make_sounds.py`
   synthesizes the sounds, `tools/make_esp.py` writes the plugin. `tools/preview_kitchen.py` draws the layout to a PNG.
 
 Built by CI on Windows: every push compiles and runs the tests; running the workflow by hand publishes the package to

@@ -44,7 +44,7 @@ def rot_z(a):
 def main(kind, path):
     L = dict(FireX=18.0, FireY=3.0, BoardX=-7.0, BoardY=-1.0, PotX=18.0, PotY=3.0, LiquidZ=7.6, SpitZ=10.5, OvenX=18.0, OvenY=7.5,
              MouthY=-2.1, OvenFloor=9.0, PileX=31.5, PileY=-7.0, SaltX=-1.0, SaltY=-14.0, ServeX=7.0, ServeY=-14.0)
-    place = [("Kitchen", (0, 0, 0), 0), ("Cloth", (0, 0, 0), 0), ("Board", (L["BoardX"], L["BoardY"], 0.55), 0),
+    place = [("Worktop", (0, 0, 0), 0), ("Room", (0, 0, 0), 0), ("Cloth", (0, 0, 0), 0), ("Board", (L["BoardX"], L["BoardY"], 0.55), 0),
              ("Knife", (L["BoardX"] + 5, L["BoardY"] - 3.8, 1.1), 0), ("SaltBowl", (L["SaltX"], L["SaltY"], 0), 0)]
     for k in range(3):
         place.append(("Log", (L["PileX"] + (k % 2) * 0.6, L["PileY"] + k * 2.1 - 2, 0.95 + (k // 2) * 1.7), 0.3))
