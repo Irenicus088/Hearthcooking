@@ -133,7 +133,7 @@ namespace hc
 	// pieces are scored for how even they are and how near the size the recipe wants, both ways.
 	struct Cutting
 	{
-		static constexpr int kMaxCuts = 15;
+		static constexpr int kMaxCuts = 6;  // each way: six across, six along
 		double x0 = 0.0, x1 = layout::kWholeLen;
 		double width = 0.0;         // across it (0: not known, only the cuts across count)
 		double target = 1.5;        // the piece size the recipe wants

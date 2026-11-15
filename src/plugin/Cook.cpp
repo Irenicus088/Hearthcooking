@@ -1668,6 +1668,10 @@ namespace Cook
 						if (u.at != Unit::At::Board || u.lane != g_knifeLane || u.cut.finished) {
 							continue;
 						}
+						if ((g_knifeAlong ? u.cut.alongCount : u.cut.cutCount) >= hc::Cutting::kMaxCuts) {
+							Toast(g_knifeAlong ? "Six cuts along is enough" : "Six cuts across is enough");
+							continue;
+						}
 						if (g_knifeAlong) {
 							const double y = (g_knifeY - g_boardY - L::kLaneY[u.lane]) + u.cut.width * 0.5;
 							cut |= u.cut.ChopAlong(y);
