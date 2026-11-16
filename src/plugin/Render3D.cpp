@@ -58,6 +58,7 @@ Texture2D    texDiffuse : register(t0);
 Texture2D    texNormal  : register(t1);
 TextureCube  texEnv     : register(t2);
 Texture2D    texEnvMask : register(t3);
+Texture2D    texFlesh   : register(t5);
 Texture2D    texShadow  : register(t4);
 SamplerState smpWrap    : register(s0);
 SamplerComparisonState smpShadow : register(s1);
@@ -207,7 +208,17 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 		// the flesh, faintly mottled by the skin's texture so it isn't a flat card
 		float4 tx = has.x ? texDiffuse.Sample(smpWrap, q.xy * 0.37 + q.z * 0.21) : float4(0.5, 0.5, 0.5, 1);
 		float  m = 0.9 + 0.2 * dot(tx.rgb, float3(0.33, 0.33, 0.34));
-		float3 alb = Cooked(lerp(Lin(flesh.rgb) * m * tint.rgb, Lin(lift.rgb), saturate(lift.a)), CookAt(cn));
+		float3 fc = Lin(flesh.rgb) * m;
+		// its inside's own texture where it has one: the section across it, or along it, by which way the cut faces
+		if (cookRef.w > 0.5 && any(shape[1].xyz != 0)) {
+			float3 r = q - shape[0].xyz;
+			float3 l = clamp(float3(dot(shape[1].xyz, r), dot(shape[2].xyz, r), dot(shape[3].xyz, r)), -1, 1);
+			float3 a = abs(float3(dot(normalize(shape[1].xyz), cn), dot(normalize(shape[2].xyz), cn), dot(normalize(shape[3].xyz), cn)));
+			float2 fu = a.x >= a.y && a.x >= a.z ? float2(0.25 + l.y * 0.245, 0.5 + l.z * 0.49)
+			          : a.y >= a.z ? float2(0.75 + l.x * 0.245, 0.5 + l.z * 0.49) : float2(0.75 + l.x * 0.245, 0.5 + l.y * 0.49);
+			fc = Lin(texFlesh.Sample(smpWrap, fu).rgb);
+		}
+		float3 alb = Cooked(lerp(fc * tint.rgb, Lin(lift.rgb), saturate(lift.a)), CookAt(cn));
 		float3 V = normalize(camPos.xyz - q);
 		float  nl = saturate(dot(cn, keyDir.xyz));
 		float  sh = Shadow(q, cn);
@@ -1407,6 +1418,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			std::memcpy(ob.uvx, it.uv, sizeof(ob.uvx));
 			std::memcpy(ob.cook, it.cook, sizeof(ob.cook));
 			ob.cookAxis[3] = static_cast<float>(it.cookMode);
+			ob.cookRef[3] = it.fleshTex ? 1.0f : 0.0f;
 			Upload(c, g_cbObject, ob);
 			return true;
 		};
@@ -1452,6 +1464,7 @@ float4 PSComposite(FSOut i) : SV_Target
 					}
 					ID3D11ShaderResourceView* t[4] = { it.diffuse, it.normal, it.env, it.envMask };
 					c->PSSetShaderResources(0, 4, t);
+					c->PSSetShaderResources(5, 1, &it.fleshTex);
 					const float fm = it.flesh[3];  // 1-2 cut faces from the mesh's inside, 3 skin with flesh inside
 					c->PSSetShader((fm > 0.5f && fm < 2.5f) ? g_psCut : g_ps, nullptr, 0);
 					c->DrawIndexed(it.indexCount, 0, 0);
@@ -1482,6 +1495,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				}
 				ID3D11ShaderResourceView* t[4] = { h.diffuse, nullptr, nullptr, nullptr };
 				c->PSSetShaderResources(0, 4, t);
+				c->PSSetShaderResources(5, 1, &h.fleshTex);
 				c->OMSetBlendState(g_bsOpaque, nullptr, 0xFFFFFFFF);
 				c->OMSetDepthStencilState(g_dsCap, 1);
 				c->PSSetShader(g_psSolid, nullptr, 0);

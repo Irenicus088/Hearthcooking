@@ -28,6 +28,7 @@ namespace Scene
 		float cookRef[3]{ 0, 0, -1 };
 		ID3D11ShaderResourceView* skin = nullptr;  // in place of its own colour texture (a piece wears its ingredient's)
 		bool  shadow = true;
+		ID3D11ShaderResourceView* fleshTex = nullptr;  // its inside, where it's cut (see Render3D::Item)
 		float alpha = 1.0f;     // below 1: see-through (blended)
 		bool  onlyFlat = false; // only its flattest shape: a dish's food without its bowl
 		bool  hideFlat = false; // all but its flattest shape: a pot without the food modelled in it
@@ -48,6 +49,7 @@ namespace Scene
 	void  HideShapes(Id a_id, std::vector<std::string> a_words);
 	// A dish's food texture: the diffuse of its part that isn't the bowl or plate (with the form's swaps); null till loaded
 	::ID3D11ShaderResourceView* FoodTexture(Id a_id);
+	::ID3D11ShaderResourceView* Texture(const char* a_path);  // a texture by its path (textures\\...), loaded once
 	void  SwapTextures(Id a_id, const std::string& a_shape, int a_index, const std::string& a_diffuse, const std::string& a_normal);
 	void  Place(Id a_id, const hc::Vec3& a_pos, const hc::Quat& a_rot, float a_scale = 1.0f);
 	void  Stretch(Id a_id, float a_x, float a_y, float a_z);       // along its own axes

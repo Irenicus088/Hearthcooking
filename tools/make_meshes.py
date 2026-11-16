@@ -837,7 +837,121 @@ def kitchen():
     nif("DoughDisk", [("Dough", disk, "dough", (0.3, 25))])
 
 
+
+# =================================================================== the insides of things (cut faces)
+def flesh_textures():
+    """Atlases (1024 x 512) of what's inside a thing, seen where it's cut: the left half a section across it (its
+    middle at the half's centre, its edge at the half's edge), the right half a section along it (length along u).
+    The renderer picks the half by which way the cut faces."""
+    S = 512
+    yy, xx = np.mgrid[0:S, 0:S]
+    X = (xx + 0.5) / S * 2 - 1           # -1..1 across the half
+    Y = (yy + 0.5) / S * 2 - 1
+    R = np.sqrt(X * X + Y * Y)
+    A = np.arctan2(Y, X)
+
+    def n(seed, base=4, oct=5, aspect=(1, 1)):
+        return fbm((S, S), oct, base, seed, aspect)
+
+    def mix(c0, c1, t):
+        t = np.clip(t, 0, 1)[..., None]
+        return np.array(c0, float) * (1 - t) + np.array(c1, float) * t
+
+    def save(name, cross, along):
+        rgb = np.concatenate([cross, along], axis=1)
+        out = os.path.join(ROOT, "textures", "Hearthcooking")
+        dds(os.path.join(out, "flesh_" + name + ".dds"), to_img(rgb), "DXT1")
+        print("texture flesh_" + name)
+
+    def veins(seed, scale, width, aspect=(1, 1)):
+        v = fbm((S, S), 5, scale, seed, aspect)
+        return np.exp(-((v - 0.5) / width) ** 2)
+
+    def fibres(seed, k=40):
+        # long fine streaks along u (the meat's grain)
+        f = fbm((S, S // 16), 4, 6, seed)
+        f = np.asarray(Image.fromarray((f * 255).astype(np.uint8)).resize((S, S), Image.BICUBIC), float) / 255.0
+        return 0.5 + 0.5 * np.sin((Y * k + f * 6.0) * math.pi)
+
+    # beef: red, marbled with white fat
+    for name, base, dark, fat, marb in (("beef", (176, 46, 44), (120, 22, 26), (238, 222, 210), 0.05),
+                                        ("venison", (128, 24, 30), (86, 12, 18), (196, 120, 120), 0.018),
+                                        ("pheasant", (150, 66, 84), (104, 40, 58), (222, 196, 160), 0.02),
+                                        ("chicken", (236, 170, 158), (214, 140, 130), (248, 222, 212), 0.025)):
+        nn = n(11 + len(name))
+        cross = mix(dark, base, 0.35 + 0.65 * nn)
+        cross = mix(cross / 255.0 * 255.0, fat, veins(21 + len(name), 3, marb) * 0.95)
+        along = mix(dark, base, 0.3 + 0.45 * n(31 + len(name)) + 0.25 * fibres(41 + len(name)))
+        along = mix(along, fat, veins(51 + len(name), 3, marb, (3, 1)) * 0.9)
+        save(name, cross, along)
+
+    # carrot: an orange cortex round a paler core, faint rays from the middle
+    nn = n(61)
+    rays = 0.5 + 0.5 * np.sin(A * 36 + nn * 4)
+    cross = mix((252, 150, 56), (240, 112, 30), np.clip((R - 0.42) / 0.12, 0, 1))
+    cross = mix(cross, (255, 178, 92), (R < 0.42) * (0.25 + 0.2 * rays))
+    cross = mix(cross, (226, 96, 22), np.clip((R - 0.92) / 0.08, 0, 1))
+    cross *= (0.93 + 0.1 * nn)[..., None]
+    band = np.abs(Y)
+    along = mix((250, 160, 70), (240, 112, 30), np.clip((band - 0.4) / 0.1, 0, 1))
+    along *= (0.93 + 0.1 * n(62, 4, 5, (1, 4)))[..., None]
+    save("carrot", cross, along)
+
+    # potato: pale and starchy, a faint ring just under the skin
+    for nm_, a_, b_ in (("potato", (244, 226, 152), (232, 208, 128)),):
+        nn = n(71)
+        cross = mix(a_, b_, nn * 0.6)
+        cross = mix(cross, (214, 190, 112), np.exp(-((R - 0.86) / 0.035) ** 2) * 0.6)
+        speck = (n(72, 32, 2) > 0.8) * 0.25
+        cross = mix(cross, (255, 245, 205), speck)
+        along = mix(a_, b_, n(73) * 0.6)
+        along = mix(along, (214, 190, 112), np.exp(-((np.abs(Y) - 0.86) / 0.035) ** 2) * 0.6)
+        save(nm_, cross, along)
+
+    # apple: cream, a five-pointed core with its seeds
+    nn = n(81)
+    cross = mix((248, 240, 206), (236, 226, 182), nn * 0.6)
+    star = 0.22 + 0.08 * np.cos(A * 5)
+    cross = mix(cross, (226, 222, 170), np.clip((star - R) / 0.03, 0, 1) * 0.8)
+    for k in range(5):
+        a = k * 2 * math.pi / 5
+        sx, sy = 0.16 * math.cos(a), 0.16 * math.sin(a)
+        seed = np.exp(-(((X - sx) * math.cos(a) + (Y - sy) * math.sin(a)) ** 2 / 0.003 + ((-(X - sx) * math.sin(a) + (Y - sy) * math.cos(a)) ** 2) / 0.0012))
+        cross = mix(cross, (70, 40, 22), seed)
+    along = mix((248, 240, 206), (236, 226, 182), n(82) * 0.6)
+    along = mix(along, (226, 222, 170), np.clip((0.12 - np.abs(Y)) / 0.03, 0, 1) * 0.7)
+    save("apple", cross, along)
+
+    # tomato: a red wall, the walls between its chambers, the jelly and seeds in them
+    nn = n(91)
+    sept = np.exp(-((np.sin(A * 2.5) ) / 0.12) ** 2) * (R > 0.18)
+    cross = mix((214, 40, 34), (196, 28, 26), nn)
+    jelly = (R > 0.2) & (R < 0.72) & (sept < 0.5)
+    cross = mix(cross, (236, 120, 70), jelly * 0.75)
+    seeds = (n(92, 40, 2) > 0.82) & jelly
+    cross = mix(cross, (246, 214, 120), seeds * 0.9)
+    cross = mix(cross, (236, 150, 120), (R < 0.2) * 0.5)
+    along = mix((214, 40, 34), (196, 28, 26), n(93))
+    jl = (np.abs(Y) > 0.15) & (np.abs(Y) < 0.7)
+    along = mix(along, (236, 120, 70), jl * 0.7)
+    along = mix(along, (246, 214, 120), ((n(94, 40, 2) > 0.82) & jl) * 0.9)
+    save("tomato", cross, along)
+
+    # cabbage: layer on layer, pale green at the heart, white veins between
+    nn = n(101)
+    layers = 0.5 + 0.5 * np.sin((R * 22 + nn * 3 + np.sin(A * 3) * 0.6) * math.pi)
+    cross = mix((236, 240, 206), (198, 214, 150), layers * (0.4 + 0.5 * R))
+    cross = mix(cross, (246, 246, 226), np.exp(-((layers - 0.5) / 0.05) ** 2) * 0.5)
+    lay2 = 0.5 + 0.5 * np.sin((np.abs(Y) * 22 + n(102) * 3 + np.sin(X * 4) * 0.6) * math.pi)
+    along = mix((236, 240, 206), (198, 214, 150), lay2 * (0.4 + 0.5 * np.abs(Y)))
+    save("cabbage", cross, along)
+
+
 if __name__ == "__main__":
+    if "--flesh-only" in sys.argv:
+        flesh_textures()
+        sys.exit(0)
     if "--meshes-only" not in sys.argv:
         textures()
+        flesh_textures()
     kitchen()

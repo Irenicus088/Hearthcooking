@@ -30,6 +30,7 @@ namespace Render3D
 		ID3D11ShaderResourceView* normal = nullptr;
 		ID3D11ShaderResourceView* env = nullptr;  // a cube map
 		ID3D11ShaderResourceView* envMask = nullptr;
+		ID3D11ShaderResourceView* fleshTex = nullptr;  // what's inside it, for its cut faces (an atlas: across | along)
 		float                     specColor[3]{ 1, 1, 1 };
 		float                     specScale = 1.0f, gloss = 30.0f, envScale = 0.0f, alpha = 1.0f, alphaRef = 0.0f;
 		bool                      blend = false;

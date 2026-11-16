@@ -982,6 +982,24 @@ namespace Cook
 			return { dy * f * 0.96, dz * f * 0.96 };
 		}
 
+		// What it looks like inside, where there's a texture for it: an atlas of its section across and along
+		ID3D11ShaderResourceView* FleshTexture(const Unit& u)
+		{
+			std::string n = u.name;
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			static const std::pair<const char*, const char*> kBy[] = {
+				{ "venison", "venison" }, { "pheasant", "pheasant" }, { "chicken", "chicken" }, { "beef", "beef" }, { "horker", "beef" },
+				{ "mammoth", "beef" }, { "goat", "beef" }, { "horse", "beef" }, { "carrot", "carrot" }, { "potato", "potato" },
+				{ "apple", "apple" }, { "tomato", "tomato" }, { "cabbage", "cabbage" }
+			};
+			for (const auto& [word, tex] : kBy) {
+				if (n.find(word) != std::string::npos) {
+					return Scene::Texture(fmt::format("textures\\Hearthcooking\\flesh_{}.dds", tex).c_str());
+				}
+			}
+			return nullptr;
+		}
+
 		// The colour inside it
 		void Flesh(const Unit& u, float (&a_out)[3])
 		{
@@ -2882,6 +2900,8 @@ namespace Cook
 			Flesh(u, fl);
 			std::copy(fl, fl + 3, lk.flesh);
 			lk.flesh[3] = a_cut ? 3.0f : 0.0f;  // seen from inside, the skin shows its flesh
+			auto* fleshTex = FleshTexture(u);
+			lk.fleshTex = fleshTex;
 			if (a_core < 0) {
 				return;
 			}
@@ -2910,6 +2930,7 @@ namespace Cook
 			ClipTo(cl, a_c, a_frame, a_box, true);
 			std::copy(fl, fl + 3, cl.flesh);
 			cl.flesh[3] = 4.0f;
+			cl.fleshTex = fleshTex;
 			// the thing's bounds as a box (axes over half-sizes), on the face and on the skin that counts for it
 			const Vec3 axv[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / (R[0] * 1.01)), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / (R[1] * 1.01)), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / (R[2] * 1.01)) };
 			for (auto* look : { &cl, &lk }) {

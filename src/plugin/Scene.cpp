@@ -642,6 +642,8 @@ namespace Scene
 		return Valid(a_id) ? g_props[a_id].look : (s_none = Look{});
 	}
 
+	::ID3D11ShaderResourceView* Texture(const char* a_path) { return SrvOfPath(a_path); }
+
 	bool FlatBounds(Id a_id, hc::Vec3& a_min, hc::Vec3& a_max)
 	{
 		if (!Valid(a_id)) {
@@ -901,6 +903,7 @@ namespace Scene
 				std::memcpy(it.cookAxis, lk.cookAxis, sizeof(it.cookAxis));
 				std::memcpy(it.cookRef, lk.cookRef, sizeof(it.cookRef));
 				it.shadow = lk.shadow;
+				it.fleshTex = lk.fleshTex;
 				if (lk.alpha < 0.999f) {
 					it.alpha = lk.alpha;
 					it.blend = true;
