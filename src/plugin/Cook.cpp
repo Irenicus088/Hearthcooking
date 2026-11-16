@@ -224,6 +224,8 @@ namespace Cook
 		Vec3   g_carry;              // where the held thing is
 		double g_grabX = 0, g_grabY = 0;
 		double g_tip = 0, g_tipWant = 0, g_boardY = L::kBoardY;
+		Vec3   g_boardCarry;  // the oven: where the lifted board's middle is
+		double g_boardLift = 0;  // the oven: 0 down on the table .. 1 lifted
 		bool   g_tipped = false;     // the board's last lot has gone over its edge
 		hc::Chunks::Board g_boardPose, g_boardPrev;
 		double g_knifeX = L::kBoardX, g_knifeY = L::kBoardY, g_knifeAnim = -1;
@@ -855,6 +857,9 @@ namespace Cook
 			g_holdUnit = -1;
 			g_tip = g_tipWant = 0;
 			g_tipped = false;
+			g_boardLift = 0;
+			g_boardPose = hc::BoardPose(0.0, L::kBoardY);
+			g_boardPrev = g_boardPose;
 			g_boardY = L::kBoardY;
 			g_knifeAnim = -1;
 			g_knifeOn = false;
@@ -1241,6 +1246,7 @@ namespace Cook
 					}
 					if (any) {
 						g_hold = Hold::Board;
+						g_boardCarry = g_boardPose.c;
 						double x = 0, y = 0;
 						OnPlane(mx, my, kBoardTop, x, y);
 						g_grabX = x;
@@ -1376,6 +1382,14 @@ namespace Cook
 				}
 				break;
 			case Hold::Board:
+				if (g_flow == hc::Flow::Oven) {
+					// lifted by its left end and carried; over the bowl it tips
+					if (OnPlane(mx, my, 6.0, x, y)) {
+						g_boardCarry = { x + L::kBoardW * 0.5 - 1.8, y, 6.0 };
+					}
+					g_tipWant = OverFill(mx, my) ? 1.0 : 0.0;
+					break;
+				}
 				if (OnPlane(mx, my, kBoardTop, x, y)) {
 					g_tipWant = Clamp((x - g_grabX) / 10.0, 0.0, 1.0);
 					g_boardY = Clamp(y - g_grabY, L::kPotY - 8.0, L::kPotY + 8.0);
@@ -1636,6 +1650,19 @@ namespace Cook
 							break;
 						}
 						if (u.role == Role::Dough && P.mixBowl >= 0 && OverMix(mx, my) && !g_ball) {
+							bool waiting = false;
+							std::string what;
+							for (const auto& d : g_units) {
+								if (d.dice && d.at != Unit::At::Pot && d.at != Unit::At::Dough) {
+									waiting = true;
+									what = d.name;
+								}
+							}
+							if (waiting) {
+								Toast(fmt::format("Cut the {} first, and into its bowl", what));
+								PutBack(ui);
+								break;
+							}
 							u.at = Unit::At::Dough;
 							++g_doughParts;
 							Flour(kMixAt + Vec3{ 0, 0, 1.0 });
@@ -1694,15 +1721,7 @@ namespace Cook
 				}
 				break;
 			case Hold::Board:
-				g_tipWant = 0.0;
-				if (g_flow == hc::Flow::Oven && OverFill(mx, my)) {
-					// swept off the board into the bowl
-					FinishBoard();
-					for (int b = 0; b < g_chunks.Count(); ++b) {
-						g_chunks.Launch(b);
-					}
-					Audio::Take("splash_", 0.25f);
-				}
+				g_tipWant = 0.0;  // (the oven's board goes back down where it was)
 				break;
 			case Hold::Mix:
 				break;
@@ -2025,6 +2044,31 @@ namespace Cook
 				g_door += Clamp(g_doorWant - g_door, -dt * 3.0, dt * 3.0);
 				g_oven->SetDoor(g_door > 0.5);
 				g_oven->Step(dt * kOvenSpeed, g_fire.Heat());
+				// the board: lifted and carried to the bowl, tipped over it, and back down
+				g_boardY = L::kBoardY;
+				const bool lifting = g_hold == Hold::Board;
+				g_boardLift += Clamp((lifting ? 1.0 : 0.0) - g_boardLift, -dt * 3.0, dt * 3.0);
+				g_tip += Clamp((lifting ? g_tipWant : 0.0) - g_tip, -dt * 2.5, dt * 1.8);
+				{
+					const auto rest = hc::BoardPose(0.0, L::kBoardY);
+					g_boardPrev = g_boardPose;
+					g_boardPose = rest;
+					g_boardPose.c = rest.c + (g_boardCarry - rest.c) * g_boardLift;  // (back down from where it was let go)
+					g_boardPose.tilt = g_tip * 1.1;
+					g_boardPose.v = dt > 0 ? (g_boardPose.c - g_boardPrev.c) * (1.0 / dt) : Vec3{};
+				}
+				if (g_tip > 0.3 && !g_tipped) {
+					// over it goes: off the board into the bowl
+					g_tipped = true;
+					FinishBoard();
+					for (int b = 0; b < g_chunks.Count(); ++b) {
+						g_chunks.Launch(b, g_boardPose);
+					}
+					Audio::Take("splash_", 0.25f);
+				}
+				if (g_tip < 0.02 && !lifting) {
+					g_tipped = false;
+				}
 				// the cut filling, flying into its bowl
 				g_chunks.Step(dt, g_boardPose, 0.0);
 				hc::Chunks::Event ev[32];
@@ -2396,7 +2440,7 @@ namespace Cook
 
 			// ---- the board and knife (the pot)
 			if (P.board >= 0) {
-				const auto pose = g_flow == hc::Flow::Pot ? g_boardPose : hc::BoardPose(0.0, L::kBoardY);
+				const auto pose = g_flow != hc::Flow::Spit ? g_boardPose : hc::BoardPose(0.0, L::kBoardY);
 				if (Game(Kit::Role::Board)) {
 					Pose p0;
 					if (FitBox(P.board, Kit::Get(Kit::Role::Board), { 0.0, 0.0, -L::kBoardH * 0.5 }, { L::kBoardW, L::kBoardD, L::kBoardH * 2.0 }, 0.0, false, p0)) {
@@ -3071,7 +3115,7 @@ namespace Cook
 			case Hold::FireLog:
 				return "Drop it anywhere to take the heat down (back on the fire to keep it)";
 			case Hold::Board:
-				return g_flow == hc::Flow::Oven ? "Over the bowl behind the board, and let go" : "Drag right to tip it into the pot; up and down to line it up";
+				return g_flow == hc::Flow::Oven ? "Over the empty bowl: it tips in" : "Drag right to tip it into the pot; up and down to line it up";
 			case Hold::Ladle:
 				return "Round and round. Lift it out to the bowl when it's done";
 			case Hold::LadleOut:
@@ -3112,11 +3156,10 @@ namespace Cook
 					cut &= u.at != Unit::At::Board || u.cut.cutCount + u.cut.alongCount > 0;
 				}
 				if (cut && !g_knifeOn) {
-					return "Grab the board by its left end and drag it over the bowl behind it";
+					return "Lift the board by its left end and carry it over the empty bowl";
 				}
 				if (cut) {
-					return g_knifeAlong ? "Cut more, or grab the board's left end and drag it over the bowl behind"
-					                    : "Cut more, or grab the board's left end and drag it over the bowl behind";
+					return "Cut more, or lift the board by its left end and carry it over the empty bowl";
 				}
 			}
 			if (g_knifeOn) {

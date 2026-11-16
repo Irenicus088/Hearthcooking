@@ -447,9 +447,10 @@ namespace hc
 		_stirred = a_stirred;
 	}
 
-	void Chunks::Launch(int a_i)
+	void Chunks::Launch(int a_i, const Board& a_board)
 	{
 		if (a_i >= 0 && a_i < _n && _b[a_i].state == State::Board) {
+			_b[a_i].p = a_board.ToWorld(_b[a_i].local);
 			_b[a_i].state = State::Free;
 			Aim(_b[a_i], a_i);
 		}
