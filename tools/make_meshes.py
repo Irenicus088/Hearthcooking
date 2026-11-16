@@ -950,14 +950,9 @@ def flesh_textures():
     rgb = mix((244, 238, 214), (228, 218, 186), (0.6 * cl + 0.4 * lines)[:, :, None][..., 0] if False else (0.6 * cl + 0.4 * lines))
     save_tex("clove", rgb, cl * 0.3 + lines * 0.2, 1.0, 50)
 
-    # cabbage: layer on layer, pale green at the heart, white veins between
-    nn = n(101)
-    layers = 0.5 + 0.5 * np.sin((R * 22 + nn * 3 + np.sin(A * 3) * 0.6) * math.pi)
-    cross = mix((236, 240, 206), (198, 214, 150), layers * (0.4 + 0.5 * R))
-    cross = mix(cross, (246, 246, 226), np.exp(-((layers - 0.5) / 0.05) ** 2) * 0.5)
-    lay2 = 0.5 + 0.5 * np.sin((np.abs(Y) * 22 + n(102) * 3 + np.sin(X * 4) * 0.6) * math.pi)
-    along = mix((236, 240, 206), (198, 214, 150), lay2 * (0.4 + 0.5 * np.abs(Y)))
-    save("cabbage", cross, along)
+    # (the atlases proper are painted in tools/flesh.py, over these first drafts)
+    import flesh
+    flesh.all_flesh()
 
 
 if __name__ == "__main__":
