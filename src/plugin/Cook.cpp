@@ -1592,6 +1592,9 @@ namespace Cook
 			if (n.find("sweet roll") != std::string::npos) {
 				return { { "flour", "butter", "egg" }, { "milk" } };
 			}
+			if (n.find("crostata") != std::string::npos) {
+				return { { "flour" }, { "butter" } };  // the flour, then the butter cut into it
+			}
 			return {};
 		}
 
