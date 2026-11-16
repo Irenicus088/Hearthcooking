@@ -264,6 +264,7 @@ namespace Cook
 		bool BreadCuts() { return g_recipe && g_recipe->oven && !g_recipe->pie && !g_topping; }
 		Vec3 CutBowl() { return g_recipe && (g_recipe->pie || g_topping || !g_cutInMix) ? kFillAt : kMixAt; }
 		Vec3 PourAt() { return BreadCuts() ? kMixAt : g_doughAt; }  // where the right bowl tips toward
+		bool CutsWaiting();  // a bread's cut things still in the right bowl
 		bool   g_ball = false;             // a ball of dough in the bowl
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
@@ -1500,6 +1501,19 @@ namespace Cook
 			}
 			return false;
 		}
+		bool CutsWaiting()
+		{
+			if (!BreadCuts() || g_cutInMix) {
+				return false;
+			}
+			for (const auto& u : g_units) {
+				if (u.dice) {
+					return true;
+				}
+			}
+			return false;
+		}
+
 		int InFillBowl()
 		{
 			if (BreadCuts() && g_cutInMix) {
@@ -1598,7 +1612,7 @@ namespace Cook
 			std::string n = g_recipe ? g_recipe->name : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			if (n.find("potato bread") != std::string::npos) {
-				return { { "potato" }, { "milk" }, { "egg" }, { "flour", "butter" } };
+				return { { "milk" }, { "egg" }, { "flour", "butter" } };  // (then the potato poured in, the salt, and stirred)
 			}
 			if (n.find("sweet roll") != std::string::npos) {
 				return { { "flour", "butter", "egg" }, { "milk" } };
@@ -1631,7 +1645,7 @@ namespace Cook
 				std::string n = u.name;
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				const int g = group(n);
-				if (g >= 0 && g < mine && ((u.at != Unit::At::Dough && u.at != Unit::At::Pot) || (u.dice && BreadCuts() && !g_cutInMix))) {
+				if (g >= 0 && g < mine && u.at != Unit::At::Dough && u.at != Unit::At::Pot) {
 					return u.name;
 				}
 			}
@@ -1978,7 +1992,12 @@ namespace Cook
 				if (OnPlane(mx, my, 1.8, x, y)) {
 					const double a = std::atan2(y - kMixAt.y, x - kMixAt.x), dA = Wrap(a - g_mixA);
 					g_mixA = a;
-					if (g_recipe->salted && g_oven->Seasoning().amount < 0.3 && std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
+					if (CutsWaiting() && std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
+						if (Audio::Now() - g_lastStir > 1.5) {
+							g_lastStir = Audio::Now();
+							Toast("Pour in what's in the right bowl first");
+						}
+					} else if (g_recipe->salted && g_oven->Seasoning().amount < 0.3 && std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
 						if (Audio::Now() - g_lastStir > 1.5) {
 							g_lastStir = Audio::Now();
 							Toast("A pinch of salt first");
@@ -2421,6 +2440,12 @@ namespace Cook
 						target = SpitAxis(0.0);
 						g_spit->Seasoning().amount += g_pinch;
 						hit = true;
+					} else if (g_flow == hc::Flow::Oven && P.mixBowl >= 0 && !g_doughOnBoard && OverMix(mx, my) && CutsWaiting()) {
+						Toast("Pour in what's in the right bowl first, then the salt");
+						target = { g_carry.x, g_carry.y, 0.0 };
+						hit = false;
+						g_pinch = 0;
+						break;
 					} else if (g_flow == hc::Flow::Oven && P.mixBowl >= 0 && !g_doughOnBoard && OverMix(mx, my)) {
 						target = kMixAt + Vec3{ 0, 0, 1.6 };  // into the bowl, with the flour
 						g_oven->Seasoning().amount += g_pinch;
@@ -2724,8 +2749,11 @@ namespace Cook
 					const bool over = held && (BreadCuts() ? std::hypot(g_carry.x - kMixAt.x, g_carry.y - kMixAt.y) < 4.5 && !g_cutInMix
 					                                       : std::hypot(g_carry.x - g_doughAt.x, g_carry.y - g_doughAt.y) < 4.5 && (g_doughOnBoard || BreadOnBoard()));
 					g_bowlTip += Clamp((over && !g_bowlPoured ? 1.0 : 0.0) - g_bowlTip, -dt * 3.0, dt * 2.0);
-					if (g_bowlTip > 0.6 && !g_bowlPoured && BreadCuts()) {
-						g_cutInMix = true;  // into the mixing bowl, first of the dough's things
+					if (g_bowlTip > 0.6 && !g_bowlPoured && BreadCuts() && g_doughParts < (std::max)(1, g_doughNeeded)) {
+						Toast("The milk, egg and flour go in first, then this");
+						g_hold = Hold::None;  // the bowl goes back
+					} else if (g_bowlTip > 0.6 && !g_bowlPoured && BreadCuts()) {
+						g_cutInMix = true;  // into the mixing bowl, after the dough's things, before the salt
 						g_bowlPoured = true;
 						Audio::Take("thunk_", 0.4f);
 					} else if (g_bowlTip > 0.6 && !g_bowlPoured) {
@@ -4151,7 +4179,7 @@ namespace Cook
 			case Hold::Meat:
 				return "Onto the plate to serve, or back on the spit";
 			case Hold::Dough:
-				return g_oven && g_oven->Pie() && g_oven->Dough() >= 0.9 ? (Dumpling() ? "Long pushes to roll it out square" : "Long pushes to roll it out round") : "A long push to knead";
+				return g_oven && g_oven->Pie() && g_oven->Dough() >= 0.9 ? (Dumpling() ? "Keep holding and roll it about, out square" : "Keep holding and roll it about, out round") : "Keep holding and work it about to knead";
 			case Hold::Mix:
 				return "Round and round until it comes together";
 			case Hold::Ball:
