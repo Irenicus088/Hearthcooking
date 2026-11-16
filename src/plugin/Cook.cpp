@@ -3062,7 +3062,7 @@ namespace Cook
 			if (P.door >= 0) {
 				// smaller, and out in front of the mouth: the game's oven stands further forward than ours did
 				const bool gameOven = Game(Kit::Role::Oven);
-				Scene::Place(P.door, { L::kOvenX - (gameOven ? 3.4 : 4.9), L::kOvenMouthY - (gameOven ? 2.2 : 0.35), OvenFloor() }, RotZ(-g_door * 1.75), gameOven ? 0.7f : 1.0f);
+				Scene::Place(P.door, { L::kOvenX - (gameOven ? 3.4 : 4.9), L::kOvenMouthY - (gameOven ? 2.2 : 0.35), L::kOvenFloorZ + (gameOven ? 1.4 : 0.0) }, RotZ(-g_door * 1.75), gameOven ? 0.7f : 1.0f);
 			}
 			if (P.peel >= 0) {
 				Vec3   at = PeelRest();
@@ -3960,7 +3960,7 @@ namespace Cook
 				}
 			} else if (g_flow == hc::Flow::Oven && g_oven && g_oven->InOven()) {
 				v = g_oven->Brown(), lo = 0.85, hi = 1.2, top = 1.8;
-				at = { L::kOvenX, L::kOvenY + 1.0, L::kOvenFloorZ + 8.0 };  // just over the dome
+				at = { L::kOvenX, L::kOvenY + 2.0, OvenFloor() + 10.5 };  // just over the dome
 			}
 			if (v < 0.0 || g_served) {
 				return;
