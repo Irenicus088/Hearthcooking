@@ -207,7 +207,7 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 		// the flesh, faintly mottled by the skin's texture so it isn't a flat card
 		float4 tx = has.x ? texDiffuse.Sample(smpWrap, q.xy * 0.37 + q.z * 0.21) : float4(0.5, 0.5, 0.5, 1);
 		float  m = 0.9 + 0.2 * dot(tx.rgb, float3(0.33, 0.33, 0.34));
-		float3 alb = Cooked(lerp(Lin(flesh.rgb) * m * tint.rgb, Lin(lift.rgb), lift.a), CookAt(cn));
+		float3 alb = Cooked(lerp(Lin(flesh.rgb) * m * tint.rgb, Lin(lift.rgb), saturate(lift.a)), CookAt(cn));
 		float3 V = normalize(camPos.xyz - q);
 		float  nl = saturate(dot(cn, keyDir.xyz));
 		float  sh = Shadow(q, cn);
@@ -234,7 +234,9 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	if (flesh.w > 2.5 && flesh.w < 3.5 && dot(N0, camPos.xyz - i.wpos) < 0) {
 		albedo = Lin(flesh.rgb) * 0.92 * tint.rgb;
 	}
-	albedo = lerp(albedo, Lin(lift.rgb), lift.a);
+	// (a negative amount spares the fruit: red, purple and blue texels keep their colour, the pastry goes doughy)
+	float  fruit = lift.a < 0 ? saturate(saturate((dif.b - dif.g) * 4) + saturate(((dif.r - dif.g) - 1.5 * (dif.g - dif.b)) * 3)) : 0;
+	albedo = lerp(albedo, Lin(lift.rgb), abs(lift.a) * (1 - fruit));
 	albedo = Cooked(albedo, CookAt(N0));
 	float3 N = N0;
 	float  mask = 1;

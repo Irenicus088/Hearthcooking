@@ -3129,7 +3129,7 @@ namespace Cook
 					lk.lift[0] = 0.94f;
 					lk.lift[1] = 0.86f;
 					lk.lift[2] = 0.7f;
-					lk.lift[3] = static_cast<float>(Clamp(0.85 - br * 0.9, 0.0, 0.85));  // pale and doughy at first
+					lk.lift[3] = -static_cast<float>(Clamp(0.85 - br * 0.9, 0.0, 0.85));  // pale and doughy at first (its fruit stays fruit)
 					Scene::Hide(P.result, false);
 					Scene::Hide(P.dough, true);
 					Scene::Hide(P.disk, true);
