@@ -115,8 +115,8 @@ namespace Kit
 		{
 			const auto& n = f.name;
 			const auto& x = f.file;
-			if (In(x, "marker")) {
-				return 0;  // a furniture marker has nothing to see
+			if (In(x, "marker") && !(a_r == Role::Oven && In(x, "ovenmarker"))) {
+				return 0;  // a furniture marker has nothing to see (but Hearthfire's oven is itself named OvenMarker)
 			}
 			switch (a_r) {
 			case Role::Table:
@@ -189,9 +189,9 @@ namespace Kit
 				}
 				return f.type == 'S' && In(x, "spit") && !In(x, "spittoon") ? 5 : 0;
 			case Role::Oven:
-				// the oven itself (a static), never its furniture marker (invisible: only where you stand to use it)
-				if (In(x, "marker")) {
-					return 0;
+				// Hearthfire's oven: its furniture's own mesh (_BYOH\Furniture\OvenMarker.nif) is the whole oven
+				if (In(x, "ovenmarker")) {
+					return 12;
 				}
 				// "oven" the word, not inside "woven" (a fence) or "stove"
 				if (f.type == 'S' && Word(x, "oven") && !Any(x, { "stove", "dwe", "fence" })) {

@@ -249,7 +249,7 @@ namespace Cook
 		Vec3   g_lastSpread;
 		double g_peelT = -1;        // the peel's trip into or out of the oven
 		// how many times faster than real each cooks
-		constexpr double kPotSpeed = 2.0, kSpitSpeed = 1.5, kOvenSpeed = 3.0;
+		constexpr double kPotSpeed = 2.0, kSpitSpeed = 1.5, kOvenSpeed = 6.0;
 		Vec3   g_peelAt;            // the peel in the hand
 		Vec3   g_peelFrom;          // where its trip into the oven starts
 		bool   g_peelLoaded = false;  // the dough on it
@@ -2687,10 +2687,12 @@ namespace Cook
 					Scene::Place(P.mixWater, kMixAt + Vec3{ 0, 0, 1.5 + 0.4 * g_mix }, RotZ(g_mixA * 0.3), 0.52f);
 					Scene::Hide(P.mixWater, !water);
 					auto& wl = Scene::LookOf(P.mixWater);
-					wl.lift[0] = static_cast<float>(0.55 + 0.37 * m);
-					wl.lift[1] = static_cast<float>(0.6 + 0.24 * m);
-					wl.lift[2] = static_cast<float>(0.62 + 0.04 * m);
-					wl.lift[3] = static_cast<float>(0.55 + 0.4 * (std::max)(m * 0.5, g_mix));
+					// clear water (a cool blue over the bowl's wood), clouding with the flour as it goes in and is stirred
+					const double cloud = Clamp(m * 0.45 + g_mix * 0.6, 0.0, 1.0);
+					wl.lift[0] = static_cast<float>(0.32 + 0.6 * cloud);
+					wl.lift[1] = static_cast<float>(0.46 + 0.4 * cloud);
+					wl.lift[2] = static_cast<float>(0.6 + 0.12 * cloud);
+					wl.lift[3] = static_cast<float>(0.45 + 0.5 * cloud);
 					wl.shadow = false;
 					if (P.mixBall >= 0) {
 						const bool inBowl = (g_mix > 0.25 || g_ball) && !g_doughOnBoard && g_hold != Hold::Ball;

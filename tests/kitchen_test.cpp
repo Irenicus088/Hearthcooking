@@ -221,7 +221,7 @@ static Result Bake(bool a_pie, double a_gap, int a_strokes, double a_until, bool
 	f.Light(2);
 	Oven o(a_pie);
 	double now = 0;
-	for (int k = 0; k < a_strokes; ++k) {
+	for (int k = 0; k < (a_strokes + 1) / 2; ++k) {  // kneading takes half the pushes it did
 		now += a_gap;
 		o.Knead(5.0, now);
 	}
