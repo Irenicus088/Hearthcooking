@@ -235,7 +235,9 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 		albedo = Lin(flesh.rgb) * 0.92 * tint.rgb;
 	}
 	// (a negative amount spares the fruit: red, purple and blue texels keep their colour, the pastry goes doughy)
-	float  fruit = lift.a < 0 ? saturate(saturate((dif.b - dif.g) * 4) + saturate(((dif.r - dif.g) - 1.5 * (dif.g - dif.b)) * 3)) : 0;
+	// (fruit: red, purple or blue, or dark - a juniper berry is nearly black; pastry is pale and yellow-brown)
+	float  lum = dot(dif.rgb, float3(0.3, 0.55, 0.15));
+	float  fruit = lift.a < 0 ? saturate(saturate((dif.b - dif.g) * 4) + saturate(((dif.r - dif.g) - 1.5 * (dif.g - dif.b)) * 3) + saturate((0.36 - lum) * 6)) : 0;
 	albedo = lerp(albedo, Lin(lift.rgb), abs(lift.a) * (1 - fruit));
 	albedo = Cooked(albedo, CookAt(N0));
 	float3 N = N0;
