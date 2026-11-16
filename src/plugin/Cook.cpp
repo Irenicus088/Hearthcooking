@@ -3283,7 +3283,7 @@ namespace Cook
 					Scene::Hide(P.dishRef, !show);
 					if (show) {
 						const double wide = (std::max)(fmx.x - fmn.x, fmx.y - fmn.y);
-						const double sc = 2.0 * (L::kPotR + 0.35) / (std::max)(0.1, wide);  // (its edge tucked under the pot's wall)
+						const double sc = 2.0 * (L::kPotR - 0.2) / (std::max)(0.1, wide);  // (inside the pot's wall)
 						const Vec3   mid{ (fmn.x + fmx.x) * 0.5, (fmn.y + fmx.y) * 0.5, fmx.z * 0.3 };  // (its top, as flattened below)
 						const Vec3   top{ L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick + 0.08 };
 						const Quat   q = RotZ(std::fmod(t * 0.05, 6.283) + g_spin);
