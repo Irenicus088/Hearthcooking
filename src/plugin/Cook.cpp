@@ -3673,7 +3673,10 @@ namespace Cook
 					Scene::Hide(P.dishRef, !show);
 					if (show) {
 						const double wide = (std::max)(fmx.x - fmn.x, fmx.y - fmn.y);
-						const double sc = 2.0 * (L::kPotR - 0.2) / (std::max)(0.1, wide);  // (inside the pot's wall)
+						// a little past the pot's inside, and trimmed to it (below): no gap at the edge. A sauce's dish is
+						// mostly jar - its sauce a small part of what's measured - so it's taken much wider
+						const double fill = SauceBowl() ? 2.2 : 1.12;
+						const double sc = fill * 2.0 * (L::kPotR - 0.2) / (std::max)(0.1, wide);
 						const Vec3   mid{ (fmn.x + fmx.x) * 0.5, (fmn.y + fmx.y) * 0.5, fmx.z * 0.3 };  // (its top, as flattened below)
 						const Vec3   top{ L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick + 0.08 };
 						const Quat   q = RotZ(std::fmod(t * 0.05, 6.283) + g_spin);
@@ -3682,6 +3685,12 @@ namespace Cook
 						auto& dl = Scene::LookOf(P.dishRef);
 						dl.alpha = static_cast<float>(fade);
 						dl.shadow = false;
+						// trimmed to the pot: six planes round its inside (nothing out through its wall)
+						for (int k = 0; k < 6; ++k) {
+							const double ca = std::cos(k * kPi / 3.0), sa = std::sin(k * kPi / 3.0);
+							dl.clips[k][0] = static_cast<float>(ca), dl.clips[k][1] = static_cast<float>(sa), dl.clips[k][2] = 0.0f;
+							dl.clips[k][3] = static_cast<float>(ca * L::kPotX + sa * L::kPotY + 0.93 * L::kPotR);
+						}
 					}
 				}
 				const double tp = g_pot->Temp();
