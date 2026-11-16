@@ -135,6 +135,7 @@ namespace Cook
 			double                    boardLen = 8.0;
 			double                    spitX = 0.0;
 			bool                      wentWhole = false;  // into the pot without being cut
+			bool                      thin = false;       // a leek, a carrot: only ever cut across
 		};
 
 		// A piece: the ingredient's own mesh cut to a box (x along its length, y across, z up; about its middle, at the
@@ -238,6 +239,7 @@ namespace Cook
 		Vec3   g_peelAt;            // the peel in the hand
 		Vec3   g_peelFrom;          // where its trip into the oven starts
 		bool   g_peelLoaded = false;  // the dough on it
+		bool   g_peelBread = false;   // the bake on it, out of the oven
 		bool   g_peelIn = true;
 		bool   g_served = false;
 		double g_serveAt = 0;
@@ -586,6 +588,12 @@ namespace Cook
 			a_u.cut.x1 = a_u.boardLen;
 			a_u.cut.target = (std::max)(0.6, a_u.boardLen / 6.0);
 			a_u.cut.width = Thick(a_u, a_u.boardLen, 1) * 0.96;
+			{
+				std::string n = a_u.name;
+				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				a_u.thin = a_u.dims[0] > 2.4 * a_u.dims[1] || n.find("leek") != std::string::npos || n.find("carrot") != std::string::npos ||
+				           n.find("garlic") != std::string::npos || n.find("root") != std::string::npos || n.find("stalk") != std::string::npos;
+			}
 			a_u.fitted = true;
 			return true;
 		}
@@ -847,6 +855,7 @@ namespace Cook
 			g_stock = 0;
 			g_peelT = -1;
 			g_peelLoaded = false;
+			g_peelBread = false;
 			g_served = false;
 			g_grains.clear();
 			g_tossedIn = 0;
@@ -1205,10 +1214,10 @@ namespace Cook
 			// the oven: its door, what's in it, the dough
 			if (oven) {
 				if (g_oven->InOven() && g_door > 0.6 && g_peelT < 0 && NearScreen(BreadAt() + Vec3{ 0, 0, 1.5 }, mx, my, 4.0, 30.0f)) {
-					g_hold = Hold::Bread;
+					Toast("Too hot for hands: take it out with the peel");
 					return;
 				}
-				if (P.peel >= 0 && g_peelT < 0 && !g_oven->InOven() && !g_oven->Out() && NearScreen(PeelRest(), mx, my, 4.5, 40.0f)) {
+				if (P.peel >= 0 && g_peelT < 0 && NearScreen(PeelRest(), mx, my, 4.5, 40.0f)) {
 					g_hold = Hold::Peel;
 					g_peelLoaded = false;
 					g_peelAt = PeelRest();
@@ -1353,8 +1362,14 @@ namespace Cook
 			case Hold::Peel:
 				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 					g_peelAt = { x, y, kBoardTop + 1.2 };
+					// into the open oven for what's baking
+					if (!g_peelBread && g_oven->InOven() && g_door > 0.6 && NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
+						g_oven->Unload();
+						g_peelBread = true;
+						Audio::Play({ "peel", 0.7f });
+					}
 					// slid under the dough: it's on
-					if (!g_peelLoaded && g_doughParts > 0 && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 3.5) {
+					if (!g_peelLoaded && !g_peelBread && !g_oven->InOven() && !g_oven->Out() && g_doughParts > 0 && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 3.5) {
 						if (g_doughNeeded > 0 && g_doughParts < g_doughNeeded) {
 							if (Audio::Now() - g_lastStir > 1.5) {
 								g_lastStir = Audio::Now();
@@ -1594,6 +1609,13 @@ namespace Cook
 				}
 				break;
 			case Hold::Peel:
+				if (g_peelBread) {
+					if (OverServe(mx, my)) {
+						Serve();  // off the peel onto the plate
+						g_peelBread = false;
+					}
+					break;  // else it rests on the peel
+				}
 				if (g_peelLoaded && NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
 					if (g_door < 0.6) {
 						Toast("Open the oven door first");
@@ -1733,6 +1755,10 @@ namespace Cook
 					for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
 						auto& u = g_units[i];
 						if (u.at != Unit::At::Board || u.lane != g_knifeLane || u.cut.finished) {
+							continue;
+						}
+						if (g_knifeAlong && u.thin) {
+							Toast(fmt::format("A {} is only cut across", u.name));
 							continue;
 						}
 						if ((g_knifeAlong ? u.cut.alongCount : u.cut.cutCount) >= hc::Cutting::kMaxCuts) {
@@ -1884,7 +1910,10 @@ namespace Cook
 			if (a_core < 0) {
 				return;
 			}
-			if (!a_cut) {
+			// only a die needs a solid (one from the middle has no skin at all); a slice is whole round its edge, and
+			// its skin's inside shows as flesh
+			const bool diced = std::abs(a_box[2]) < 1e6 || std::abs(a_box[3]) < 1e6 || std::abs(a_box[4]) < 1e6 || std::abs(a_box[5]) < 1e6;
+			if (!a_cut || !diced) {
 				Scene::Hide(a_core, true);
 				return;
 			}
@@ -2400,8 +2429,13 @@ namespace Cook
 				if (g_hold == Hold::Bread) {
 					at = g_carry;
 				}
-				// the dish itself once it's in (the game's own bread or pie), else our dough
-				const bool showDish = baking || g_hold == Hold::Bread;
+				if (g_peelBread) {
+					at = (g_hold == Hold::Peel ? g_peelAt : PeelRest()) + Vec3{ 0, 0, 0.3 };
+				}
+				// ready for the oven: it takes the shape of what it'll be (raw); in the oven and after, the dish itself
+				const bool ready = g_doughParts > 0 && (g_doughNeeded == 0 || (g_doughParts >= g_doughNeeded && g_oven->Dough() >= 0.9)) &&
+				                   (!g_oven->Pie() || (g_rolled && g_oven->Crimped() >= 0.9)) && !g_oven->Out();
+				const bool showDish = baking || g_hold == Hold::Bread || g_peelBread || ready;
 				if (showDish && P.result < 0 && g_recipe) {
 					P.result = AddResult();
 				}
@@ -2449,11 +2483,11 @@ namespace Cook
 					if (id < 0) {
 						continue;
 					}
-					const bool show = g_rolled && !g_oven->InOven() && g_peelT < 0 && !g_oven->Out() && g_hold != Hold::Dough;
+					const bool show = g_rolled && !showDish && g_peelT < 0 && g_hold != Hold::Dough;
 					Scene::Hide(id, !show);
 					if (show) {
 						const int ui = static_cast<int>(off.z);
-						Scene::Place(id, g_doughAt + Vec3{ off.x, off.y, 0.75 }, RotZ(Hash(id, 21) * 6.28), 1.0f);
+						Scene::Place(id, at + Vec3{ off.x, off.y, 1.35 }, RotZ(Hash(id, 21) * 6.28), 1.0f);
 						Scene::Stretch(id, 0.9f, 0.8f, 0.55f);
 						auto& lk = Scene::LookOf(id);
 						for (const auto& u : g_units) {
@@ -2473,11 +2507,11 @@ namespace Cook
 					}
 					for (int k = 0; k < hc::Oven::kCrimps; ++k) {
 						const auto id = P.crimps[k];
-						const bool show = g_oven->CrimpedAt(k) && !g_oven->InOven() && g_peelT < 0 && !g_oven->Out() && g_hold != Hold::Dough;
+						const bool show = g_oven->CrimpedAt(k) && !showDish && g_peelT < 0 && g_hold != Hold::Dough;
 						Scene::Hide(id, !show);
 						if (show) {
 							const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
-							Scene::Place(id, g_doughAt + Vec3{ std::cos(a) * 4.8, std::sin(a) * 4.8, 0.65 }, RotZ(a), 0.55f);
+							Scene::Place(id, at + Vec3{ std::cos(a) * 4.8, std::sin(a) * 4.8, 0.65 }, RotZ(a), 0.55f);
 							Scene::Stretch(id, 0.7f, 1.1f, 0.6f);
 						}
 					}
@@ -2718,6 +2752,11 @@ namespace Cook
 			} else {
 				if (g_doughNeeded > 0) {
 					unitsDone(Role::Dough, { Unit::At::Dough }, "Add the ", "");
+				}
+				if (g_recipe->salted) {
+					s.push_back({ "A pinch of salt", g_oven && g_oven->Seasoning().amount >= 0.7 });
+				}
+				if (g_doughNeeded > 0) {
 					s.push_back({ "Knead the dough", g_oven && g_oven->Dough() >= 0.9 });
 				}
 				if (g_recipe->pie) {
@@ -2726,9 +2765,6 @@ namespace Cook
 					s.push_back({ "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
 				} else {
 					unitsDone(Role::Filling, { Unit::At::Dough }, "Work in the ", "");
-				}
-				if (g_recipe->salted) {
-					s.push_back({ "A pinch of salt", g_oven && g_oven->Seasoning().amount >= 0.7 });
 				}
 				s.push_back({ "Into the oven", g_oven && (g_oven->InOven() || g_oven->Out()) });
 				s.push_back({ "Bake it golden", g_oven && g_oven->Brown() >= 0.85 });
@@ -2764,7 +2800,7 @@ namespace Cook
 			case Hold::Dough:
 				return "A long push to knead";
 			case Hold::Peel:
-				return g_peelLoaded ? "Into the open oven" : "Slide it under the dough";
+				return g_peelBread ? "Onto the plate" : g_peelLoaded ? "Into the open oven" : g_oven && g_oven->InOven() ? "Into the open oven to take it out" : "Slide it under the dough";
 			case Hold::Spread:
 				return "Spread it out to the edge";
 			case Hold::Crimp:
