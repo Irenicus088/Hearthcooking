@@ -213,9 +213,11 @@ namespace Recipes
 				r->result = result;
 				r->name = result->GetName();
 				r->makes = (std::max)(1, static_cast<int>(cobj->data.numConstructed));
-				r->oven = isOven;
 				const auto low = Lower(r->name);
-				if (isOven) {
+				// a pie is baked, wherever the game has it made (its Chaurus Pie is a cooking pot's)
+				const bool oven = isOven || Has(low, { " pie", "pie " }) || low.rfind("pie", 0) == 0 || (low.size() >= 3 && low.compare(low.size() - 3, 3, "pie") == 0);
+				r->oven = oven;
+				if (oven) {
 					r->flow = hc::Flow::Oven;
 					r->pie = Has(low, { "pie", "crostata", "tart", "pastry", "dumpling" });
 				} else {
