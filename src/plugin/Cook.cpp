@@ -1844,17 +1844,26 @@ namespace Cook
 				return;
 			}
 			const double rx = u.boardLen * 0.5, ry = (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5), rz = (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5);
+			// a little inside the skin: where the thing is rounder than an egg, the skin's own inside rims the cut face
+			const double k = 0.9, cx = rx * k, cy = ry * k, cz = rz * k;
 			Scene::Place(a_core, a_c, a_frame, 1.0f);
-			Scene::Stretch(a_core, static_cast<float>(rx * 0.95), static_cast<float>(ry * 0.93), static_cast<float>(rz * 0.93));
+			Scene::Stretch(a_core, static_cast<float>(cx), static_cast<float>(cy), static_cast<float>(cz));
 			Scene::Hide(a_core, false);
 			auto& cl = Scene::LookOf(a_core);
 			ClipTo(cl, a_c, a_frame, a_box, true);
 			float fl[3];
 			Flesh(u, fl);
 			std::copy(fl, fl + 3, cl.flesh);
-			cl.flesh[3] = 1.0f;
-			for (int k = 0; k < 3; ++k) {
-				cl.tint[k] = fl[k] * 1.12f;  // its outside, where the skin has gaps (a cabbage's leaves)
+			cl.flesh[3] = 2.0f;  // only its cut faces show: the skin stays the outside
+			const Vec3 ax[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / cx), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / cy), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / cz) };
+			cl.shape[0][0] = static_cast<float>(a_c.x);
+			cl.shape[0][1] = static_cast<float>(a_c.y);
+			cl.shape[0][2] = static_cast<float>(a_c.z);
+			cl.shape[0][3] = 2.0f;
+			for (int j = 0; j < 3; ++j) {
+				cl.shape[j + 1][0] = static_cast<float>(ax[j].x);
+				cl.shape[j + 1][1] = static_cast<float>(ax[j].y);
+				cl.shape[j + 1][2] = static_cast<float>(ax[j].z);
 			}
 			cl.cookMode = lk.cookMode;
 			cl.cook[0] = lk.cook[0];

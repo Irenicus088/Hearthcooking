@@ -191,7 +191,12 @@ bool CutFace(VSOut i, out float3 q, out float3 n)
 		// a loose, boxy bound: an apple's cut faces reach well past the ellipsoid in its box, and were drawn as the
 		// dark inside of the skin wherever they did; only a leaf or a stem stands this far out
 		float ay = abs(ly), az = abs(lz);
-		if (pow(lx, max(shape[0].w, 4.0)) + ay * ay * ay * ay + az * az * az * az > 1.6) return false;
+		if (flesh.w > 1.5) {
+			// a core: its cut face is exactly its own section, nothing past it
+			if (lx * lx + ly * ly + lz * lz > 1.02) return false;
+		} else if (pow(lx, max(shape[0].w, 4.0)) + ay * ay * ay * ay + az * az * az * az > 1.6) {
+			return false;
+		}
 	}
 	return true;
 }
@@ -277,6 +282,8 @@ float4 PSCut(VSOut i, out float depth : SV_Depth) : SV_Target
 	if (Clipped(i.wpos)) discard;
 	float3 q, n;
 	bool   cut = CutFace(i, q, n);
+	// a core shows only its cut faces: its own outside never (the thing's skin is the outside, whatever its shape)
+	if (flesh.w > 1.5 && !cut) discard;
 	float4 c = mul(viewProj, float4(q, 1));
 	depth = c.z / c.w;
 	return Shade(i, cut, q, n);
