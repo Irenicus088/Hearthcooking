@@ -615,7 +615,7 @@ namespace Cook
 					// through ours and flicker; the posts' tips end under the rod that rests across them
 					auto& pl = Scene::LookOf(P.posts);
 					pl.clips[0][0] = 0.0f, pl.clips[0][1] = 0.0f, pl.clips[0][2] = 1.0f;
-					pl.clips[0][3] = static_cast<float>(L::kSpitZ - 0.1);
+					pl.clips[0][3] = static_cast<float>(L::kSpitZ - 0.65);  // (under the whole of its skewer, which lies where our rod does)
 				}
 				// (the game's frame stands a little under the rod, which rests across its top as in the game, rather than
 				// running through its top bar and flickering in and out of it)
