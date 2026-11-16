@@ -27,7 +27,7 @@ rng = np.random.default_rng(11)
 TOP_W, TOP_D, HEARTH_EDGE = 74.0, 40.0, 5.0
 BOARD_W, BOARD_D, BOARD_H = 20.0, 12.5, 1.1
 FIRE_R = 7.5
-POT_R, POT_WALL, POT_FLOOR, POT_RIM = 6.2, 0.45, 3.4, 10.2
+POT_R, POT_WALL, POT_FLOOR, POT_RIM = 5.27, 0.4, 2.9, 8.67  # (15% smaller than it was)
 SPIT_Z, SPIT_HALF, CRANK_OFF, CRANK_R = 13.0, 13.0, 16.1, 3.25
 OVEN_FLOOR = 9.0
 
@@ -551,17 +551,16 @@ def kitchen():
     bolster.box(-0.18, 0.18, -0.4, 0.0, 0.5, 1.6)
     nif("Knife", [("Blade", blade, "iron", IRON), ("Handle", handle, "handle", WOOD), ("Bolster", bolster, "iron", IRON)])
 
-    # the pot (its axis at the origin, heights as in the kitchen), its legs and lugs
+    # the pot (its axis at the origin, its base at 0, heights as in the kitchen less its lift), its lugs; it hangs,
+    # so no legs. Its old shape, 15% smaller
     pot = Mesh()
+    k_ = 0.85
     f0 = POT_FLOOR
-    prof = [(0.0, f0 - 0.6), (4.6, f0 - 0.6), (6.4, f0 + 0.6), (7.1, f0 + 2.8), (7.15, 6.8), (6.85, 9.3), (POT_R + POT_WALL, POT_RIM - 0.15),
-            (POT_R + POT_WALL, POT_RIM), (POT_R, POT_RIM), (POT_R, 6.0), (5.8, f0 + 1.0), (4.6, f0), (0.0, f0)]
+    prof = [(0.0, f0 - 0.6 * k_), (4.6 * k_, f0 - 0.6 * k_), (6.4 * k_, f0 + 0.6 * k_), (7.1 * k_, f0 + 2.8 * k_), (7.15 * k_, 6.8 * k_), (6.85 * k_, 9.3 * k_),
+            (POT_R + POT_WALL, POT_RIM - 0.15), (POT_R + POT_WALL, POT_RIM), (POT_R, POT_RIM), (POT_R, 6.0 * k_), (5.8 * k_, f0 + 1.0 * k_), (4.6 * k_, f0), (0.0, f0)]
     pot.lathe(prof, 56, urep=3.0, vrep=2.0)
-    for k in range(3):
-        a = k * 2 * math.pi / 3 + 0.5
-        pot.cylinder((4.4 * math.cos(a), 4.4 * math.sin(a), 0.0), (4.8 * math.cos(a), 4.8 * math.sin(a), f0 - 0.4), 0.35, 8)
     for s in (-1, 1):
-        pot.box(s * (POT_R + POT_WALL) - 0.5, s * (POT_R + POT_WALL) + 0.5, -0.5, 0.5, POT_RIM - 1.6, POT_RIM - 0.6)
+        pot.box(s * (POT_R + POT_WALL) - 0.45, s * (POT_R + POT_WALL) + 0.45, -0.45, 0.45, POT_RIM - 1.4, POT_RIM - 0.55)
     nif("Pot", [("Pot", pot, "iron", IRON)])
 
     # the broth's surface: a disk (the DLL tints it for the dish and turns it as it's stirred)
@@ -852,7 +851,7 @@ def kitchen():
 
     # the pot's hanger: a bar across the spit's frame (its middle at the origin), and the pot's bail hung from it - an
     # arch from the pot's sides at its rim up to the bar
-    POT_LIFT, POT_BAR_Z = 2.0, 16.5
+    POT_LIFT, POT_BAR_Z = 3.2, 16.5
     bar, bail = Mesh(), Mesh()
     bar.cylinder((-SPIT_HALF - 0.6, 0, 0), (SPIT_HALF + 0.6, 0, 0), 0.36, 12, urep=(2 * SPIT_HALF + 1.2) / (2 * math.pi * 0.36))
     H = POT_BAR_Z - (POT_RIM + POT_LIFT) + 0.4

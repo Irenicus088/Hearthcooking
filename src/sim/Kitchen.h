@@ -42,9 +42,9 @@ namespace hc
 		constexpr double kFireX = 18.0, kFireY = 3.0, kFireR = 7.5;
 
 		// The pot, hung over the fire from a bar across the spit's frame (the logs go in under it)
-		constexpr double kPotLift = 2.0;   // its base over the hearth
-		constexpr double kPotX = kFireX, kPotY = kFireY, kPotR = 6.2, kPotWall = 0.45;
-		constexpr double kPotFloor = 3.4 + kPotLift, kPotRim = 10.2 + kPotLift, kLiquidZ = 7.6 + kPotLift;
+		constexpr double kPotLift = 3.2;   // its base over the hearth: the fire burns under it, in sight
+		constexpr double kPotX = kFireX, kPotY = kFireY, kPotR = 5.27, kPotWall = 0.4;  // (15% smaller than it was)
+		constexpr double kPotFloor = 2.9 + kPotLift, kPotRim = 8.67 + kPotLift, kLiquidZ = 6.46 + kPotLift;
 		constexpr double kPotBarZ = 16.5;  // the bar it hangs from (tools/make_meshes.py: PotBar)
 
 		// The spit: two posts either side of the fire, the rod along x
