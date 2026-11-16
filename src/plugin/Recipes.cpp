@@ -75,8 +75,9 @@ namespace Recipes
 				delete e;
 			}
 			slot.ours.clear();
+			// (burnt: none of them - it fills the belly, nothing more)
 			for (auto* e : a_base->effects) {
-				if (!e) {
+				if (!e || a_tier == hc::Tier::Burnt) {
 					continue;
 				}
 				auto* n = new RE::Effect();
