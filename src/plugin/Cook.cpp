@@ -104,7 +104,8 @@ namespace Cook
 			Spread,      // spreading the filling
 			Crimp,       // pinching the edge
 			Door,        // the oven door
-			Bread        // taking it out of the oven
+			Bread,       // taking it out of the oven
+			Peel         // the peel: to the dough to slide it on, then into the oven
 		};
 
 		struct Unit
@@ -233,6 +234,10 @@ namespace Cook
 		int    g_lastFill = 0;          // the filling being spread
 		Vec3   g_lastSpread;
 		double g_peelT = -1;        // the peel's trip into or out of the oven
+		constexpr double kCookSpeed = 3.0;  // the pot, the spit and the oven cook this many times faster than real
+		Vec3   g_peelAt;            // the peel in the hand
+		Vec3   g_peelFrom;          // where its trip into the oven starts
+		bool   g_peelLoaded = false;  // the dough on it
 		bool   g_peelIn = true;
 		bool   g_served = false;
 		double g_serveAt = 0;
@@ -841,6 +846,7 @@ namespace Cook
 			g_squash = 0;
 			g_stock = 0;
 			g_peelT = -1;
+			g_peelLoaded = false;
 			g_served = false;
 			g_grains.clear();
 			g_tossedIn = 0;
@@ -1071,6 +1077,7 @@ namespace Cook
 			return { L::kFireX + 12.9 + 0.95, L::kFireY - std::sin(a) * L::kCrankR, L::kSpitZ + std::cos(a) * L::kCrankR };
 		}
 
+		Vec3 PeelRest() { return { -1.0, -17.0, 0.3 }; }
 		Vec3 MouthAt() { return { L::kOvenX, L::kOvenMouthY - 0.6, L::kOvenFloorZ + 2.5 }; }
 		Vec3 BreadAt() { return { L::kOvenX, L::kOvenMouthY + 4.2, L::kOvenFloorZ }; }
 		Vec3 DoorCentre() { return { L::kOvenX - 4.9 + std::cos(-g_door * 1.75) * 5.0, L::kOvenMouthY - 0.35 + std::sin(-g_door * 1.75) * 5.0, L::kOvenFloorZ + 3.2 }; }
@@ -1199,6 +1206,12 @@ namespace Cook
 			if (oven) {
 				if (g_oven->InOven() && g_door > 0.6 && g_peelT < 0 && NearScreen(BreadAt() + Vec3{ 0, 0, 1.5 }, mx, my, 4.0, 30.0f)) {
 					g_hold = Hold::Bread;
+					return;
+				}
+				if (P.peel >= 0 && g_peelT < 0 && !g_oven->InOven() && !g_oven->Out() && NearScreen(PeelRest(), mx, my, 4.5, 40.0f)) {
+					g_hold = Hold::Peel;
+					g_peelLoaded = false;
+					g_peelAt = PeelRest();
 					return;
 				}
 				if (NearScreen(DoorCentre(), mx, my, 3.5, 30.0f)) {
@@ -1337,8 +1350,28 @@ namespace Cook
 					}
 				}
 				break;
+			case Hold::Peel:
+				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
+					g_peelAt = { x, y, kBoardTop + 1.2 };
+					// slid under the dough: it's on
+					if (!g_peelLoaded && g_doughParts > 0 && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 3.5) {
+						if (g_doughNeeded > 0 && g_doughParts < g_doughNeeded) {
+							if (Audio::Now() - g_lastStir > 1.5) {
+								g_lastStir = Audio::Now();
+								Toast("The dough isn't all in yet");
+							}
+						} else {
+							g_peelLoaded = true;
+							Audio::Take("thunk_", 0.4f);
+						}
+					}
+				}
+				break;
 			case Hold::Dough:
 				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
+					// kneading stays on the board: the dough never leaves it (the peel carries it to the oven)
+					x = Clamp(x, L::kBoardX - L::kBoardW * 0.5 + 3.0, L::kBoardX + L::kBoardW * 0.5 - 3.0);
+					y = Clamp(y, L::kBoardY - L::kBoardD * 0.5 + 3.0, L::kBoardY + L::kBoardD * 0.5 - 3.0);
 					const double dx = x - g_grabX, dy = y - g_grabY;
 					g_strokeLen = std::hypot(dx, dy);
 					g_squash = Clamp(g_strokeLen / 6.0, 0.0, 1.0);
@@ -1560,20 +1593,29 @@ namespace Cook
 					Serve();
 				}
 				break;
+			case Hold::Peel:
+				if (g_peelLoaded && NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
+					if (g_door < 0.6) {
+						Toast("Open the oven door first");
+						g_peelLoaded = false;  // the dough slides back onto the board
+					} else {
+						g_peelFrom = g_peelAt;
+						g_peelT = 0.0;  // in it goes
+						g_peelIn = true;
+						Audio::Play({ "peel", 0.7f });
+					}
+				} else if (g_peelLoaded) {
+					g_peelLoaded = false;  // put down: the dough back on the board
+					Toast("Carry it into the open oven");
+				}
+				g_peelLoaded = g_peelLoaded && g_peelT >= 0;
+				break;
 			case Hold::Dough:
 				{
 					double x = 0, y = 0;
 					const bool board = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::abs(x - L::kBoardX) < L::kBoardW * 0.5 + 1.0 && std::abs(y - L::kBoardY) < L::kBoardD * 0.5 + 1.0;
 					if (NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
-						if (g_door < 0.6) {
-							Toast("Open the oven door first");
-						} else if (g_doughNeeded > 0 && g_doughParts < g_doughNeeded) {
-							Toast("The dough isn't all in yet");
-						} else {
-							g_peelT = 0.0;  // in it goes
-							g_peelIn = true;
-							Audio::Play({ "peel", 0.7f });
-						}
+						Toast("Use the peel: drag it under the dough, then into the oven");
 					} else if (board && g_strokeLen > 1.2 && !g_rolled && g_doughParts > 0) {
 						g_oven->Knead(g_strokeLen, g_clock);
 						Audio::Take("knead_", 0.7f);
@@ -1750,21 +1792,21 @@ namespace Cook
 				if (after > before) {
 					g_pot->AddPieces(before, after - before);
 				}
-				g_pot->Step(dt, g_fire.Heat(), after + g_tossedIn > 0);
-				g_chunks.Cook(dt * 0.02 * Clamp(g_pot->Temp() - 0.3, 0.0, 1.0));
+				g_pot->Step(dt * kCookSpeed, g_fire.Heat(), after + g_tossedIn > 0);
+				g_chunks.Cook(dt * kCookSpeed * 0.02 * Clamp(g_pot->Temp() - 0.3, 0.0, 1.0));
 				const double t = g_pot->Temp();
 				Audio::SetLoop("loop_simmer", static_cast<float>(Clamp((t - 0.38) * 3.0, 0.0, 0.7)));
 				Audio::SetLoop("loop_boil", static_cast<float>(Clamp((t - 0.8) * 4.0, 0.0, 0.8)));
 			}
 			if (g_flow == hc::Flow::Spit && g_spit) {
 				const int m = Mounted();
-				g_spit->Step(dt, g_fire.Heat(), m > 0);
+				g_spit->Step(dt * kCookSpeed, g_fire.Heat(), m > 0);
 				Audio::SetLoop("loop_sizzle", m > 0 ? static_cast<float>(Clamp((g_fire.Heat() - 0.3) * 1.4, 0.0, 0.8)) : 0.0f);
 			}
 			if (g_flow == hc::Flow::Oven && g_oven) {
 				g_door += Clamp(g_doorWant - g_door, -dt * 3.0, dt * 3.0);
 				g_oven->SetDoor(g_door > 0.5);
-				g_oven->Step(dt, g_fire.Heat());
+				g_oven->Step(dt * kCookSpeed, g_fire.Heat());
 				if (g_peelT >= 0) {
 					g_peelT += dt / 0.7;
 					if (g_peelT >= 1.0) {
@@ -2305,11 +2347,15 @@ namespace Cook
 				Scene::Place(P.door, { L::kOvenX - 4.9, L::kOvenMouthY - 0.35, L::kOvenFloorZ }, RotZ(-g_door * 1.75), 1.0f);
 			}
 			if (P.peel >= 0) {
-				Vec3 at{ L::kOvenX - 15.0, -15.0, 0.3 };
+				Vec3   at = PeelRest();
 				double rz = 0.35;
+				if (g_hold == Hold::Peel) {
+					at = g_peelAt;
+					rz = 0.0;
+				}
 				if (g_peelT >= 0) {
 					const double k = std::sin(Clamp(g_peelT, 0.0, 1.0) * kPi);
-					at = g_doughAt + (BreadAt() + Vec3{ 0, 0, 0.3 } - g_doughAt) * Clamp(g_peelT * 1.4, 0.0, 1.0);
+					at = g_peelFrom + (BreadAt() + Vec3{ 0, 0, 0.3 } - g_peelFrom) * Clamp(g_peelT * 1.4, 0.0, 1.0);
 					at.z += k * 1.5;
 					rz = 0.0;
 				}
@@ -2330,8 +2376,11 @@ namespace Cook
 				if (g_hold == Hold::Dough && g_strokeLen > 0 && !board_kneading()) {
 					at = { g_carry.x, g_carry.y, kBoardTop + 4.0 };
 				}
+				if (g_hold == Hold::Peel && g_peelLoaded) {
+					at = g_peelAt + Vec3{ 0, 0, 0.3 };  // on the peel
+				}
 				if (g_peelT >= 0) {
-					at = g_doughAt + (BreadAt() - g_doughAt) * Clamp(g_peelT * 1.4, 0.0, 1.0);
+					at = g_peelFrom + (BreadAt() - g_peelFrom) * Clamp(g_peelT * 1.4, 0.0, 1.0);
 					at.z += std::sin(Clamp(g_peelT, 0.0, 1.0) * kPi) * 1.5 + 0.3;
 				}
 				if (g_oven->InOven()) {
@@ -2702,7 +2751,9 @@ namespace Cook
 			case Hold::Meat:
 				return "Onto the plate to serve, or back on the spit";
 			case Hold::Dough:
-				return "A long push to knead; carry it to the open oven to bake";
+				return "A long push to knead";
+			case Hold::Peel:
+				return g_peelLoaded ? "Into the open oven" : "Slide it under the dough";
 			case Hold::Spread:
 				return "Spread it out to the edge";
 			case Hold::Crimp:
@@ -3048,7 +3099,7 @@ namespace Cook
 				if (g_recipe && g_recipe->pie) {
 					lines.push_back("Drop the filling on the dough, spread it out to the edge, then pinch round the rim to crimp it.");
 				}
-				lines.push_back("Open the door (drag it left), carry the dough into the mouth, shut the door. Peek, but each peek lets the heat out.");
+				lines.push_back("Open the door (drag it left). Drag the peel under the dough, carry it into the mouth, shut the door. Peek, but each peek lets the heat out.");
 			}
 			lines.push_back("The meter shows how done it is; there's no gauge for the heat: watch the flames. Logs from the pile make it hotter; drag a burning one out to cool it.");
 			float h = S(80);

@@ -55,8 +55,8 @@ namespace hc
 
 		// The rest of the room: the logs, the salt, the serving bowl / plate
 		constexpr double kPileX = 31.5, kPileY = -7.0;
-		constexpr double kSaltX = -1.0, kSaltY = -14.0;
-		constexpr double kServeX = 7.0, kServeY = -14.0;
+		constexpr double kSaltX = -11.0, kSaltY = -14.0;
+		constexpr double kServeX = 11.0, kServeY = -14.0;
 		constexpr double kRackX = -29.0;  // the ingredients waiting their turn, down the left side
 	}
 
