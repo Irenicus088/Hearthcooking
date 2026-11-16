@@ -230,6 +230,10 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	float alpha = scale3.w > 0.5 ? a : 1.0;
 	float3 N0 = normalize(i.n);
 	float3 albedo = Lin(dif.rgb) * tint.rgb;
+	// a cut piece's skin seen from inside: its flesh, not the back of its peel
+	if (flesh.w > 2.5 && flesh.w < 3.5 && dot(N0, camPos.xyz - i.wpos) < 0) {
+		albedo = Lin(flesh.rgb) * 0.92;
+	}
 	albedo = lerp(albedo, Lin(lift.rgb), lift.a);
 	albedo = Cooked(albedo, CookAt(N0));
 	float3 N = N0;
@@ -275,6 +279,48 @@ float4 PSMain(VSOut i) : SV_Target
 {
 	if (Clipped(i.wpos)) discard;
 	return Shade(i, false, i.wpos, 0);
+}
+
+// A cut piece's solid, drawn on a box round it: the eye's ray against the piece exactly - its cuts (planes) and the
+// thing's own rounded shape (an ellipsoid) - so a piece from the middle is a solid cube however hollow the mesh is.
+float4 PSSolid(VSOut i, out float depth : SV_Depth) : SV_Target
+{
+	float3 e = camPos.xyz, d = normalize(i.wpos - camPos.xyz);
+	float  tin = 0, tout = 1e9;
+	float3 n = float3(0, 0, 1);
+	[unroll] for (int k = 0; k < 6; k++) {
+		float3 pn = clips[k].xyz;
+		if (all(pn == 0)) continue;
+		float dd = dot(pn, d), de = dot(pn, e) - clips[k].w;
+		if (abs(dd) < 1e-6) {
+			if (de > 0) discard;
+			continue;
+		}
+		float t = -de / dd;
+		if (dd < 0) {
+			if (t > tin) { tin = t; n = pn; }
+		} else {
+			tout = min(tout, t);
+		}
+	}
+	float3 r = e - shape[0].xyz;
+	float3 o = float3(dot(shape[1].xyz, r), dot(shape[2].xyz, r), dot(shape[3].xyz, r));
+	float3 v = float3(dot(shape[1].xyz, d), dot(shape[2].xyz, d), dot(shape[3].xyz, d));
+	float  a = dot(v, v), b = dot(o, v), c = dot(o, o) - 1;
+	float  disc = b * b - a * c;
+	if (disc < 0) discard;
+	float sq = sqrt(disc), t0 = (-b - sq) / a, t1 = (-b + sq) / a;
+	if (t0 > tin) {
+		tin = t0;
+		float3 p = o + v * t0;
+		n = normalize(p.x * shape[1].xyz + p.y * shape[2].xyz + p.z * shape[3].xyz);
+	}
+	tout = min(tout, t1);
+	if (tin >= tout || tin <= 0) discard;
+	float3 q = e + d * tin;
+	float4 cp = mul(viewProj, float4(q, 1));
+	depth = cp.z / cp.w;
+	return Shade(i, true, q, n);
 }
 
 float4 PSCut(VSOut i, out float depth : SV_Depth) : SV_Target
@@ -487,6 +533,7 @@ float4 PSComposite(FSOut i) : SV_Target
 		ID3D11VertexShader* g_vsSprite = nullptr;
 		ID3D11PixelShader*  g_ps = nullptr;
 		ID3D11PixelShader*  g_psCut = nullptr;
+		ID3D11PixelShader*  g_psSolid = nullptr;
 		ID3D11VertexShader* g_vsShadowCut = nullptr;
 		ID3D11PixelShader*  g_psShadowCut = nullptr;
 		ID3D11PixelShader*  g_psSprite = nullptr;
@@ -592,7 +639,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				return ok;
 			};
 			if (!vs("VSMain", &g_vs, true) || !vs("VSShadow", &g_vsShadow, false) || !vs("VSShadowCut", &g_vsShadowCut, false) || !vs("VSFull", &g_vsFull, false) || !vs("VSSprite", &g_vsSprite, false) ||
-				!ps("PSMain", &g_ps) || !ps("PSCut", &g_psCut) || !ps("PSShadowCut", &g_psShadowCut) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
+				!ps("PSMain", &g_ps) || !ps("PSCut", &g_psCut) || !ps("PSSolid", &g_psSolid) || !ps("PSShadowCut", &g_psShadowCut) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
 				!ps("PSComposite", &g_psComposite)) {
 				return false;
 			}
@@ -1327,7 +1374,8 @@ float4 PSComposite(FSOut i) : SV_Target
 					}
 					ID3D11ShaderResourceView* t[4] = { it.diffuse, it.normal, it.env, it.envMask };
 					c->PSSetShaderResources(0, 4, t);
-					c->PSSetShader(it.flesh[3] > 0.5f ? g_psCut : g_ps, nullptr, 0);
+					const float fm = it.flesh[3];  // 1-2 cut faces from the mesh's inside, 3 skin with flesh inside, 4 the solid
+					c->PSSetShader(fm > 3.5f ? g_psSolid : (fm > 0.5f && fm < 2.5f) ? g_psCut : g_ps, nullptr, 0);
 					c->DrawIndexed(it.indexCount, 0, 0);
 				}
 			};

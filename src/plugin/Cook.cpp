@@ -717,7 +717,7 @@ namespace Cook
 				p.prop = Add("Chunk");  // its mesh won't load: a plain piece
 			}
 			if (a_cut) {
-				p.core = Add("Core");
+				p.core = Add("Hull");
 			}
 			if (static_cast<int>(g_pieces.size()) <= a_body) {
 				g_pieces.resize(a_body + 1);
@@ -1877,7 +1877,10 @@ namespace Cook
 			Scene::Hide(a_id, false);
 			auto& lk = Scene::LookOf(a_id);
 			ClipTo(lk, a_c, a_frame, a_box, a_cut);
-			lk.flesh[3] = 0.0f;
+			float fl[3];
+			Flesh(u, fl);
+			std::copy(fl, fl + 3, lk.flesh);
+			lk.flesh[3] = a_cut ? 3.0f : 0.0f;  // seen from inside, the skin shows its flesh
 			if (a_core < 0) {
 				return;
 			}
@@ -1885,31 +1888,39 @@ namespace Cook
 				Scene::Hide(a_core, true);
 				return;
 			}
-			const double rx = u.boardLen * 0.5, ry = (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5), rz = (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5);
-			// a little inside the skin: where the thing is rounder than an egg, the skin's own inside rims the cut face
-			const double k = 0.9, cx = rx * k, cy = ry * k, cz = rz * k;
-			Scene::Place(a_core, a_c, a_frame, 1.0f);
-			Scene::Stretch(a_core, static_cast<float>(cx), static_cast<float>(cy), static_cast<float>(cz));
+			// the solid: what of the cell the thing's rounded shape fills, found exactly by the shader in a box round it
+			const double k = 0.97;
+			const double R[3] = { u.boardLen * 0.5 * k, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * k, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * k };
+			double       lo[3], hi[3];
+			for (int ax = 0; ax < 3; ++ax) {
+				lo[ax] = (std::max)(a_box[ax * 2], -R[ax]);
+				hi[ax] = (std::min)(a_box[ax * 2 + 1], R[ax]);
+				if (hi[ax] <= lo[ax]) {
+					Scene::Hide(a_core, true);
+					return;
+				}
+			}
+			const Vec3 mid{ (lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 };
+			Scene::Place(a_core, a_c + a_frame.Rotate(mid), a_frame, 1.0f);
+			Scene::Stretch(a_core, static_cast<float>((hi[0] - lo[0]) * 1.04), static_cast<float>((hi[1] - lo[1]) * 1.04), static_cast<float>((hi[2] - lo[2]) * 1.04));
 			Scene::Hide(a_core, false);
 			auto& cl = Scene::LookOf(a_core);
 			ClipTo(cl, a_c, a_frame, a_box, true);
-			float fl[3];
-			Flesh(u, fl);
 			std::copy(fl, fl + 3, cl.flesh);
-			cl.flesh[3] = 2.0f;  // only its cut faces show: the skin stays the outside
-			const Vec3 ax[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / cx), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / cy), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / cz) };
+			cl.flesh[3] = 4.0f;
+			const Vec3 axv[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / R[0]), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / R[1]), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / R[2]) };
 			cl.shape[0][0] = static_cast<float>(a_c.x);
 			cl.shape[0][1] = static_cast<float>(a_c.y);
 			cl.shape[0][2] = static_cast<float>(a_c.z);
 			cl.shape[0][3] = 2.0f;
 			for (int j = 0; j < 3; ++j) {
-				cl.shape[j + 1][0] = static_cast<float>(ax[j].x);
-				cl.shape[j + 1][1] = static_cast<float>(ax[j].y);
-				cl.shape[j + 1][2] = static_cast<float>(ax[j].z);
+				cl.shape[j + 1][0] = static_cast<float>(axv[j].x);
+				cl.shape[j + 1][1] = static_cast<float>(axv[j].y);
+				cl.shape[j + 1][2] = static_cast<float>(axv[j].z);
 			}
 			cl.cookMode = lk.cookMode;
 			cl.cook[0] = lk.cook[0];
-			cl.shadow = lk.shadow;
+			cl.shadow = false;  // the skin casts the shadow
 		}
 
 		void PlaceBoardUnit(Unit& u)
@@ -1927,7 +1938,7 @@ namespace Cook
 				u.segs.push_back(id >= 0 ? id : Add("Chunk"));
 			}
 			while (static_cast<int>(u.cores.size()) < n) {
-				u.cores.push_back(Add("Core"));
+				u.cores.push_back(Add("Hull"));
 			}
 			const double half = u.boardLen * 0.5, w = u.cut.width;
 			for (int ix = 0; ix < nx; ++ix) {
@@ -2691,18 +2702,18 @@ namespace Cook
 					unitsDone(Role::Chop, { Unit::At::Pot }, "Tip in the ", "");
 				}
 				unitsDone(Role::Toss, { Unit::At::Pot }, "Add the ", "");
-				s.push_back({ "Keep it at a simmer, and stir", g_pot && g_pot->Cooked() >= 0.92 });
 				if (g_recipe->salted) {
 					s.push_back({ "A pinch of salt", g_pot && g_pot->Seasoning().amount >= 0.7 });
 				}
+				s.push_back({ "Keep it at a simmer, and stir", g_pot && g_pot->Cooked() >= 0.92 });
 				s.push_back({ "Ladle it into the bowl", g_served });
 			} else if (g_flow == hc::Flow::Spit) {
 				unitsDone(Role::Meat, { Unit::At::Spit }, "Put the ", " on the spit");
 				unitsDone(Role::Toss, { Unit::At::Gone }, "Rub in the ", "");
-				s.push_back({ "Turn it over the fire", g_spit && g_spit->Mean() >= 0.9 });
 				if (g_recipe->salted) {
 					s.push_back({ "Salt it", g_spit && g_spit->Seasoning().amount >= 0.7 });
 				}
+				s.push_back({ "Turn it over the fire", g_spit && g_spit->Mean() >= 0.9 });
 				s.push_back({ "Take it off onto the plate", g_served });
 			} else {
 				if (g_doughNeeded > 0) {
