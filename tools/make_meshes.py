@@ -626,9 +626,9 @@ def kitchen():
     rod.cylinder((CRANK_OFF, 0, 0), (CRANK_OFF, 0, CRANK_R), 0.22, 8)
     grip.cylinder((CRANK_OFF, 0, CRANK_R), (CRANK_OFF + 1.9, 0, CRANK_R), 0.32, 10)
     nif("SpitRod", [("Rod", rod, "iron", IRON), ("Grip", grip, "handle", WOOD)])
-    # with the game's spit frame, which has its own skewer: only the crank end, from its right post out
+    # with the game's spit frame, which has its own skewer: only the crank end, joined to it inside the frame
     crod, cgrip = Mesh(), Mesh()
-    crod.cylinder((SPIT_HALF + 0.6, 0, 0), (CRANK_OFF, 0, 0), 0.24, 10, urep=(CRANK_OFF - SPIT_HALF - 0.6) / (2 * math.pi * 0.24))
+    crod.cylinder((SPIT_HALF - 4.0, 0, 0), (CRANK_OFF, 0, 0), 0.24, 10, urep=(CRANK_OFF - SPIT_HALF + 4.0) / (2 * math.pi * 0.24))  # (from inside the frame, through its post)
     crod.cylinder((CRANK_OFF, 0, 0), (CRANK_OFF, 0, CRANK_R), 0.22, 8)
     cgrip.cylinder((CRANK_OFF, 0, CRANK_R), (CRANK_OFF + 1.9, 0, CRANK_R), 0.32, 10)
     nif("SpitCrank", [("Rod", crod, "iron", IRON), ("Grip", cgrip, "handle", WOOD)])
