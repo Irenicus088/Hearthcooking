@@ -609,6 +609,11 @@ namespace Cook
 				if (Game(Kit::Role::Spit)) {
 					// the game's spit comes dressed: pots, chains, meat on its own turner. Only its frame stays
 					Scene::HideShapes(P.posts, { "pot", "chain", "lid", "beef", "venison", "goat", "meat", "turner", "chicken", "rabbit", "salmon", "food" });
+					// and nothing of it above our rod's middle: its own skewer (part of the frame's mesh) would run
+					// through ours and flicker; the posts' tips end under the rod that rests across them
+					auto& pl = Scene::LookOf(P.posts);
+					pl.clips[0][0] = 0.0f, pl.clips[0][1] = 0.0f, pl.clips[0][2] = 1.0f;
+					pl.clips[0][3] = static_cast<float>(L::kSpitZ - 0.1);
 				}
 				// (the game's frame stands a little under the rod, which rests across its top as in the game, rather than
 				// running through its top bar and flickering in and out of it)
