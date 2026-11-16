@@ -2915,7 +2915,7 @@ namespace Cook
 						Scene::Hide(P.knife, false);
 					}
 				} else {
-					Scene::Place(P.knife, { L::kBoardX + 5.0, L::kBoardY - 9.2, 0.12 }, RotZ(-kPi * 0.5) * RotY(kPi * 0.5), 1.0f);
+					Scene::Place(P.knife, { L::kBoardX + 8.2, L::kBoardY - 9.2, 0.12 }, RotZ(kPi * 0.5) * RotY(kPi * 0.5), 1.0f);  // its tip to the left
 				}
 			}
 			// ---- the pieces: the ingredient's own mesh, cut to each
