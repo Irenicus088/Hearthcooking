@@ -2110,7 +2110,7 @@ namespace Cook
 				return;
 			}
 			// the solid: what of the cell the thing's rounded shape fills, found exactly by the shader in a box round it
-			const double k = 0.97;
+			const double k = 0.92;  // inside the skin; the skin's own inside (drawn as flesh) rims it
 			const double R[3] = { u.boardLen * 0.5 * k, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * k, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * k };
 			double       lo[3], hi[3];
 			for (int ax = 0; ax < 3; ++ax) {

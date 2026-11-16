@@ -310,11 +310,9 @@ float4 PSSolid(VSOut i, out float depth : SV_Depth) : SV_Target
 	float  disc = b * b - a * c;
 	if (disc < 0) discard;
 	float sq = sqrt(disc), t0 = (-b - sq) / a, t1 = (-b + sq) / a;
-	if (t0 > tin) {
-		tin = t0;
-		float3 p = o + v * t0;
-		n = normalize(p.x * shape[1].xyz + p.y * shape[2].xyz + p.z * shape[3].xyz);
-	}
+	// where the ray comes in through the thing's own rounded outside, the skin is the outside: only cut faces
+	// are drawn here, so the egg never shows past a skin that's narrower than it
+	if (t0 > tin) discard;
 	tout = min(tout, t1);
 	if (tin >= tout || tin <= 0) discard;
 	float3 q = e + d * tin;
