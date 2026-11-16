@@ -169,7 +169,7 @@ namespace Cook
 
 		struct Props
 		{
-			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, bowl = -1, posts = -1, rod = -1,
+			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, ladleStew = -1, bowl = -1, posts = -1, rod = -1,
 					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1,
 					  mixBowl = -1, mixWater = -1, mixBall = -1, fillBowl = -1, slab = -1, dishRef = -1;
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
@@ -581,6 +581,9 @@ namespace Cook
 				Scene::LookOf(P.dishRef).onlyFlat = true;
 				P.ladleSoup = Add("Broth");  // a ladleful, carried to the bowl
 				Scene::Hide(P.ladleSoup, true);
+				P.ladleStew = AddResult();  // ... the finished stew's own look in it, once it shows in the pot
+				Scene::Hide(P.ladleStew, true);
+				Scene::LookOf(P.ladleStew).onlyFlat = true;
 				P.ladle = KitAdd(Kit::Role::Ladle);
 				P.bowl = KitAdd(Kit::Role::Bowl);
 				Settle(P.bowl, Kit::Role::Bowl, { L::kServeX, L::kServeY, 0.0 }, { 7.0, 7.0, 0.0 }, 0.0, false, { L::kServeX, L::kServeY, 0.0 });
@@ -591,7 +594,9 @@ namespace Cook
 					// the game's spit comes dressed: pots, chains, meat on its own turner. Only its frame stays
 					Scene::HideShapes(P.posts, { "pot", "chain", "lid", "beef", "venison", "goat", "meat", "turner", "chicken", "rabbit", "salmon", "food" });
 				}
-				Settle(P.posts, Kit::Role::Spit, { L::kFireX, L::kFireY, 0.0 }, { 2 * L::kSpitX1 - 2 * L::kFireX + 2.0, 0.0, L::kSpitZ + 1.4 }, 0.0, true, { L::kFireX, L::kFireY, 0.0 });
+				// (the game's frame stands a little under the rod, which rests across its top as in the game, rather than
+				// running through its top bar and flickering in and out of it)
+				Settle(P.posts, Kit::Role::Spit, { L::kFireX, L::kFireY, 0.0 }, { 2 * L::kSpitX1 - 2 * L::kFireX + 2.0, 0.0, Game(Kit::Role::Spit) ? L::kSpitZ - 0.45 : L::kSpitZ + 1.4 }, 0.0, true, { L::kFireX, L::kFireY, 0.0 });
 				P.rod = Add(Game(Kit::Role::Spit) ? "SpitCrank" : "SpitRod");  // the game's frame has its own skewer
 			}
 			if (a_flow != hc::Flow::Pot) {
@@ -2999,7 +3004,7 @@ namespace Cook
 				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot) {
 					// sunk into it as it thickens, some deeper than others; under the finished stew by the end, and gone
 					const double fade = StewFade();
-					if (fade > 0.97) {
+					if (fade > 0.05 + 0.55 * Hash(b, 42)) {  // gone one by one under the stew as it comes in
 						Scene::Hide(pc.prop, true);
 						Scene::Hide(pc.core, true);
 						continue;
@@ -3127,6 +3132,24 @@ namespace Cook
 						const double r = cupR * ls * 0.82;
 						Scene::Place(P.ladleSoup, at + Vec3{ 0, 0, -cupR * ls * 0.3 }, RotZ(g_clock * 0.3), static_cast<float>(r / 6.1));
 						Scene::Hide(P.ladleSoup, !full);
+						// the stew itself in the cup, as much as it shows in the pot
+						Vec3         fmn, fmx;
+						const double fade = StewFade();
+						const bool   stew = full && fade > 0.01 && P.ladleStew >= 0 && Scene::FlatBounds(P.ladleStew, fmn, fmx);
+						if (P.ladleStew >= 0) {
+							Scene::Hide(P.ladleStew, !stew);
+						}
+						if (stew) {
+							const double wide = (std::max)(fmx.x - fmn.x, fmx.y - fmn.y);
+							const double sc = 2.0 * r / (std::max)(0.1, wide);
+							const Vec3   mid{ (fmn.x + fmx.x) * 0.5, (fmn.y + fmx.y) * 0.5, fmx.z * 0.3 };
+							const Quat   rq = RotZ(g_clock * 0.3);
+							Scene::Place(P.ladleStew, at + Vec3{ 0, 0, -cupR * ls * 0.3 + 0.04 } - rq.Rotate(mid) * sc, rq, static_cast<float>(sc));
+							Scene::Stretch(P.ladleStew, 1.0f, 1.0f, 0.3f);
+							auto& dl = Scene::LookOf(P.ladleStew);
+							dl.alpha = static_cast<float>(fade);
+							dl.shadow = false;
+						}
 						if (P.broth >= 0) {
 							auto&       sl = Scene::LookOf(P.ladleSoup);
 							const auto& bl = Scene::LookOf(P.broth);
