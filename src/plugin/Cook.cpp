@@ -2582,7 +2582,9 @@ namespace Cook
 					at = g_doughAt + pc.doughOff + Vec3{ 0, 0, 0.9 };
 				}
 				// in the pot it breaks down as it cooks: smaller and smaller (to about half by the end)
-				const double broken = body.state == hc::Chunks::State::Pot && g_flow == hc::Flow::Pot ? Clamp(body.cooked * 1.2, 0.0, 1.0) : 0.0;
+				// (it goes with the pot's own doneness, the meter's: half done, half broken down)
+				const double done = g_pot && body.state == hc::Chunks::State::Pot && g_flow == hc::Flow::Pot ? Clamp(g_pot->Cooked() / 0.95, 0.0, 1.3) : 0.0;
+				const double broken = Clamp(done, 0.0, 1.0);
 				// (a pie's fruit in its bowl or on the dough is heaped smaller, so it all fits)
 				const double shrink = g_flow == hc::Flow::Oven && pc.onDough ? 0.42 : g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot ? 0.7 : 1.0 - 0.5 * broken;
 				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
@@ -2590,14 +2592,14 @@ namespace Cook
 				lk.shadow = body.state != hc::Chunks::State::Pot;
 				// boiled, not browned: softening, a little darker and taking the broth's colour as it cooks (well
 				// on the way by halfway), skin and cut faces alike
-				const double boiled = Clamp(body.cooked * 1.4, 0.0, 1.0);
+				const double boiled = Clamp(done * 1.1, 0.0, 1.0);
 				lk.cookMode = body.charred ? 1 : 0;
 				lk.cook[0] = body.charred ? 1.7f : 0.0f;
 				for (int k = 0; k < 3; ++k) {
 					lk.lift[k] = g_broth[k] * 0.85f;
-					lk.tint[k] = static_cast<float>(1.0 - 0.18 * boiled);
+					lk.tint[k] = static_cast<float>(1.0 - 0.3 * boiled);
 				}
-				lk.lift[3] = static_cast<float>(0.55 * boiled);
+				lk.lift[3] = static_cast<float>(0.6 * boiled);
 				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut, shrink);
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
