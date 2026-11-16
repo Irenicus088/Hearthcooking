@@ -1764,8 +1764,9 @@ namespace Cook
 				}
 				break;
 			case Hold::Apples:
-				if (OnPlane(mx, my, 4.0, x, y)) {
-					g_carry = { x, y, 4.0 };
+				// carried well up, so it pours from over the dough instead of down in it
+				if (OnPlane(mx, my, 8.0, x, y)) {
+					g_carry = { x, y, 8.0 };
 				}
 				break;
 			case Hold::Peel:
