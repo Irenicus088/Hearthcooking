@@ -324,6 +324,10 @@ bool CapPoint(float3 wpos, out float3 q, out float3 n, out float tin)
 	}
 	if (tin >= tout || tin <= 0) return false;
 	q = e + d * tin;
+	// and within the rounded shape in that box: near its corners a mesh open underneath (an apple's base, a
+	// cabbage's leaves) miscounts, and would show a face where there's none
+	float3 l = o + v * tin;
+	if (dot(l, l) > 1.08) return false;
 	return true;
 }
 
