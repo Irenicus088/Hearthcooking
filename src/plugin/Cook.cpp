@@ -1665,9 +1665,11 @@ namespace Cook
 			// the rolling pin, taken up: rolls from the dough's middle
 			if (oven && P.pin >= 0 && g_doughOnBoard && !g_rolled && g_oven->Pie() && g_oven->Dough() >= 0.9 && g_flat < 1.0 &&
 				NearScreen({ L::kBoardX, L::kBoardY - L::kBoardD * 0.5 - 1.3, 0.72 }, mx, my, 5.0, 40.0f)) {
+				double x = g_doughAt.x, y = g_doughAt.y;
+				OnPlane(mx, my, kBoardTop + 1.0, x, y);
 				g_hold = Hold::Dough;
-				g_grabX = g_doughAt.x;
-				g_grabY = g_doughAt.y;
+				g_grabX = Clamp(x, L::kBoardX - L::kBoardW * 0.5 + 3.0, L::kBoardX + L::kBoardW * 0.5 - 3.0);  // (where it'd be on the board)
+				g_grabY = Clamp(y, L::kBoardY - L::kBoardD * 0.5 + 3.0, L::kBoardY + L::kBoardD * 0.5 - 3.0);
 				g_strokeLen = 0;
 				return;
 			}
