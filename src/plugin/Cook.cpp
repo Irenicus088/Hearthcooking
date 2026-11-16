@@ -3638,7 +3638,7 @@ namespace Cook
 				}
 			} else if (g_flow == hc::Flow::Oven && g_oven && g_oven->InOven()) {
 				v = g_oven->Brown(), lo = 0.85, hi = 1.2, top = 1.8;
-				at = { L::kOvenX, L::kOvenY + 4.0, L::kOvenFloorZ + 14.0 };
+				at = { L::kOvenX, L::kOvenY + 1.0, L::kOvenFloorZ + 8.0 };  // just over the dome
 			}
 			if (v < 0.0 || g_served) {
 				return;
@@ -3649,7 +3649,7 @@ namespace Cook
 			}
 			auto*       dl = ImGui::GetForegroundDrawList();
 			const float w = S(240), h = S(12);
-			const float x0 = sx - w * 0.5f, y0 = sy - S(40);
+			const float x0 = sx - w * 0.5f, y0 = (std::max)(S(150), sy - S(40));  // never up under the screen's top
 			auto        X = [&](double a_v) { return x0 + w * static_cast<float>(Clamp(a_v / top, 0.0, 1.0)); };
 			dl->AddRectFilled(ImVec2(x0 - S(10), y0 - S(30)), ImVec2(x0 + w + S(10), y0 + h + S(10)), IM_COL32(0, 0, 0, 120), S(6));
 			dl->AddRectFilled(ImVec2(x0, y0), ImVec2(X(lo), y0 + h), IM_COL32(120, 110, 95, 200), S(3), ImDrawFlags_RoundCornersLeft);
