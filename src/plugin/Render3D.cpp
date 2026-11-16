@@ -335,7 +335,8 @@ float4 PSCut(VSOut i, out float depth : SV_Depth) : SV_Target
 	return Shade(i, cut, q, n);
 }
 
-
+)"
+R"(
 // ---- sprites: fire, steam, bubbles, salt
 struct SPOut { float4 svpos : SV_Position; float2 uv : TEXCOORD0; };
 SPOut VSSprite(uint id : SV_VertexID)
@@ -460,6 +461,8 @@ float4 PSComposite(FSOut i) : SV_Target
 	float a = saturate(c.a) * passArgs.z;
 	return float4(rgb * a, a);
 }
+
+
 )";
 
 		struct CBFrame
