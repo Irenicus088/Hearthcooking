@@ -215,9 +215,9 @@ namespace Recipes
 				r->makes = (std::max)(1, static_cast<int>(cobj->data.numConstructed));
 				const auto low = Lower(r->name);
 				// a pie is baked, wherever the game has it made (its Chaurus Pie is a cooking pot's)
-				const bool oven = isOven || Has(low, { " pie", "pie " }) || low.rfind("pie", 0) == 0 || (low.size() >= 3 && low.compare(low.size() - 3, 3, "pie") == 0);
-				r->oven = oven;
-				if (oven) {
+				const bool toOven = isOven || Has(low, { " pie", "pie " }) || low.rfind("pie", 0) == 0 || (low.size() >= 3 && low.compare(low.size() - 3, 3, "pie") == 0);
+				r->oven = toOven;
+				if (toOven) {
 					r->flow = hc::Flow::Oven;
 					r->pie = Has(low, { "pie", "crostata", "tart", "pastry", "dumpling" });
 				} else {
@@ -252,7 +252,13 @@ namespace Recipes
 						in.role = RoleOf(*r, in.form, in.name);
 					}
 				}
-				(r->flow == hc::Flow::Pot ? pot : r->flow == hc::Flow::Spit ? spit : oven)++;
+				if (r->flow == hc::Flow::Pot) {
+					++pot;
+				} else if (r->flow == hc::Flow::Spit) {
+					++spit;
+				} else {
+					++oven;
+				}
 				std::string list;
 				for (const auto& in : r->ings) {
 					static constexpr const char* kRole[] = { "chop", "toss", "salt", "spit", "dough", "filling" };

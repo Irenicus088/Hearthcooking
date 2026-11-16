@@ -263,6 +263,8 @@ namespace Cook
 		int    g_sauceN = 0;     // in the bowl so far
 		double g_sauceTip = 0.0;
 		double g_eggT = -1.0;  // an egg cracked over the mixing bowl: time since (-1: none yet)
+		bool SauceBowl();
+		bool NearScreen(const Vec3& a_p, float a_mx, float a_my, double a_r, float a_minPx);
 		int g_campfire = -1;  // which campfire recording plays at the pot and spit (picked once per cook)
 
 		// The fire's loop: the oven's own roar in its box, a campfire anywhere else (one of two recordings).
