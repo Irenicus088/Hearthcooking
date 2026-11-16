@@ -349,11 +349,11 @@ namespace hc
 		double Shortest(const Chunks::Body& b) { return m::Min(b.size.x, m::Min(b.size.y, b.size.z)); }
 
 		// Into the broth: it lies flat (its thinnest side up), all of it inside the pot's wall
-		void Settle(Chunks::Body& b, double a_dx, double a_dy)
+		void Settle(Chunks::Body& b, double a_dx, double a_dy, double a_r)
 		{
 			b.state = Chunks::State::Pot;
 			b.potA = Atan2(a_dy, a_dx);
-			const double room = m::Max(0.0, kPotR - Longest(b) * 0.5 - 0.35);
+			const double room = m::Max(0.0, a_r - Longest(b) * 0.5 - 0.35);
 			b.potR = m::Min(m::Sqrt(a_dx * a_dx + a_dy * a_dy), room);
 			Quat flat;
 			if (b.size.x <= b.size.y && b.size.x <= b.size.z) {
@@ -422,7 +422,7 @@ namespace hc
 			}
 			// into the broth
 			if (d < ri - b.r * 0.6 && b.p.z < kLiquidZ + b.r * 0.2 && b.p.z > kPotFloor) {
-				Settle(b, dx, dy);
+				Settle(b, dx, dy, kPotR);
 				Push(Event::Kind::Splash, b.p, -b.v.z);
 				return;
 			}
@@ -439,14 +439,30 @@ namespace hc
 		}
 	}
 
+	void Chunks::SetBowl(const Vec3& a_c, double a_r, double a_rim, bool a_stirred)
+	{
+		_bc = a_c;
+		_br = a_r;
+		_rim = a_rim;
+		_stirred = a_stirred;
+	}
+
+	void Chunks::Launch(int a_i)
+	{
+		if (a_i >= 0 && a_i < _n && _b[a_i].state == State::Board) {
+			_b[a_i].state = State::Free;
+			Aim(_b[a_i], a_i);
+		}
+	}
+
 	void Chunks::Aim(Body& b, int a_i)
 	{
 		constexpr double kG = 140.0;
 		Rng          rng(static_cast<unsigned>(a_i) * 2654435761u + 17u);
-		const double room = m::Max(0.3, (kPotR - b.r - 0.6) * 0.75);
+		const double room = m::Max(0.3, (_br - b.r - 0.6) * 0.75);
 		const double ang = rng.Range(0.0, 6.2832), rad = room * m::Sqrt(rng.Range(0.0, 1.0));
-		const Vec3   to{ kPotX + m::Cos(ang) * rad, kPotY + m::Sin(ang) * rad, kLiquidZ };
-		const double top = m::Max(b.p.z, kPotRim + b.r) + 1.5;  // over the rim
+		const Vec3   to{ _bc.x + m::Cos(ang) * rad, _bc.y + m::Sin(ang) * rad, _bc.z };
+		const double top = m::Max(b.p.z, _rim + b.r) + 1.5;  // over the rim
 		const double up = m::Sqrt(2.0 * kG * (top - b.p.z));
 		const double t = up / kG + m::Sqrt(2.0 * (top - to.z) / kG);
 		b.v = { (to.x - b.p.x) / t, (to.y - b.p.y) / t, up };
@@ -479,11 +495,11 @@ namespace hc
 					b.q.Integrate(b.w, dt);
 					if (b.aimed) {
 						// straight in: only the broth stops it
-						const double dx = b.p.x - kPotX, dy = b.p.y - kPotY;
-						if (b.v.z < 0.0 && b.p.z < kLiquidZ + b.r * 0.2 && dx * dx + dy * dy < kPotR * kPotR) {
-							Settle(b, dx, dy);
+						const double dx = b.p.x - _bc.x, dy = b.p.y - _bc.y;
+						if (b.v.z < 0.0 && b.p.z < _bc.z + b.r * 0.2 && dx * dx + dy * dy < _br * _br) {
+							Settle(b, dx, dy, _br);
 							Push(Event::Kind::Splash, b.p, -b.v.z);
-						} else if (b.p.z < kPotFloor) {
+						} else if (b.p.z < _bc.z - 6.0) {
 							Aim(b, i + 101);  // can't happen, but never lost
 						}
 					} else {
@@ -492,12 +508,14 @@ namespace hc
 					break;
 				case State::Pot:
 					{
-						const double ri = kPotR;
-						b.potA += a_swirl * dt * (0.55 + 0.45 * (1.0 - b.potR / ri));
-						b.bob += dt;
-						b.p = { kPotX + m::Cos(b.potA) * b.potR, kPotY + m::Sin(b.potA) * b.potR,
-							kLiquidZ - Shortest(b) * 0.2 + 0.08 * m::Sin(b.bob * 2.1) };
-						b.q.Integrate({ 0.0, 0.0, a_swirl * 0.6 }, dt);
+						const double ri = _br;
+						if (_stirred) {
+							b.potA += a_swirl * dt * (0.55 + 0.45 * (1.0 - b.potR / ri));
+							b.bob += dt;
+							b.q.Integrate({ 0.0, 0.0, a_swirl * 0.6 }, dt);
+						}
+						b.p = { _bc.x + m::Cos(b.potA) * b.potR, _bc.y + m::Sin(b.potA) * b.potR,
+							_bc.z - Shortest(b) * 0.2 + (_stirred ? 0.08 * m::Sin(b.bob * 2.1) : Shortest(b) * 0.5 + (i % 3) * 0.35) };
 					}
 					break;
 				default:

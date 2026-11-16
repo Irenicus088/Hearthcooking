@@ -222,12 +222,19 @@ namespace hc
 		void Clear() { _n = 0; }
 		int  TakeEvents(Event* a_out, int a_max);  // since the last call
 		void Cook(double a_amount);                // the pieces in the broth take colour
+		// Where pieces go (the pot by default; a bowl at the side for a dumpling's apples): its middle at the
+		// surface they rest on, its radius inside, its rim's height
+		void SetBowl(const Vec3& a_c, double a_r, double a_rim, bool a_stirred);
+		void Launch(int a_i);                      // off the board now, on its way in
 
 	private:
 		void Push(Event::Kind a_kind, const Vec3& a_at, double a_speed);
 		void Collide(Body& a_b, const Board& a_board, double a_dt);
 		void Aim(Body& a_b, int a_i);  // an arc over the rim into the broth, wherever it starts
 
+		Vec3   _bc{ layout::kPotX, layout::kPotY, layout::kLiquidZ };
+		double _br = layout::kPotR, _rim = layout::kPotRim;
+		bool   _stirred = true;
 		Body  _b[kMax]{};
 		int   _n = 0;
 		Event _ev[64]{};

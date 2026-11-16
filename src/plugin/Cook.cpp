@@ -105,7 +105,10 @@ namespace Cook
 			Crimp,       // pinching the edge
 			Door,        // the oven door
 			Bread,       // taking it out of the oven
-			Peel         // the peel: to the dough to slide it on, then into the oven
+			Peel,        // the peel: to the dough to slide it on, then into the oven
+			Mix,         // stirring the flour into the water
+			Ball,        // the ball of dough, out of the bowl onto the board
+			Apples       // the bowl of cut filling, over the dough
 		};
 
 		struct Unit
@@ -136,6 +139,7 @@ namespace Cook
 			double                    spitX = 0.0;
 			bool                      wentWhole = false;  // into the pot without being cut
 			bool                      thin = false;       // a leek, a carrot: only ever cut across
+			bool                      dice = false;       // the oven: cut on the board first, then into the bowl
 		};
 
 		// A piece: the ingredient's own mesh cut to a box (x along its length, y across, z up; about its middle, at the
@@ -148,6 +152,9 @@ namespace Cook
 			double    box[6]{};  // x0 x1 y0 y1 z0 z1
 			Vec3      mid;
 			bool      cut = false;
+			bool      onDough = false;  // the oven: set on the dough, here (from its middle)
+			Vec3      doughOff;
+			double    turn = 0.0;
 		};
 
 		struct Grain
@@ -163,7 +170,8 @@ namespace Cook
 		struct Props
 		{
 			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, bowl = -1, posts = -1, rod = -1,
-					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1;
+					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1,
+					  mixBowl = -1, mixWater = -1, mixBall = -1, fillBowl = -1;
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
 			Scene::Id pile[3]{ -1, -1, -1 };
 			std::vector<Scene::Id> crimps;
@@ -228,6 +236,11 @@ namespace Cook
 		double g_pinch = 0;
 		double g_door = 1.0, g_doorWant = 1.0;  // the oven door, 0 shut .. 1 open
 		Vec3   g_doughAt{ L::kBoardX, L::kBoardY, kBoardTop };
+		// the oven's bowls, behind the board: water and flour stirred to a dough; the cut filling waiting
+		const Vec3 kMixAt{ -11.0, 11.5, 0.0 }, kFillAt{ -1.0, 11.5, 0.0 };
+		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
+		bool   g_ball = false;             // a ball of dough in the bowl
+		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		int    g_doughParts = 0, g_doughNeeded = 0;
 		bool   g_rolled = false;
 		double g_squash = 0, g_squashA = 0, g_strokeLen = 0;
@@ -503,6 +516,9 @@ namespace Cook
 			if (a_flow != hc::Flow::Spit) {
 				P.board = KitAdd(Kit::Role::Board);
 			}
+			if (a_flow == hc::Flow::Oven) {
+				P.knife = KitAdd(Kit::Role::Knife);  // a pie's fruit is cut first
+			}
 			if (a_flow == hc::Flow::Pot) {
 				P.knife = KitAdd(Kit::Role::Knife);
 				P.pot = KitAdd(Kit::Role::Pot);
@@ -539,6 +555,14 @@ namespace Cook
 				}
 				P.door = Add("OvenDoor");
 				P.peel = KitAdd(Kit::Role::Peel);
+				// the mixing bowl (water, then dough) and the bowl the cut filling waits in
+				P.mixBowl = KitAdd(Kit::Role::Bowl);
+				Settle(P.mixBowl, Kit::Role::Bowl, kMixAt, { 8.0, 8.0, 0.0 }, 0.0, false, kMixAt);
+				P.mixWater = Add("Broth");
+				P.mixBall = Add("Dough");
+				Scene::Hide(P.mixBall, true);
+				P.fillBowl = KitAdd(Kit::Role::Bowl);
+				Settle(P.fillBowl, Kit::Role::Bowl, kFillAt, { 7.0, 7.0, 0.0 }, 0.0, false, kFillAt);
 				P.dough = Add("Dough");
 				Scene::Hide(P.dough, true);
 				P.disk = Add("DoughDisk");
@@ -835,6 +859,9 @@ namespace Cook
 			g_door = g_doorWant = 1.0;
 			g_doughParts = 0;
 			g_rolled = false;
+			g_mix = 0.0;
+			g_ball = false;
+			g_doughOnBoard = false;
 			g_squash = 0;
 			g_stock = 0;
 			g_peelT = -1;
@@ -903,6 +930,22 @@ namespace Cook
 			if (g_flow == hc::Flow::Oven && g_doughNeeded == 0) {
 				g_doughParts = 1;
 				g_oven->Knead(5.0, 0.0);
+				g_ball = g_doughOnBoard = true;
+			}
+			// the oven: a pie's fruit and vegetables are cut first, and wait in a bowl
+			if (g_flow == hc::Flow::Oven) {
+				for (auto& u : g_units) {
+					std::string n = u.name;
+					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					const bool soft = n.find("honey") != std::string::npos || n.find("sugar") != std::string::npos || n.find("butter") != std::string::npos ||
+					                  n.find("milk") != std::string::npos || n.find("egg") != std::string::npos || n.find("jug") != std::string::npos ||
+					                  n.find("sack") != std::string::npos || n.find("bread") != std::string::npos || n.find("jazbay") != std::string::npos ||
+					                  n.find("berr") != std::string::npos || n.find("ear") != std::string::npos || n.find("mirriam") != std::string::npos;
+					u.dice = g_recipe->pie && u.role == Role::Filling && !soft && !u.model.empty();
+				}
+				g_chunks.SetBowl({ kFillAt.x, kFillAt.y, 1.0 }, 2.8, 2.6, false);
+			} else {
+				g_chunks.SetBowl({ L::kPotX, L::kPotY, L::kLiquidZ }, L::kPotR, L::kPotRim, true);
 			}
 			g_phase = Phase::Cooking;
 			g_served = false;
@@ -1070,6 +1113,31 @@ namespace Cook
 			return { L::kFireX + L::kCrankOff + 0.95, L::kFireY - std::sin(a) * L::kCrankR, L::kSpitZ + std::cos(a) * L::kCrankR };
 		}
 
+		// all done but the baking: it takes the dish's own shape
+		bool DoughReady()
+		{
+			return g_oven && g_doughOnBoard && g_doughParts > 0 && (g_doughNeeded == 0 || (g_doughParts >= g_doughNeeded && g_oven->Dough() >= 0.9)) &&
+			       (!g_oven->Pie() || (g_rolled && g_oven->Crimped() >= 0.9)) && !g_oven->Out();
+		}
+		bool OverMix(float mx, float my) { return NearScreen(kMixAt + Vec3{ 0, 0, 1.6 }, mx, my, 4.2, 40.0f); }
+		bool OverFill(float mx, float my) { return NearScreen(kFillAt + Vec3{ 0, 0, 1.4 }, mx, my, 3.8, 36.0f); }
+		bool AnyOnBoard()
+		{
+			for (const auto& u : g_units) {
+				if (u.at == Unit::At::Board) {
+					return true;
+				}
+			}
+			return false;
+		}
+		int InFillBowl()
+		{
+			int n = 0;
+			for (int b = 0; b < g_chunks.Count() && b < static_cast<int>(g_pieces.size()); ++b) {
+				n += g_chunks.At(b).state == hc::Chunks::State::Pot && !g_pieces[b].onDough;
+			}
+			return n;
+		}
 		Vec3 PeelRest() { return { -1.0, -17.0, 0.3 }; }
 		Vec3 MouthAt() { return { L::kOvenX, L::kOvenMouthY - 0.6, L::kOvenFloorZ + 2.5 }; }
 		Vec3 BreadAt() { return { L::kOvenX, L::kOvenMouthY + 4.2, L::kOvenFloorZ }; }
@@ -1152,13 +1220,13 @@ namespace Cook
 			}
 			const bool pot = g_flow == hc::Flow::Pot, spit = g_flow == hc::Flow::Spit, oven = g_flow == hc::Flow::Oven;
 			// the knife comes down where it is
-			if (pot && g_knifeOn && g_knifeAnim < 0 && g_tip <= 0.001) {
+			if ((pot || oven) && g_knifeOn && g_knifeAnim < 0 && g_tip <= 0.001) {
 				g_knifeAnim = 0.0;
 				g_knifeCut = false;
 				return;
 			}
 			// the board, by its left end
-			if (pot && P.board >= 0) {
+			if ((pot || (oven && AnyOnBoard() && !g_doughOnBoard)) && P.board >= 0) {
 				double lx = 0, ly = 0;
 				if (OverBoard(mx, my, lx, ly) && lx < -L::kBoardW * 0.5 + 3.6) {
 					bool any = g_chunks.CountIn(hc::Chunks::State::Board) > 0;
@@ -1201,6 +1269,25 @@ namespace Cook
 					Toast("Too hot for hands: take it out with the peel");
 					return;
 				}
+				// the bowls: a ball of dough to lift out, flour to stir, the cut filling to carry over
+				if (P.mixBowl >= 0 && OverMix(mx, my)) {
+					if (g_ball && !g_doughOnBoard) {
+						g_hold = Hold::Ball;
+						return;
+					}
+					if (!g_ball && g_doughParts > 0) {
+						g_hold = Hold::Mix;
+						double x = 0, y = 0;
+						if (OnPlane(mx, my, 1.8, x, y)) {
+							g_mixA = std::atan2(y - kMixAt.y, x - kMixAt.x);
+						}
+						return;
+					}
+				}
+				if (P.fillBowl >= 0 && InFillBowl() > 0 && OverFill(mx, my)) {
+					g_hold = Hold::Apples;
+					return;
+				}
 				if (P.peel >= 0 && g_peelT < 0 && NearScreen(PeelRest(), mx, my, 4.5, 40.0f)) {
 					g_hold = Hold::Peel;
 					g_peelLoaded = false;
@@ -1213,7 +1300,7 @@ namespace Cook
 					g_grabY = g_door;
 					return;
 				}
-				if (g_doughParts > 0 && !g_oven->InOven() && !g_oven->Out()) {
+				if (g_doughParts > 0 && g_doughOnBoard && !g_oven->InOven() && !g_oven->Out()) {
 					double x = 0, y = 0;
 					if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 						const double dx = x - g_doughAt.x, dy = y - g_doughAt.y, r = std::hypot(dx, dy);
@@ -1343,6 +1430,35 @@ namespace Cook
 					}
 				}
 				break;
+			case Hold::Mix:
+				if (OnPlane(mx, my, 1.8, x, y)) {
+					const double a = std::atan2(y - kMixAt.y, x - kMixAt.x), dA = Wrap(a - g_mixA);
+					g_mixA = a;
+					if (std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
+						g_mix = (std::min)(1.0, g_mix + std::abs(dA) / (2.0 * kPi * 4.0));  // four turns round
+						g_stirred += std::abs(dA);
+						if (g_stirred > 1.6 && Audio::Now() - g_lastStir > 0.3) {
+							g_stirred = 0;
+							g_lastStir = Audio::Now();
+							Audio::Take("knead_", 0.35f);
+						}
+						if (g_mix >= 1.0) {
+							g_ball = true;
+							g_hold = Hold::None;
+							Toast("A ball of dough: lift it onto the board");
+						}
+					} else if (g_doughParts < (std::max)(1, g_doughNeeded) && Audio::Now() - g_lastStir > 1.5) {
+						g_lastStir = Audio::Now();
+						Toast("Everything for the dough goes in the bowl first");
+					}
+				}
+				break;
+			case Hold::Ball:
+			case Hold::Apples:
+				if (OnPlane(mx, my, kCarryZ, x, y)) {
+					g_carry = { x, y, kCarryZ };
+				}
+				break;
 			case Hold::Peel:
 				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 					g_peelAt = { x, y, kBoardTop + 1.2 };
@@ -1353,7 +1469,7 @@ namespace Cook
 						Audio::Play({ "peel", 0.7f });
 					}
 					// slid under the dough: it's on
-					if (!g_peelLoaded && !g_peelBread && !g_oven->InOven() && !g_oven->Out() && g_doughParts > 0 && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 3.5) {
+					if (!g_peelLoaded && !g_peelBread && !g_oven->InOven() && !g_oven->Out() && g_doughOnBoard && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 3.5) {
 						if (g_doughNeeded > 0 && g_doughParts < g_doughNeeded) {
 							if (Audio::Now() - g_lastStir > 1.5) {
 								g_lastStir = Audio::Now();
@@ -1496,13 +1612,35 @@ namespace Cook
 					} else {
 						double x = 0, y = 0;
 						const bool onDough = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 7.0;
-						if (u.role == Role::Dough && P.board >= 0 && OverBoard(mx, my, lx, ly) && !g_oven->InOven()) {
-							u.at = Unit::At::Dough;
-							++g_doughParts;
-							Flour(g_doughAt);
+						if (u.dice) {
+							// cut on the board first (while the board's free of dough)
+							if (P.board >= 0 && OverBoard(mx, my, lx, ly)) {
+								const int lane = g_doughOnBoard ? -1 : FreeLane();
+								if (lane >= 0 && Fit(u)) {
+									u.at = Unit::At::Board;
+									u.lane = lane;
+									Audio::Take("thunk_", 0.4f);
+									break;
+								}
+								Toast(g_doughOnBoard ? "The dough has the board: cut it first next time" : "The board is full");
+							} else {
+								Toast(fmt::format("Cut the {} on the board first", u.name));
+							}
+							PutBack(ui);
 							break;
 						}
-						if (u.role == Role::Filling && g_doughParts > 0 && onDough && !g_oven->InOven()) {
+						if (u.role == Role::Dough && P.mixBowl >= 0 && OverMix(mx, my) && !g_ball) {
+							u.at = Unit::At::Dough;
+							++g_doughParts;
+							Flour(kMixAt + Vec3{ 0, 0, 1.0 });
+							break;
+						}
+						if (u.role == Role::Dough) {
+							Toast("Into the bowl of water, to make the dough");
+							PutBack(ui);
+							break;
+						}
+						if (u.role == Role::Filling && g_doughOnBoard && onDough && !g_oven->InOven()) {
 							u.at = Unit::At::Dough;
 							if (g_oven->Pie()) {
 								if (!g_rolled) {
@@ -1551,6 +1689,70 @@ namespace Cook
 				break;
 			case Hold::Board:
 				g_tipWant = 0.0;
+				if (g_flow == hc::Flow::Oven && OverFill(mx, my)) {
+					// swept off the board into the bowl
+					FinishBoard();
+					for (int b = 0; b < g_chunks.Count(); ++b) {
+						g_chunks.Launch(b);
+					}
+					Audio::Take("splash_", 0.25f);
+				}
+				break;
+			case Hold::Mix:
+				break;
+			case Hold::Ball:
+				{
+					double lx = 0, ly = 0;
+					if (P.board >= 0 && OverBoard(mx, my, lx, ly)) {
+						if (AnyOnBoard()) {
+							Toast("Clear the board first");
+						} else {
+							g_doughOnBoard = true;
+							Flour(g_doughAt);
+						}
+					}
+				}
+				break;
+			case Hold::Apples:
+				{
+					double x = 0, y = 0;
+					const bool on = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 6.0;
+					if (!on || !g_doughOnBoard) {
+						break;
+					}
+					if (g_doughNeeded > 0 && g_oven->Dough() < 0.9) {
+						Toast("Knead the dough first");
+						break;
+					}
+					// onto the dough, heaped in the middle (the edge is left for folding)
+					int k = 0;
+					for (int b = 0; b < g_chunks.Count() && b < static_cast<int>(g_pieces.size()); ++b) {
+						auto& body = g_chunks.At(b);
+						auto& pc = g_pieces[b];
+						if (body.state != hc::Chunks::State::Pot || pc.onDough) {
+							continue;
+						}
+						const double r = 0.55 * std::sqrt(static_cast<double>(k) + 0.5), a = k * 2.39996;
+						pc.onDough = true;
+						pc.doughOff = { std::cos(a) * (std::min)(r, 3.0), std::sin(a) * (std::min)(r, 3.0), 0.35 + 0.3 * (k / 14) };
+						pc.turn = Hash(b, 41) * 6.28;
+						body.state = hc::Chunks::State::Lost;
+						g_units[pc.unit].at = Unit::At::Dough;
+						++k;
+					}
+					if (k > 0) {
+						if (!g_rolled) {
+							g_rolled = true;  // flattened out to take it
+						}
+						for (int r = 0; r < 2; ++r) {
+							for (int a = 0; a < 16; ++a) {
+								const double ang = a / 16.0 * 2.0 * kPi, rad = r ? 0.75 : 0.35;
+								g_oven->Fill(std::cos(ang) * rad, std::sin(ang) * rad);
+							}
+						}
+						Audio::Take("knead_", 0.45f);
+					}
+				}
 				break;
 			case Hold::LadleOut:
 				if (OverServe(mx, my)) {
@@ -1691,7 +1893,7 @@ namespace Cook
 			}
 			// the knife follows the mouse over the board
 			g_knifeOn = false;
-			if (g_flow == hc::Flow::Pot && g_hold == Hold::None && P.knife >= 0 && g_tip < 0.01 && g_phase == Phase::Cooking) {
+			if ((g_flow == hc::Flow::Pot || (g_flow == hc::Flow::Oven && AnyOnBoard())) && g_hold == Hold::None && P.knife >= 0 && g_tip < 0.01 && g_phase == Phase::Cooking) {
 				double lx = 0, ly = 0;
 				if (OverBoard(mx, my, lx, ly) && lx > -L::kBoardW * 0.5 + 3.6) {
 					int    best = -1;
@@ -1817,6 +2019,12 @@ namespace Cook
 				g_door += Clamp(g_doorWant - g_door, -dt * 3.0, dt * 3.0);
 				g_oven->SetDoor(g_door > 0.5);
 				g_oven->Step(dt * kOvenSpeed, g_fire.Heat());
+				// the cut filling, flying into its bowl
+				g_chunks.Step(dt, g_boardPose, 0.0);
+				hc::Chunks::Event ev[32];
+				if (g_chunks.TakeEvents(ev, 32) > 0) {
+					Audio::Take("thunk_", 0.25f);
+				}
 				if (g_peelT >= 0) {
 					g_peelT += dt / 0.7;
 					if (g_peelT >= 1.0) {
@@ -2255,8 +2463,19 @@ namespace Cook
 					continue;
 				}
 				auto&      u = g_units[(std::min)(pc.unit, static_cast<int>(g_units.size()) - 1)];
-				const Quat frame = body.state == hc::Chunks::State::Board ? RotY(g_boardPose.tilt) * body.q : body.q;
-				const Vec3 c = body.p - frame.Rotate(pc.mid);  // where its whole would have its middle
+				Quat       frame = body.state == hc::Chunks::State::Board ? RotY(g_boardPose.tilt) * body.q : body.q;
+				Vec3       at = body.p;
+				if (pc.onDough) {
+					// on the dough until it's folded up (then the dish's own shape stands for it)
+					if (!g_oven || DoughReady() || !g_doughOnBoard || g_oven->InOven() || g_oven->Out() || g_peelT >= 0 || g_peelLoaded) {
+						Scene::Hide(pc.prop, true);
+						Scene::Hide(pc.core, true);
+						continue;
+					}
+					frame = RotZ(pc.turn) * body.q;
+					at = g_doughAt + pc.doughOff + Vec3{ 0, 0, 0.9 };
+				}
+				const Vec3 c = at - frame.Rotate(pc.mid);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.cookMode = 1;
 				lk.cook[0] = static_cast<float>(body.charred ? 1.7 : body.cooked * 0.6);
@@ -2417,8 +2636,7 @@ namespace Cook
 					at = (g_hold == Hold::Peel ? g_peelAt : PeelRest()) + Vec3{ 0, 0, 0.3 };
 				}
 				// ready for the oven: it takes the shape of what it'll be (raw); in the oven and after, the dish itself
-				const bool ready = g_doughParts > 0 && (g_doughNeeded == 0 || (g_doughParts >= g_doughNeeded && g_oven->Dough() >= 0.9)) &&
-				                   (!g_oven->Pie() || (g_rolled && g_oven->Crimped() >= 0.9)) && !g_oven->Out();
+				const bool ready = DoughReady();
 				const bool showDish = baking || g_hold == Hold::Bread || g_peelBread || ready;
 				if (showDish && P.result < 0 && g_recipe) {
 					P.result = AddResult();
@@ -2444,7 +2662,7 @@ namespace Cook
 					if (P.result >= 0 && !showDish) {
 						Scene::Hide(P.result, true);
 					}
-					const bool dough = g_doughParts > 0 && !g_oven->Out();
+					const bool dough = g_doughParts > 0 && g_doughOnBoard && !g_oven->Out();
 					Scene::Hide(P.dough, !dough || g_rolled);
 					Scene::Hide(P.disk, !dough || !g_rolled);
 					if (dough && !g_rolled) {
@@ -2460,6 +2678,32 @@ namespace Cook
 					} else if (dough) {
 						Scene::Place(P.disk, at + Vec3{ 0, 0, 0.3 }, {}, 5.0f);
 						Scene::Stretch(P.disk, 1.0f, 1.0f, 2.0f);
+					}
+				}
+				// the mixing bowl: water clouding with flour as it's stirred, then a ball of dough
+				if (P.mixWater >= 0) {
+					const double m = Clamp(static_cast<double>(g_doughParts) / (std::max)(1, g_doughNeeded), 0.0, 1.0);
+					const bool   water = !g_ball && g_doughNeeded > 0;
+					Scene::Place(P.mixWater, kMixAt + Vec3{ 0, 0, 1.5 + 0.4 * g_mix }, RotZ(g_mixA * 0.3), 0.52f);
+					Scene::Hide(P.mixWater, !water);
+					auto& wl = Scene::LookOf(P.mixWater);
+					wl.lift[0] = static_cast<float>(0.55 + 0.37 * m);
+					wl.lift[1] = static_cast<float>(0.6 + 0.24 * m);
+					wl.lift[2] = static_cast<float>(0.62 + 0.04 * m);
+					wl.lift[3] = static_cast<float>(0.55 + 0.4 * (std::max)(m * 0.5, g_mix));
+					wl.shadow = false;
+					if (P.mixBall >= 0) {
+						const bool inBowl = (g_mix > 0.25 || g_ball) && !g_doughOnBoard && g_hold != Hold::Ball;
+						const bool held = g_hold == Hold::Ball;
+						const double r = 1.0 + 1.6 * Clamp(g_mix, 0.0, 1.0);
+						Scene::Hide(P.mixBall, !(inBowl || held));
+						if (inBowl || held) {
+							const Vec3 c = held ? g_carry : kMixAt + Vec3{ 0, 0, 1.6 + r * 0.45 };
+							Scene::Place(P.mixBall, c, RotZ(g_mixA), static_cast<float>(r));
+							Scene::Stretch(P.mixBall, 1.0f, 1.0f, 0.75f);
+							auto& bl = Scene::LookOf(P.mixBall);
+							bl.tint[0] = bl.tint[1] = bl.tint[2] = static_cast<float>(0.82 + 0.1 * g_mix);
+						}
 					}
 				}
 				// the filling on the pie, and its crimped edge
@@ -2495,8 +2739,9 @@ namespace Cook
 						Scene::Hide(id, !show);
 						if (show) {
 							const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
-							Scene::Place(id, at + Vec3{ std::cos(a) * 4.8, std::sin(a) * 4.8, 0.65 }, RotZ(a), 0.55f);
-							Scene::Stretch(id, 0.7f, 1.1f, 0.6f);
+							// a fold of the edge, lifted up and over toward the middle (the dumpling closing)
+							Scene::Place(id, at + Vec3{ std::cos(a) * 3.7, std::sin(a) * 3.7, 1.3 }, RotZ(a) * RotY(-0.75), 0.9f);
+							Scene::Stretch(id, 1.25f, 0.85f, 0.42f);
 						}
 					}
 				}
@@ -2734,19 +2979,56 @@ namespace Cook
 				s.push_back({ "Turn it over the fire", g_spit && g_spit->Mean() >= 0.9 });
 				s.push_back({ "Take it off onto the plate", g_served });
 			} else {
+				// a pie's fruit is cut first and waits in a bowl
+				bool anyDice = false, allInBowl = true, allOnDough = true;
+				std::map<std::string, std::pair<int, int>> diced;
+				for (const auto& u : g_units) {
+					if (!u.dice) {
+						continue;
+					}
+					anyDice = true;
+					auto& e = diced[u.name];
+					++e.first;
+					e.second += u.cut.cutCount + u.cut.alongCount > 0 || u.at == Unit::At::Pot || u.at == Unit::At::Dough;
+					allInBowl &= u.at == Unit::At::Pot || u.at == Unit::At::Dough;
+					allOnDough &= u.at == Unit::At::Dough;
+				}
+				for (const auto& [name, c] : diced) {
+					s.push_back({ fmt::format("Dice the {}{}", name, c.first > 1 ? fmt::format(" ({})", c.first) : ""), c.second >= c.first });
+				}
+				if (anyDice) {
+					s.push_back({ "Sweep it into the bowl", allInBowl });
+				}
 				if (g_doughNeeded > 0) {
-					unitsDone(Role::Dough, { Unit::At::Dough }, "Add the ", "");
+					unitsDone(Role::Dough, { Unit::At::Dough }, "Into the water: the ", "");
 				}
 				if (g_recipe->salted) {
 					s.push_back({ "A pinch of salt", g_oven && g_oven->Seasoning().amount >= 0.7 });
 				}
 				if (g_doughNeeded > 0) {
+					s.push_back({ "Stir it into a dough", g_ball });
+					s.push_back({ "Onto the board", g_doughOnBoard });
 					s.push_back({ "Knead the dough", g_oven && g_oven->Dough() >= 0.9 });
 				}
 				if (g_recipe->pie) {
-					unitsDone(Role::Filling, { Unit::At::Dough }, "Fill it with the ", "");
-					s.push_back({ "Spread the filling", g_oven && g_oven->Coverage() >= 0.8 });
-					s.push_back({ "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
+					if (anyDice) {
+						s.push_back({ "Heap the filling on the dough", allOnDough });
+					}
+					bool other = false;
+					for (const auto& u : g_units) {
+						other |= u.role == Role::Filling && !u.dice;
+					}
+					if (other) {
+						for (const auto& u : g_units) {
+							if (u.role == Role::Filling && !u.dice) {
+								s.push_back({ fmt::format("Add the {}", u.name), u.at == Unit::At::Dough });
+							}
+						}
+						if (!anyDice) {
+							s.push_back({ "Spread the filling", g_oven && g_oven->Coverage() >= 0.8 });
+						}
+					}
+					s.push_back({ "Fold the edge up over it", g_oven && g_oven->Crimped() >= 0.9 });
 				} else {
 					unitsDone(Role::Filling, { Unit::At::Dough }, "Work in the ", "");
 				}
@@ -2770,7 +3052,7 @@ namespace Cook
 			case Hold::FireLog:
 				return "Drop it anywhere to take the heat down (back on the fire to keep it)";
 			case Hold::Board:
-				return "Drag right to tip it into the pot; up and down to line it up";
+				return g_flow == hc::Flow::Oven ? "Over the bowl behind the board, and let go" : "Drag right to tip it into the pot; up and down to line it up";
 			case Hold::Ladle:
 				return "Round and round. Lift it out to the bowl when it's done";
 			case Hold::LadleOut:
@@ -2783,6 +3065,12 @@ namespace Cook
 				return "Onto the plate to serve, or back on the spit";
 			case Hold::Dough:
 				return "A long push to knead";
+			case Hold::Mix:
+				return "Round and round until it comes together";
+			case Hold::Ball:
+				return "Onto the board";
+			case Hold::Apples:
+				return "Over the kneaded dough";
 			case Hold::Peel:
 				return g_peelBread ? "Onto the plate" : g_peelLoaded ? "Into the open oven" : g_oven && g_oven->InOven() ? "Into the open oven to take it out" : "Slide it under the dough";
 			case Hold::Spread:
@@ -3126,9 +3414,10 @@ namespace Cook
 				lines.push_back("Drag the meat onto the spit. Hold the crank's handle and turn it round so every side faces the fire.");
 				lines.push_back("Drag the roast onto the plate when it's brown all over.");
 			} else {
-				lines.push_back("Drag the flour, butter and the rest onto the board, then knead: long pushes across the dough, in a steady rhythm.");
+				lines.push_back("A pie's fruit first: dice it on the board, then drag the board by its left end over the bowl behind it to sweep it in.");
+				lines.push_back("Drag the flour, butter and the rest into the bowl of water and stir round until it's a ball; lift it onto the board and knead: long pushes, in a steady rhythm.");
 				if (g_recipe && g_recipe->pie) {
-					lines.push_back("Drop the filling on the dough, spread it out to the edge, then pinch round the rim to crimp it.");
+					lines.push_back("Drag the bowl of filling over the dough to heap it on, then pinch round the edge to fold it up over the filling.");
 				}
 				lines.push_back("Open the door (drag it left). Drag the peel under the dough, carry it into the mouth, shut the door. Peek, but each peek lets the heat out.");
 			}
