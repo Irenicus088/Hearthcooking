@@ -3397,7 +3397,9 @@ namespace Cook
 				const double done = g_pot && body.state == hc::Chunks::State::Pot && g_flow == hc::Flow::Pot ? Clamp(g_pot->Cooked() / 0.95, 0.0, 1.3) : 0.0;
 				const double broken = Clamp(done, 0.0, 1.0);
 				// (a pie's fruit in its bowl or on the dough is heaped smaller, so it all fits)
-				const double shrink = g_flow == hc::Flow::Oven && pc.onDough ? 0.42 : g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot ? 0.7 : 1.0 - 0.55 * broken;
+				// (a bread's potato, stirred into its dough, breaks up smaller and smaller as it's mixed)
+				const double mixedIn = BreadCuts() && g_cutInMix ? 1.0 - 0.8 * Clamp(g_mix, 0.0, 1.0) : 1.0;
+				const double shrink = g_flow == hc::Flow::Oven && pc.onDough ? 0.42 : g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot ? 0.7 * mixedIn : 1.0 - 0.55 * broken;
 				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot) {
 					// sunk into it as it thickens, some deeper than others; under the finished stew by the end, and gone
 					const double fade = StewFade();
