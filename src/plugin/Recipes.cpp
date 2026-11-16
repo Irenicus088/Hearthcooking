@@ -322,15 +322,40 @@ namespace Recipes
 		return pc && a_r.cobj && (!a_r.cobj->conditions.head || a_r.cobj->conditions.IsTrue(pc, pc));
 	}
 
+	// What stands in for a thing in a recipe: the thing itself, and every dish of ours made from it (a Masterwork
+	// Bread is still bread), the plainer first - the order they're used up in
+	std::vector<RE::TESBoundObject*> StandIns(RE::TESBoundObject* a_form)
+	{
+		std::vector<RE::TESBoundObject*> out;
+		if (!a_form) {
+			return out;
+		}
+		out.push_back(a_form);
+		for (int t = static_cast<int>(hc::Tier::Burnt); t <= static_cast<int>(hc::Tier::Masterwork); ++t) {
+			for (int k = 0; k < EspIds::kDishSlots; ++k) {
+				if (g_slots[k].used && g_slots[k].base == a_form->GetFormID() && static_cast<int>(g_slots[k].tier) == t) {
+					if (auto* f = SlotForm(k)) {
+						out.push_back(f);
+					}
+				}
+			}
+		}
+		return out;
+	}
+
 	int Held(RE::TESBoundObject* a_form)
 	{
 		auto* pc = RE::PlayerCharacter::GetSingleton();
 		if (!pc || !a_form) {
 			return 0;
 		}
-		const auto counts = pc->GetInventoryCounts([a_form](RE::TESBoundObject& a_o) { return &a_o == a_form; });
-		const auto it = counts.find(a_form);
-		return it == counts.end() ? 0 : (std::max)(0, it->second);
+		const auto ins = StandIns(a_form);
+		const auto counts = pc->GetInventoryCounts([&ins](RE::TESBoundObject& a_o) { return std::find(ins.begin(), ins.end(), &a_o) != ins.end(); });
+		int n = 0;
+		for (const auto& [f, c] : counts) {
+			n += (std::max)(0, c);
+		}
+		return n;
 	}
 
 	int CanMake(const Recipe& a_r)
@@ -349,7 +374,21 @@ namespace Recipes
 			return;
 		}
 		for (const auto& in : a_r.ings) {
-			pc->RemoveItem(in.form, in.count, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
+			// the thing itself first, then our dishes of it, plainest first
+			int left = in.count;
+			for (auto* f : StandIns(in.form)) {
+				if (left <= 0) {
+					break;
+				}
+				const auto counts = pc->GetInventoryCounts([f](RE::TESBoundObject& a_o) { return &a_o == f; });
+				const auto it = counts.find(f);
+				const int  have = it == counts.end() ? 0 : (std::max)(0, it->second);
+				const int  take = (std::min)(have, left);
+				if (take > 0) {
+					pc->RemoveItem(f, take, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
+					left -= take;
+				}
+			}
 		}
 	}
 
