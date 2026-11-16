@@ -280,7 +280,7 @@ namespace Kit
 	void SetIngredientMesh(const std::string& a_name, const std::string& a_path)
 	{
 		::WritePrivateProfileStringA("Ingredients", a_name.c_str(), a_path.empty() ? nullptr : a_path.c_str(), kIni);
-		spdlog::info("Ingredient {} set to {}", a_name, a_path.empty() ? "its own" : a_path);
+		spdlog::info("Ingredient {} kept as {}", a_name, a_path.empty() ? "its own" : a_path);
 	}
 
 	void SetMesh(Role a_role, const std::string& a_path)
