@@ -734,10 +734,58 @@ def kitchen():
     straps.cylinder((w - 1.6, -t / 2 - 0.5, top * 0.4 - 0.6), (w - 1.6, -t / 2 - 0.5, top * 0.4 + 0.6), 0.12, 8)
     nif("OvenDoorArch", [("Planks", door, "planks", WOOD), ("Straps", straps, "iron", IRON)])
 
-    peel, ph = Mesh(), Mesh()
-    peel.rounded_box(7.0, 7.0, 0.25, 0.12, 6)
-    ph.cylinder((0, -3.4, 0.0), (0, -17.5, 0.0), 0.42, 12, urep=14.1 / (2 * math.pi * 0.42))  # the grain evenly along it, not squeezed round it
-    nif("Peel", [("Blade", peel, "board", WOOD), ("Handle", ph, "handle", WOOD)])
+    # the peel: one board of wood, a pizza paddle - a wide blade with rounded front corners, thin at its front edge,
+    # its shoulders sweeping in to a long flat handle with a rounded end (the blade's middle at the origin, the handle
+    # along -y). Built as cross-sections along its length: each a half-width and a thickness
+    def peel_w(y):
+        bw, r, front, shoulder0, shoulder1, hw, end = 3.5, 1.3, 3.5, -2.2, -5.0, 0.72, -24.0
+        if y > front - r:
+            return bw - r + math.sqrt(max(r * r - (y - (front - r)) ** 2, 0.0))
+        if y >= shoulder0:
+            return bw
+        if y >= shoulder1:
+            k = (shoulder0 - y) / (shoulder0 - shoulder1)
+            k = k * k * (3 - 2 * k)
+            return bw + (hw - bw) * k
+        if y >= end:
+            return hw
+        return math.sqrt(max(hw * hw - (y - end) ** 2, 0.0))
+
+    def peel_t(y):
+        if y > 1.0:
+            return 0.14 + 0.1 * (3.5 - y) / 2.5  # bevelled to a thin front edge, to slide under the dough
+        if y > -2.2:
+            return 0.24
+        if y > -5.0:
+            return 0.24 + 0.22 * (-2.2 - y) / 2.8
+        return 0.46
+
+    peel = Mesh()
+    ys = [3.5 - 0.1 * i for i in range(14)] + [2.1 - 0.25 * i for i in range(30)] + [-5.5 - 0.5 * i for i in range(38)] + [-24.0 - 0.72 * math.sin(math.pi * 0.5 * i / 8) for i in range(1, 9)]
+    U = 9.0  # (texture units)
+    for i in range(len(ys) - 1):
+        ya, yb = ys[i], ys[i + 1]
+        wa, wb = peel_w(ya), peel_w(yb)
+        ta, tb = peel_t(ya) / 2, peel_t(yb) / 2
+        # top and bottom
+        peel.quad([(-wb, yb, tb), (wb, yb, tb), (wa, ya, ta), (-wa, ya, ta)], [(-wb / U + 0.5, -yb / U), (wb / U + 0.5, -yb / U), (wa / U + 0.5, -ya / U), (-wa / U + 0.5, -ya / U)], (0, 0, 1), (1, 0, 0))
+        peel.quad([(-wa, ya, -ta), (wa, ya, -ta), (wb, yb, -tb), (-wb, yb, -tb)], [(-wa / U + 0.5, -ya / U), (wa / U + 0.5, -ya / U), (wb / U + 0.5, -yb / U), (-wb / U + 0.5, -yb / U)], (0, 0, -1), (1, 0, 0))
+        # the two edges, facing out
+        for sx in (-1, 1):
+            nx, ny = (ya - yb), sx * (wa - wb)
+            nl = math.hypot(nx, ny) or 1.0
+            n = (sx * abs(nx) / nl, ny / nl if sx > 0 else -ny / nl, 0.0)
+            n = (sx * abs(nx) / nl, (wa - wb) / nl, 0.0)
+            pa0, pa1, pb0, pb1 = (sx * wa, ya, -ta), (sx * wa, ya, ta), (sx * wb, yb, -tb), (sx * wb, yb, tb)
+            uvs = [(-ya / U, 0.0), (-ya / U, 0.03), (-yb / U, 0.03), (-yb / U, 0.0)]
+            if sx > 0:
+                peel.quad([pa0, pb0, pb1, pa1], [uvs[0], uvs[3], uvs[2], uvs[1]], n, (0, -1, 0))
+            else:
+                peel.quad([pb0, pa0, pa1, pb1], [uvs[3], uvs[0], uvs[1], uvs[2]], n, (0, -1, 0))
+    # its thin front edge
+    w0, t0 = peel_w(3.5), peel_t(3.5) / 2
+    peel.quad([(w0, 3.5, -t0), (-w0, 3.5, -t0), (-w0, 3.5, t0), (w0, 3.5, t0)], [(0, 0), (0.6, 0), (0.6, 0.02), (0, 0.02)], (0, 1, 0), (-1, 0, 0))
+    nif("Peel", [("Paddle", peel, "board", WOOD)])
 
     # the bowl and plate the dish is served on, the salt
     sbowl = Mesh()
