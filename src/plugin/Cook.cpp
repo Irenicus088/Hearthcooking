@@ -3072,6 +3072,7 @@ namespace Cook
 						Scene::Stretch(P.dishRef, 1.0f, 1.0f, 0.3f);  // (flattened: only its top shows over the broth)
 						auto& dl = Scene::LookOf(P.dishRef);
 						dl.alpha = static_cast<float>(fade);
+						dl.skin = Scene::FoodTexture(P.dishRef);  // (all its food in the one look - the surface's)
 						dl.shadow = false;
 					}
 				}
@@ -3163,6 +3164,7 @@ namespace Cook
 							Scene::Stretch(P.ladleStew, 1.0f, 1.0f, 0.3f);
 							auto& dl = Scene::LookOf(P.ladleStew);
 							dl.alpha = static_cast<float>(fade);
+							dl.skin = Scene::FoodTexture(P.ladleStew);
 							dl.shadow = false;
 						}
 						if (P.broth >= 0) {

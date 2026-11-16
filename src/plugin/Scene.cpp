@@ -24,6 +24,7 @@ namespace Scene
 			int                           tries = 0;  // frames spent waiting for its measurement
 			hc::Vec3                      bmin, bmax;
 			int                           flatIndex = -1;  // its flattest shape, when it has more than one
+			int                           bowlIndex = -1;  // its widest shape if that stands tall (a dish's bowl)
 			hc::Vec3                      fmin, fmax;
 			ID3D11ShaderResourceView*     skin = nullptr;
 			struct Swap
@@ -298,12 +299,22 @@ namespace Scene
 				a_p.flatIndex = -1;
 				a_p.fmin = lo;
 				a_p.fmax = hi;
+				a_p.bowlIndex = -1;
 				if (boxes.size() > 1) {
+					// the bowl: the widest, if it also stands up (height over width) - the food is everything else
+					double widest = 0.0;
+					for (const auto& b : boxes) {
+						const double wide = (std::max)(b.hi.x - b.lo.x, b.hi.y - b.lo.y);
+						if (wide > widest) {
+							widest = wide;
+							a_p.bowlIndex = (b.hi.z - b.lo.z) > 0.25 * wide ? b.index : -1;
+						}
+					}
 					double best = 1e9;
 					for (const auto& b : boxes) {
 						const double wide = (std::max)(b.hi.x - b.lo.x, b.hi.y - b.lo.y);
 						const double flat = wide > 1e-3 ? (b.hi.z - b.lo.z) / wide : 1e9;
-						if (flat < best) {
+						if (flat < best && b.index != a_p.bowlIndex) {
 							best = flat;
 							a_p.flatIndex = b.index;
 							a_p.fmin = b.lo;
@@ -551,9 +562,14 @@ namespace Scene
 		auto&                       p = g_props[a_id];
 		::ID3D11ShaderResourceView* found = nullptr;
 		int                         shapeIndex = -1;
+		TryBounds(p);
 		RE::BSVisit::TraverseScenegraphGeometries(p.node.get(), [&](RE::BSGeometry* a_geo) {
 			++shapeIndex;
 			if (!a_geo || found) {
+				return RE::BSVisit::BSVisitControl::kContinue;
+			}
+			// measured: its flattest shape's (the food's surface), never its bowl's
+			if (p.measured && (shapeIndex == p.bowlIndex || (p.flatIndex >= 0 && shapeIndex != p.flatIndex))) {
 				return RE::BSVisit::BSVisitControl::kContinue;
 			}
 			std::string n = a_geo->name.c_str() ? a_geo->name.c_str() : "";
@@ -784,8 +800,8 @@ namespace Scene
 				if (!tri || !Visible(a_geo, p.node.get()) || LeftOut(p, a_geo)) {
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
-				if (p.look.onlyFlat && p.measured && p.flatIndex >= 0 && shapeIndex != p.flatIndex) {
-					return RE::BSVisit::BSVisitControl::kContinue;  // (its bowl)
+				if (p.look.onlyFlat && p.measured && p.bowlIndex >= 0 && shapeIndex == p.bowlIndex) {
+					return RE::BSVisit::BSVisitControl::kContinue;  // (its bowl: all its food is drawn, the bowl isn't)
 				}
 				auto& gd = a_geo->GetGeometryRuntimeData();
 				auto* rd = gd.rendererData;
