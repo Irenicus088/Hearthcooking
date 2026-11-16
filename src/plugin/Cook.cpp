@@ -317,6 +317,9 @@ namespace Cook
 		{
 			std::string n = g_recipe ? g_recipe->name : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			if (n.find("dumpling") != std::string::npos) {
+				return 5.1;  // a little parcel
+			}
 			return n.find("braided") != std::string::npos || n == "bread" || n.find("potato bread") != std::string::npos ? 6.6 : 6.0;
 		}
 		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled);
@@ -1805,7 +1808,7 @@ namespace Cook
 					// at the oven it's raised to the mouth (where the door is), not pushed in under it
 					{
 						double hx = 0, hy = 0;
-						const double mz = OvenFloor() + 0.3;
+						const double mz = OvenFloor() - 1.3;  // (low enough that what's on it clears the arch)
 						if (OnPlane(mx, my, mz, hx, hy) && std::abs(hx - L::kOvenX) < L::kOvenMouthW && hy > L::kOvenMouthY - 9.0) {
 							const double up = Clamp((hy - (L::kOvenMouthY - 9.0)) / 4.0, 0.0, 1.0);  // lifting as it comes up to it
 							g_peelAt = g_peelAt + (Vec3{ hx, hy, mz } - g_peelAt) * up;
@@ -3211,6 +3214,12 @@ namespace Cook
 					Scene::Hide(P.peel, false);
 				} else {
 					Scene::Place(P.peel, at, RotZ(rz), 1.0f);
+					// in the cutting board's wood
+					if (auto* wood = P.board >= 0 ? Scene::Skin(P.board) : nullptr) {
+						auto& pl = Scene::LookOf(P.peel);
+						pl.skin = wood;
+						pl.uv[0] = pl.uv[1] = 1.0f;
+					}
 				}
 			}
 			if (g_oven) {
@@ -3374,7 +3383,7 @@ namespace Cook
 						Scene::Hide(P.slab, !sheet);
 						if (sheet) {
 							Scene::Place(P.slab, at + Vec3{ 0, 0, 0.14 }, RotZ(kPi * 0.25), 1.0f);
-							Scene::Stretch(P.slab, 5.66f, 5.66f, 0.26f);  // rolled thin
+							Scene::Stretch(P.slab, 4.81f, 4.81f, 0.26f);  // rolled thin
 							auto& sl = Scene::LookOf(P.slab);
 							DoughLook(sl);
 						}
@@ -3389,11 +3398,11 @@ namespace Cook
 						const double f = g_fold[k];
 						const double a = kPi * 0.25 + k * kPi * 0.5, th = f * 2.9;
 						const Vec3   dir{ std::cos(a), std::sin(a), 0.0 };
-						const Vec3   hinge = at + dir * 2.83 + Vec3{ 0, 0, 0.14 + 0.75 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };
+						const Vec3   hinge = at + dir * 2.41 + Vec3{ 0, 0, 0.14 + 0.75 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };
 						const Vec3   v = dir * std::cos(th) + Vec3{ 0, 0, std::sin(th) };
 						// a corner square standing on its point at the fold line, its inner half cut away: the triangle
 						Scene::Place(id, hinge, RotZ(a) * RotY(-th) * RotZ(kPi * 0.25), 1.0f);
-						Scene::Stretch(id, 4.0f, 4.0f, 0.26f);
+						Scene::Stretch(id, 3.4f, 3.4f, 0.26f);
 						auto& fl = Scene::LookOf(id);
 						DoughLook(fl);
 						std::memset(fl.clips, 0, sizeof(fl.clips));
