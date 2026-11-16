@@ -235,7 +235,8 @@ namespace Cook
 		int    g_lastFill = 0;          // the filling being spread
 		Vec3   g_lastSpread;
 		double g_peelT = -1;        // the peel's trip into or out of the oven
-		constexpr double kCookSpeed = 3.0;  // the pot, the spit and the oven cook this many times faster than real
+		// how many times faster than real each cooks
+		constexpr double kPotSpeed = 2.0, kSpitSpeed = 1.5, kOvenSpeed = 3.0;
 		Vec3   g_peelAt;            // the peel in the hand
 		Vec3   g_peelFrom;          // where its trip into the oven starts
 		bool   g_peelLoaded = false;  // the dough on it
@@ -472,13 +473,7 @@ namespace Cook
 			Scene::Place(a_id, a_at - q.Rotate(lie.c) * s, q, static_cast<float>(s));
 		}
 
-		// The clutter about the kitchen: where each may stand (x, y, how big), clear of the work
-		struct Spot
-		{
-			double x, y, size;
-			bool   back;  // against the back of the hearth (taken by the oven)
-		};
-		// (only on the hearth: nothing on the table)
+		constexpr double kClothShift = 4.0;  // the cloth, in from the table's left edge
 		constexpr Spot kSpots[] = { { 27.0, 17.0, 6.0, true }, { 33.5, 16.0, 5.0, true }, { 34.5, -15.5, 5.0, false } };
 
 		void BuildKitchen(bool a_oven, hc::Flow a_flow)
@@ -488,11 +483,11 @@ namespace Cook
 			g_fits.clear();
 			// the table (the game's, stretched under the worktop's space) and the room (the hearth slab, the wall)
 			P.kitchen = KitAdd(Kit::Role::Table);
-			Settle(P.kitchen, Kit::Role::Table, { -16.0, 0.0, -14.0 }, { 42.0, 40.0, 14.0 }, 0.0, true, {});
+			Settle(P.kitchen, Kit::Role::Table, { -13.5, 0.0, -14.0 }, { 37.0, 37.0, 14.0 }, 0.0, true, {});
 			P.room = Add("Room");
 			Put(P.room, {});
 			P.cloth = Add("Cloth");
-			Put(P.cloth, {});
+			Put(P.cloth, { kClothShift, 0.0, 0.0 });
 			for (int k = 0; k < 3; ++k) {
 				P.pile[k] = KitAdd(Kit::Role::Log);
 			}
@@ -522,6 +517,10 @@ namespace Cook
 			}
 			if (a_flow == hc::Flow::Spit) {
 				P.posts = KitAdd(Kit::Role::Spit);
+				if (Game(Kit::Role::Spit)) {
+					// the game's spit comes dressed: pots, chains, meat on its own turner. Only its frame stays
+					Scene::HideShapes(P.posts, { "pot", "chain", "lid", "beef", "venison", "goat", "meat", "turner", "chicken", "rabbit", "salmon", "food" });
+				}
 				Settle(P.posts, Kit::Role::Spit, { L::kFireX, L::kFireY, 0.0 }, { 2 * L::kSpitX1 - 2 * L::kFireX + 2.0, 0.0, L::kSpitZ + 1.4 }, 0.0, true, { L::kFireX, L::kFireY, 0.0 });
 				P.rod = Add("SpitRod");
 			}
@@ -546,21 +545,7 @@ namespace Cook
 				P.disk = Add("DoughDisk");
 				Scene::Hide(P.disk, true);
 			}
-			// the clutter, the game's own
-			const auto& decor = Kit::Decor();
-			int         d = 0;
-			for (int k = 0; k < static_cast<int>(std::size(kSpots)) && d < static_cast<int>(decor.size()); ++k) {
-				if (a_oven && kSpots[k].back) {
-					continue;
-				}
-				const auto id = Scene::Add(decor[d++]);
-				if (id < 0) {
-					continue;
-				}
-				Scene::Hide(id, true);
-				P.decor.emplace_back(id, k);
-				g_fits.push_back({ id, Kit::Role::Count, { kSpots[k].x, kSpots[k].y, 0.0 }, { kSpots[k].size, kSpots[k].size, kSpots[k].size * 1.8 }, Hash(k, 30) * 6.28, false });
-			}
+			// no clutter: only what's used
 		}
 
 		// ---------------------------------------------------------------- the ingredients
@@ -641,7 +626,7 @@ namespace Cook
 					}
 					Scene::Hide(u.prop, true);
 					const int k = static_cast<int>(g_units.size());
-					u.clothAt = { k < 5 ? -31.5 : -25.5, 8.5 - (k % 5) * 6.0, 0.0 };
+					u.clothAt = { (k < 5 ? -31.5 : -25.5) + kClothShift, 8.5 - (k % 5) * 6.0, 0.0 };
 					g_units.push_back(std::move(u));
 				}
 			}
@@ -1083,7 +1068,7 @@ namespace Cook
 		Vec3 CrankGrip()
 		{
 			const double a = g_spit ? g_spit->Angle() : 0.0;
-			return { L::kFireX + 12.9 + 0.95, L::kFireY - std::sin(a) * L::kCrankR, L::kSpitZ + std::cos(a) * L::kCrankR };
+			return { L::kFireX + L::kCrankOff + 0.95, L::kFireY - std::sin(a) * L::kCrankR, L::kSpitZ + std::cos(a) * L::kCrankR };
 		}
 
 		Vec3 PeelRest() { return { -1.0, -17.0, 0.3 }; }
@@ -1200,7 +1185,7 @@ namespace Cook
 			if (spit && NearScreen(CrankGrip(), mx, my, 2.6, 30.0f)) {
 				g_hold = Hold::Crank;
 				float hx = 0, hy = 0;
-				Scene::Project({ L::kFireX + 12.9, L::kFireY, L::kSpitZ }, hx, hy);
+				Scene::Project({ L::kFireX + L::kCrankOff, L::kFireY, L::kSpitZ }, hx, hy);
 				g_crankPrev = std::atan2(my - hy, mx - hx);
 				return;
 			}
@@ -1344,7 +1329,7 @@ namespace Cook
 			case Hold::Crank:
 				{
 					float hx = 0, hy = 0;
-					if (g_spit && Scene::Project({ L::kFireX + 12.9, L::kFireY, L::kSpitZ }, hx, hy)) {
+					if (g_spit && Scene::Project({ L::kFireX + L::kCrankOff, L::kFireY, L::kSpitZ }, hx, hy)) {
 						const double a = std::atan2(my - hy, mx - hx);
 						const double dA = Wrap(a - g_crankPrev);
 						g_crankPrev = a;
@@ -1818,21 +1803,21 @@ namespace Cook
 				if (after > before) {
 					g_pot->AddPieces(before, after - before);
 				}
-				g_pot->Step(dt * kCookSpeed, g_fire.Heat(), after + g_tossedIn > 0);
-				g_chunks.Cook(dt * kCookSpeed * 0.02 * Clamp(g_pot->Temp() - 0.3, 0.0, 1.0));
+				g_pot->Step(dt * kPotSpeed, g_fire.Heat(), after + g_tossedIn > 0);
+				g_chunks.Cook(dt * kPotSpeed * 0.02 * Clamp(g_pot->Temp() - 0.3, 0.0, 1.0));
 				const double t = g_pot->Temp();
 				Audio::SetLoop("loop_simmer", static_cast<float>(Clamp((t - 0.38) * 3.0, 0.0, 0.7)));
 				Audio::SetLoop("loop_boil", static_cast<float>(Clamp((t - 0.8) * 4.0, 0.0, 0.8)));
 			}
 			if (g_flow == hc::Flow::Spit && g_spit) {
 				const int m = Mounted();
-				g_spit->Step(dt * kCookSpeed, g_fire.Heat(), m > 0);
+				g_spit->Step(dt * kSpitSpeed, g_fire.Heat(), m > 0);
 				Audio::SetLoop("loop_sizzle", m > 0 ? static_cast<float>(Clamp((g_fire.Heat() - 0.3) * 1.4, 0.0, 0.8)) : 0.0f);
 			}
 			if (g_flow == hc::Flow::Oven && g_oven) {
 				g_door += Clamp(g_doorWant - g_door, -dt * 3.0, dt * 3.0);
 				g_oven->SetDoor(g_door > 0.5);
-				g_oven->Step(dt * kCookSpeed, g_fire.Heat());
+				g_oven->Step(dt * kOvenSpeed, g_fire.Heat());
 				if (g_peelT >= 0) {
 					g_peelT += dt / 0.7;
 					if (g_peelT >= 1.0) {

@@ -30,7 +30,23 @@ namespace Scene
 				int         index = -1;
 			};
 			std::vector<Swap> swaps;
+			std::vector<std::string> hideShapes;
 		};
+
+		bool LeftOut(const Prop& a_p, RE::BSGeometry* a_geo)
+		{
+			if (a_p.hideShapes.empty() || !a_geo || !a_geo->name.c_str()) {
+				return false;
+			}
+			std::string n = a_geo->name.c_str();
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			for (const auto& w : a_p.hideShapes) {
+				if (n.find(w) != std::string::npos) {
+					return true;
+				}
+			}
+			return false;
+		}
 
 		std::vector<Prop>             g_props;
 		RE::NiPointer<RE::NiNode>     g_root;
@@ -175,6 +191,9 @@ namespace Scene
 			RE::BSVisit::TraverseScenegraphGeometries(a_p.node.get(), [&](RE::BSGeometry* a_geo) {
 				auto* tri = a_geo ? a_geo->AsTriShape() : nullptr;
 				auto* rd = a_geo ? a_geo->GetGeometryRuntimeData().rendererData : nullptr;
+				if (LeftOut(a_p, a_geo)) {
+					return RE::BSVisit::BSVisitControl::kContinue;
+				}
 				++shapes;
 				if (a_p.tries == 0 && a_geo && a_geo->GetRTTI()) {
 					kinds += fmt::format("{}'{}' ", a_geo->GetRTTI()->name, a_geo->name.c_str());
@@ -450,6 +469,15 @@ namespace Scene
 		p.placed = true;
 	}
 
+	void HideShapes(Id a_id, std::vector<std::string> a_words)
+	{
+		if (Valid(a_id)) {
+			g_props[a_id].hideShapes = std::move(a_words);
+			g_props[a_id].measured = false;
+			g_props[a_id].asked = false;
+		}
+	}
+
 	void SwapTextures(Id a_id, const std::string& a_shape, int a_index, const std::string& a_diffuse, const std::string& a_normal)
 	{
 		if (Valid(a_id)) {
@@ -622,7 +650,7 @@ namespace Scene
 			RE::BSVisit::TraverseScenegraphGeometries(p.node.get(), [&](RE::BSGeometry* a_geo) {
 				++shapeIndex;
 				auto* tri = a_geo ? a_geo->AsTriShape() : nullptr;
-				if (!tri || !Visible(a_geo, p.node.get())) {
+				if (!tri || !Visible(a_geo, p.node.get()) || LeftOut(p, a_geo)) {
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
 				auto& gd = a_geo->GetGeometryRuntimeData();

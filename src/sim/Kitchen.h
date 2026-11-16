@@ -46,8 +46,9 @@ namespace hc
 		constexpr double kPotFloor = 3.4, kPotRim = 10.2, kLiquidZ = 7.6;
 
 		// The spit: two posts either side of the fire, the rod along x
-		constexpr double kSpitZ = 10.5, kSpitX0 = kFireX - 10.5, kSpitX1 = kFireX + 10.5;
-		constexpr double kCrankX = kSpitX1 + 2.4, kCrankR = 2.6;
+		constexpr double kSpitZ = 13.0, kSpitX0 = kFireX - 13.0, kSpitX1 = kFireX + 13.0;
+		constexpr double kCrankOff = 16.1;  // the crank's arm, from the fire's middle along the rod (tools/make_meshes.py)
+		constexpr double kCrankX = kSpitX1 + 3.0, kCrankR = 3.25;
 
 		// The oven: a stone dome at the back right; its baking floor and mouth, the firebox under it
 		constexpr double kOvenX = 18.0, kOvenY = 7.5, kOvenFloorZ = 9.0, kOvenMouthY = -1.2, kOvenMouthW = 10.0;

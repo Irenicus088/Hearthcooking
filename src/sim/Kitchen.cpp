@@ -688,7 +688,7 @@ namespace hc
 		for (int i = 0; i < kBands; ++i) {
 			const double c = m::Cos(_angle + i * (2.0 * m::kPi / kBands));  // 1: this side faces the fire
 			const double f = c > 0.0 ? c * c : 0.0;
-			_band[i] += a_dt * (h * 0.2 * f + h * 0.012);
+			_band[i] += a_dt * (h * 0.11 * f + h * 0.016);  // the side to the fire browns, the rest slowly
 		}
 	}
 
@@ -715,7 +715,7 @@ namespace hc
 	{
 		int n = 0;
 		for (double b : _band) {
-			n += b > 1.55;
+			n += b > 1.85;
 		}
 		return n;
 	}
@@ -735,8 +735,8 @@ namespace hc
 		w[2] = 0.2;
 		l[3] = { "The salt", _salt.Verdict(), _salt.Score() };
 		w[3] = _salt.wanted ? 0.15 : -1.0;
-		const bool burnt = Charred() >= 3 || mean > 1.55;
-		return Grade(l, w, 4, 1, burnt, Charred() >= 3 ? "One side went black" : "Left over the fire too long");
+		const bool burnt = Charred() >= 4 || mean > 1.7;
+		return Grade(l, w, 4, 1, burnt, Charred() >= 4 ? "One side went black" : "Left over the fire too long");
 	}
 
 	// ------------------------------------------------------------------ the oven
