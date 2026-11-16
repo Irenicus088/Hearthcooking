@@ -1762,9 +1762,10 @@ namespace Cook
 						if (body.state != hc::Chunks::State::Pot || pc.onDough) {
 							continue;
 						}
-						const double r = 0.55 * std::sqrt(static_cast<double>(k) + 0.5), a = k * 2.39996;
+						// a neat mound in the middle, well inside the edge that folds up over it
+						const double r = 0.42 * std::sqrt(static_cast<double>(k % 24) + 0.5), a = k * 2.39996;
 						pc.onDough = true;
-						pc.doughOff = { std::cos(a) * (std::min)(r, 3.0), std::sin(a) * (std::min)(r, 3.0), 0.35 + 0.3 * (k / 14) };
+						pc.doughOff = { std::cos(a) * (std::min)(r, 2.2), std::sin(a) * (std::min)(r, 2.2), 0.2 + 0.35 * (k / 24) + 0.25 * (1.0 - (std::min)(r, 2.2) / 2.2) };
 						pc.turn = Hash(b, 41) * 6.28;
 						body.state = hc::Chunks::State::Lost;
 						g_units[pc.unit].at = Unit::At::Dough;
@@ -2544,7 +2545,7 @@ namespace Cook
 				// in the pot it breaks down as it cooks: smaller and smaller (to about half by the end)
 				const double broken = body.state == hc::Chunks::State::Pot && g_flow == hc::Flow::Pot ? Clamp(body.cooked * 1.2, 0.0, 1.0) : 0.0;
 				// (a pie's fruit in its bowl or on the dough is heaped smaller, so it all fits)
-				const double shrink = g_flow == hc::Flow::Oven && (body.state == hc::Chunks::State::Pot || pc.onDough) ? 0.7 : 1.0 - 0.5 * broken;
+				const double shrink = g_flow == hc::Flow::Oven && pc.onDough ? 0.42 : g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot ? 0.7 : 1.0 - 0.5 * broken;
 				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
@@ -2820,8 +2821,9 @@ namespace Cook
 						if (show) {
 							const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
 							// a fold of the edge, lifted up and over toward the middle (the dumpling closing)
-							Scene::Place(id, at + Vec3{ std::cos(a) * 3.7, std::sin(a) * 3.7, 1.3 }, RotZ(a) * RotY(-0.75), 0.9f);
-							Scene::Stretch(id, 1.25f, 0.85f, 0.42f);
+							// the edge lifted right up and over the mound toward the middle: crimped all round it closes
+							Scene::Place(id, at + Vec3{ std::cos(a) * 2.9, std::sin(a) * 2.9, 1.9 }, RotZ(a) * RotY(-1.05), 1.0f);
+							Scene::Stretch(id, 2.3f, 1.05f, 0.38f);
 						}
 					}
 				}
