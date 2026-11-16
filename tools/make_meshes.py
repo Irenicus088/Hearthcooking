@@ -795,6 +795,13 @@ def kitchen():
     spoon.cylinder((0.75, 0, 0.05), (8.6, 0, 0.75), 0.21, 10, urep=7.9 / (2 * math.pi * 0.21))
     nif("Spoon", [("Spoon", spoon, "handle", WOOD)])
 
+    # garlic broken into its cloves: a row of them along x, each a plump crescent lying on its side
+    cloves = Mesh()
+    for k in range(5):
+        x = -2.6 + k * 1.3
+        cloves.ellipsoid((x, 0.12 * (1 if k % 2 else -1), 0.5), 0.68, 0.46, 0.5, segs=16, rings=10, noise=0.06, seed=60 + k, flatten_bottom=0.42)
+    nif("GarlicCloves", [("Cloves", cloves, "clove", (0.35, 30))])
+
     # the rolling pin: along x, its middle at the origin - a long barrel and a handle each end
     pin, pinh = Mesh(), Mesh()
     pin.cylinder((-4.2, 0, 0), (4.2, 0, 0), 0.72, 20, urep=8.4 / (2 * math.pi * 0.72))
@@ -936,6 +943,12 @@ def flesh_textures():
     along = mix(along, (236, 120, 70), jl * 0.7)
     along = mix(along, (246, 214, 120), ((n(94, 40, 2) > 0.82) & jl) * 0.9)
     save("tomato", cross, along)
+
+    # a garlic clove's skinned outside: creamy, faint lengthwise lines
+    cl = fbm((256, 256), 4, 4, 111)
+    lines = 0.5 + 0.5 * np.sin((np.linspace(0, 1, 256)[:, None] * 30 + cl * 2) * math.pi)
+    rgb = mix((244, 238, 214), (228, 218, 186), (0.6 * cl + 0.4 * lines)[:, :, None][..., 0] if False else (0.6 * cl + 0.4 * lines))
+    save_tex("clove", rgb, cl * 0.3 + lines * 0.2, 1.0, 50)
 
     # cabbage: layer on layer, pale green at the heart, white veins between
     nn = n(101)

@@ -141,6 +141,7 @@ namespace Cook
 			bool                      wentWhole = false;  // into the pot without being cut
 			bool                      thin = false;       // a leek, a carrot: only ever cut across
 			bool                      dice = false;       // the oven: cut on the board first, then into the bowl
+			bool                      bulb = false;       // a head of garlic: broken into its cloves (a knock of the knife) before it's diced
 		};
 
 		// A piece: the ingredient's own mesh cut to a box (x along its length, y across, z up; about its middle, at the
@@ -937,6 +938,11 @@ namespace Cook
 					} else if (!u.model.empty()) {
 						Kit::SetIngredientMesh(u.name, u.model);
 					}
+					{
+						std::string ln = u.name;
+						std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						u.bulb = ln.find("garlic") != std::string::npos && ln.find("bread") == std::string::npos;
+					}
 					u.prop = AddUnitMesh(u);
 					if (u.prop < 0) {
 						u.prop = Add("Chunk");  // a stand-in if its mesh won't load
@@ -984,6 +990,18 @@ namespace Cook
 				f = std::sqrt((std::max)(0.08, 1.0 - std::pow((t - 0.85) / 0.15, 2.0)));  // a leek, a carrot: only the tips
 			}
 			return { dy * f * 0.96, dz * f * 0.96 };
+		}
+
+		// A recipe card's line for cutting something up (garlic: broken into cloves first)
+		std::string DiceLine(const std::string& a_name, int a_count)
+		{
+			std::string l = a_name;
+			std::transform(l.begin(), l.end(), l.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			const std::string n = a_count > 1 ? fmt::format(" ({})", a_count) : "";
+			if (l.find("garlic") != std::string::npos && l.find("bread") == std::string::npos) {
+				return fmt::format("{}{}: break apart the cloves, then dice", a_name, n);
+			}
+			return fmt::format("Dice the {}{}", a_name, n);
 		}
 
 		// What it looks like inside, where there's a texture for it: an atlas of its section across and along
@@ -1782,6 +1800,10 @@ namespace Cook
 					}
 					// diced, not sliced: whatever isn't long and thin is cut both ways before the board lifts
 					for (const auto& u : g_units) {
+						if (any && u.at == Unit::At::Board && (u.bulb || (u.thin && u.cut.cutCount == 0))) {
+							Toast(u.bulb ? "Knock it apart into its cloves with the knife, then dice them" : "Cut it first");
+							return;
+						}
 						if (any && u.at == Unit::At::Board && !u.thin && (u.cut.cutCount == 0 || u.cut.alongCount == 0)) {
 							Toast(u.cut.cutCount == 0 ? "Cut it, then right-click to turn the knife and cut it the other way" : "Now right-click to turn the knife and cut it the other way");
 							return;
@@ -2732,6 +2754,21 @@ namespace Cook
 					for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
 						auto& u = g_units[i];
 						if (u.at != Unit::At::Board || u.lane != g_knifeLane || u.cut.finished) {
+							continue;
+						}
+						if (u.bulb) {
+							// the first knock breaks the head into its cloves, laid out in a row to dice
+							u.bulb = false;
+							if (u.prop >= 0) {
+								Scene::Remove(u.prop);
+							}
+							u.model = "Hearthcooking\\GarlicCloves.nif";
+							u.prop = Scene::Add(u.model);
+							u.segs.clear();
+							u.fitted = false;
+							Fit(u);
+							Toast("Broken into its cloves: now dice them");
+							Audio::Take("knead_", 0.6f);
 							continue;
 						}
 						if (g_knifeAlong && u.thin) {
@@ -4144,7 +4181,7 @@ namespace Cook
 						}
 					}
 					for (const auto& [name, c] : by) {
-						s.push_back({ fmt::format("Dice the {}{}", name, c.first > 1 ? fmt::format(" ({})", c.first) : ""), c.second >= c.first });
+						s.push_back({ DiceLine(name, c.first), c.second >= c.first });
 					}
 					unitsDone(Role::Chop, { Unit::At::Pot }, "Tip in the ", "");
 				}
@@ -4180,7 +4217,7 @@ namespace Cook
 					allOnDough &= u.at == Unit::At::Dough;
 				}
 				for (const auto& [name, c] : diced) {
-					s.push_back({ fmt::format("Dice the {}{}", name, c.first > 1 ? fmt::format(" ({})", c.first) : ""), c.second >= c.first });
+					s.push_back({ DiceLine(name, c.first), c.second >= c.first });
 				}
 				if (anyDice) {
 					s.push_back({ "Sweep it into the bowl", allInBowl });
