@@ -134,6 +134,10 @@ namespace Recipes
 				}
 				return Role::Filling;
 			}
+			// poured or sprinkled in, never cut (a jug of milk is "raw food" to the game)
+			if (Has(low, { "milk", "ale", "wine", "mead", "water", "jug", "bottle", "honey", "sugar", "berries", "grapes", "juice", "broth" })) {
+				return Role::Toss;
+			}
 			// solid food: anything raw, and the vegetables, cheeses and meats by name
 			bool solid = false;
 			if (auto* kwf = a_form ? a_form->As<RE::BGSKeywordForm>() : nullptr) {

@@ -705,16 +705,22 @@ namespace Cook
 			} else if (has({ "chicken", "pheasant", "fish", "clam", "mudcrab" })) {
 				c[0] = 0.93f, c[1] = 0.8f, c[2] = 0.72f;
 			} else if (has({ "carrot" })) {
-				c[0] = 0.95f, c[1] = 0.55f, c[2] = 0.18f;
+				c[0] = 0.98f, c[1] = 0.58f, c[2] = 0.2f;
+			} else if (has({ "yam", "pumpkin", "gourd" })) {
+				c[0] = 0.97f, c[1] = 0.6f, c[2] = 0.3f;  // an ash yam: orange like a sweet potato
 			} else if (has({ "tomato" })) {
-				c[0] = 0.86f, c[1] = 0.25f, c[2] = 0.15f;
-			} else if (has({ "cabbage", "leek" })) {
-				c[0] = 0.86f, c[1] = 0.9f, c[2] = 0.68f;
+				c[0] = 0.9f, c[1] = 0.22f, c[2] = 0.14f;
+			} else if (has({ "garlic" })) {
+				c[0] = 0.96f, c[1] = 0.93f, c[2] = 0.8f;
+			} else if (has({ "cabbage" })) {
+				c[0] = 0.93f, c[1] = 0.92f, c[2] = 0.78f;  // pale cream, greener toward the leaves' edge
+			} else if (has({ "leek" })) {
+				c[0] = 0.9f, c[1] = 0.93f, c[2] = 0.76f;
 			} else if (has({ "cheese" })) {
 				c[0] = 0.96f, c[1] = 0.88f, c[2] = 0.58f;
 			} else if (has({ "apple", "pear" })) {
 				c[0] = 0.96f, c[1] = 0.92f, c[2] = 0.74f;
-			} else if (has({ "potato", "yam", "gourd" })) {
+			} else if (has({ "potato" })) {
 				c[0] = 0.94f, c[1] = 0.88f, c[2] = 0.66f;
 			}
 			std::memcpy(a_out, c, sizeof(c));
