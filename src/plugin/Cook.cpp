@@ -474,7 +474,6 @@ namespace Cook
 		}
 
 		constexpr double kClothShift = 4.0;  // the cloth, in from the table's left edge
-		constexpr Spot kSpots[] = { { 27.0, 17.0, 6.0, true }, { 33.5, 16.0, 5.0, true }, { 34.5, -15.5, 5.0, false } };
 
 		void BuildKitchen(bool a_oven, hc::Flow a_flow)
 		{
