@@ -3651,6 +3651,40 @@ namespace Cook
 				}
 				lk.lift[3] = static_cast<float>(0.18 * boiled);
 				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut, shrink);
+				// a cabbage in the pot: its leaves are open shells, and cut to bits (and sinking, tumbling) they showed as
+				// loose shards - in the pot each bit is drawn as what it is, a solid little block of packed leaf
+				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && pc.core >= 0 && u.name.find("abbage") != std::string::npos) {
+					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
+					double       lo[3], hi[3];
+					for (int ax = 0; ax < 3; ++ax) {
+						lo[ax] = (std::max)(std::abs(pc.box[ax * 2]) < 1e6 ? pc.box[ax * 2] * shrink : -R[ax], -R[ax]);
+						hi[ax] = (std::min)(std::abs(pc.box[ax * 2 + 1]) < 1e6 ? pc.box[ax * 2 + 1] * shrink : R[ax], R[ax]);
+					}
+					Scene::Hide(pc.prop, true);
+					if (hi[0] > lo[0] && hi[1] > lo[1] && hi[2] > lo[2]) {
+						const Vec3 mid{ (lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 };
+						Scene::Place(pc.core, c + frame.Rotate(mid), frame, 1.0f);
+						Scene::Stretch(pc.core, static_cast<float>((hi[0] - lo[0]) * 0.85), static_cast<float>((hi[1] - lo[1]) * 0.85), static_cast<float>((hi[2] - lo[2]) * 0.6));
+						Scene::Hide(pc.core, false);
+						auto& cl = Scene::LookOf(pc.core);
+						std::memset(cl.clips, 0, sizeof(cl.clips));
+						cl.flesh[3] = 0.0f;
+						cl.fleshTex = nullptr;
+						if (auto* tex = FleshTexture(u)) {
+							cl.skin = tex;
+							cl.uv[0] = 0.25f, cl.uv[1] = 0.5f;  // a patch of its section
+							cl.uv[2] = 0.12f + 0.1f * Hash(b, 81), cl.uv[3] = 0.25f + 0.2f * Hash(b, 82);
+						}
+						for (int k = 0; k < 3; ++k) {
+							cl.tint[k] = lk.tint[k];
+							cl.lift[k] = lk.lift[k];
+						}
+						cl.lift[3] = lk.lift[3];
+						cl.shadow = false;
+					} else {
+						Scene::Hide(pc.core, true);
+					}
+				}
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
 			if (P.broth >= 0 && g_pot) {
