@@ -302,6 +302,13 @@ namespace Cook
 		bool board_kneading();
 		void NextKnife();
 		Scene::Id AddResult();
+		// some bakes a touch bigger than the rest (a braided bread is long and thin, and read small)
+		double BakeSize()
+		{
+			std::string n = g_recipe ? g_recipe->name : std::string();
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return n.find("braided") != std::string::npos ? 6.6 : 6.0;
+		}
 		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled);
 		std::vector<std::pair<Act, int>> g_acts;
 		std::mutex                       g_actMtx;
@@ -2947,7 +2954,7 @@ namespace Cook
 				Vec3 mn, mx;
 				if (showDish && P.result >= 0 && Scene::Bounds(P.result, mn, mx)) {
 					const double big = (std::max)(mx.x - mn.x, mx.y - mn.y);
-					const double s = 6.0 / (std::max)(0.1, big) * (0.8 + 0.2 * Clamp(g_oven->Rise(), 0.0, 1.0));  // the same size as it's served
+					const double s = BakeSize() / (std::max)(0.1, big) * (0.8 + 0.2 * Clamp(g_oven->Rise(), 0.0, 1.0));  // the same size as it's served
 					const Vec3   c{ (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, mn.z };
 					Scene::Place(P.result, at - c * s, {}, static_cast<float>(s));
 					auto& lk = Scene::LookOf(P.result);
@@ -3114,7 +3121,7 @@ namespace Cook
 				Vec3 mn, mx;
 				if (Scene::Bounds(P.result, mn, mx)) {
 					const double big = (std::max)(mx.x - mn.x, mx.y - mn.y);
-					const double s = (g_flow == hc::Flow::Pot ? 7.5 : 6.0) / (std::max)(0.1, big);
+					const double s = (g_flow == hc::Flow::Pot ? 7.5 : BakeSize()) / (std::max)(0.1, big);
 					const Vec3   c{ (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, mn.z };
 					const Quat   q = RotZ(std::fmod((g_clock - g_serveAt) * 0.4, 6.283));
 					const Vec3   on{ L::kServeX, L::kServeY, g_flow == hc::Flow::Pot ? 0.0 : 0.45 };
