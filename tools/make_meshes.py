@@ -787,6 +787,14 @@ def kitchen():
     peel.quad([(w0, 3.5, -t0), (-w0, 3.5, -t0), (-w0, 3.5, t0), (w0, 3.5, t0)], [(0, 0), (0.6, 0), (0.6, 0.02), (0, 0.02)], (0, 1, 0), (-1, 0, 0))
     nif("Peel", [("Paddle", peel, "board", WOOD)])
 
+    # the rolling pin: along x, its middle at the origin - a long barrel and a handle each end
+    pin, pinh = Mesh(), Mesh()
+    pin.cylinder((-4.2, 0, 0), (4.2, 0, 0), 0.72, 20, urep=8.4 / (2 * math.pi * 0.72))
+    for s_ in (-1, 1):
+        pinh.cylinder((s_ * 4.2, 0, 0), (s_ * 4.75, 0, 0), 0.3, 12)
+        pinh.cylinder((s_ * 4.75, 0, 0), (s_ * 6.6, 0, 0), 0.42, 14, urep=1.85 / (2 * math.pi * 0.42))
+    nif("RollingPin", [("Barrel", pin, "board", WOOD), ("Handles", pinh, "handle", WOOD)])
+
     # the bowl and plate the dish is served on, the salt
     sbowl = Mesh()
     sbowl.lathe([(0.0, 0.0), (1.9, 0.0), (3.2, 1.0), (3.5, 2.2), (3.2, 2.2), (2.9, 1.2), (1.8, 0.45), (0.0, 0.4)], 40, urep=2.0)

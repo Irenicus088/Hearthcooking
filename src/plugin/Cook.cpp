@@ -169,7 +169,7 @@ namespace Cook
 
 		struct Props
 		{
-			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, ladleStew = -1, bowl = -1, posts = -1, rod = -1,
+			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, ladleStew = -1, pin = -1, bowl = -1, posts = -1, rod = -1,
 					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1,
 					  mixBowl = -1, mixWater = -1, mixBall = -1, fillBowl = -1, slab = -1, dishRef = -1;
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
@@ -626,6 +626,8 @@ namespace Cook
 			}
 			if (a_oven) {
 				P.ovenDome = KitAdd(Kit::Role::Oven);
+				P.pin = Add("RollingPin");  // for rolling a pie's or dumpling's dough out
+				Scene::Hide(P.pin, true);
 				if (Game(Kit::Role::Oven)) {
 					// the game's oven, in the space ours takes (its mouth toward you; OvenTurn in the INI if it isn't)
 					Settle(P.ovenDome, Kit::Role::Oven, { L::kOvenX, L::kOvenY - 0.5, 0.0 }, { 25.0, 23.0, L::kOvenFloorZ + 9.5 }, 0.0, true, {});
@@ -1659,6 +1661,15 @@ namespace Cook
 						}
 					}
 				}
+			}
+			// the rolling pin, taken up: rolls from the dough's middle
+			if (oven && P.pin >= 0 && g_doughOnBoard && !g_rolled && g_oven->Pie() && g_oven->Dough() >= 0.9 && g_flat < 1.0 &&
+				NearScreen({ L::kBoardX, L::kBoardY - L::kBoardD * 0.5 - 1.3, 0.72 }, mx, my, 5.0, 40.0f)) {
+				g_hold = Hold::Dough;
+				g_grabX = g_doughAt.x;
+				g_grabY = g_doughAt.y;
+				g_strokeLen = 0;
+				return;
 			}
 			// salt
 			if (P.salt >= 0 && NearScreen({ L::kSaltX, L::kSaltY, 1.5 }, mx, my, 2.6, 26.0f)) {
@@ -3305,6 +3316,27 @@ namespace Cook
 					Scene::Hide(P.dough, !dough || g_rolled || square);
 					Scene::Hide(P.disk, !dough || !g_rolled || square || Dumpling());  // (a dumpling's sheet is drawn in its parts)
 					Scene::Hide(P.slab, !dough || !square);
+					// the rolling pin: out beside the dough while it's to be rolled; held, it rolls across under the pointer
+					if (P.pin >= 0) {
+						const bool rolling = dough && !g_rolled && g_oven->Pie() && g_oven->Dough() >= 0.9 && g_flat < 1.0;
+						Scene::Hide(P.pin, !rolling);
+						if (rolling) {
+							const double f = Clamp(g_flat, 0.0, 1.0);
+							if (g_hold == Hold::Dough) {
+								const double h = (Dumpling() ? 2.6 - 2.34 * f : 1.0 + 1.0 * (1.0 - f)) + 0.05;
+								const double ang = g_strokeLen > 0.2 ? g_squashA + kPi * 0.5 : 0.0;  // across the push
+								Scene::Place(P.pin, { g_carry.x, g_carry.y, kBoardTop + h + 0.72 }, RotZ(ang) * RotX(g_strokeLen / 0.72), 1.0f);
+							} else {
+								Scene::Place(P.pin, { L::kBoardX, L::kBoardY - L::kBoardD * 0.5 - 1.3, 0.72 }, RotZ(0.04), 1.0f);  // on the table, in front of the board
+							}
+							if (auto* wood = Game(Kit::Role::Table) && P.kitchen >= 0 ? Scene::Skin(P.kitchen) : nullptr) {  // (the board's wood)
+								auto& pl = Scene::LookOf(P.pin);
+								pl.skin = wood;
+								pl.tint[0] = 1.45f, pl.tint[1] = 1.3f, pl.tint[2] = 1.12f;
+								pl.uv[0] = pl.uv[1] = 0.3f;
+							}
+						}
+					}
 					if (dough && square) {
 						// rolled out from a ball to a square sheet
 						// as its corners fold in, what's left flat is the square between them: the diamond through the
@@ -3313,11 +3345,12 @@ namespace Cook
 						for (int k = 0; k < 4; ++k) {
 							folded += g_fold[k] * 0.25;
 						}
-						const double f = Clamp(g_flat, 0.0, 1.0), side = (5.0 + 3.0 * f) * (1.0 - 0.293 * folded), h = 2.6 - 2.0 * f;
+						// (rolled to the sheet the folding starts from: 6.8 a side, thin)
+						const double f = Clamp(g_flat, 0.0, 1.0), side = (4.5 + 2.3 * f) * (1.0 - 0.293 * folded), h = 2.6 - 2.34 * f;
 						Scene::Place(P.slab, at + Vec3{ 0, 0, h * 0.5 + 0.05 }, RotZ(kPi * 0.25 * folded), 1.0f);
 						Scene::Stretch(P.slab, static_cast<float>(side), static_cast<float>(side), static_cast<float>(h));
 						auto& sl = Scene::LookOf(P.slab);
-						sl.tint[0] = 1.0f, sl.tint[1] = 0.95f, sl.tint[2] = 0.84f;
+						DoughLook(sl);
 					} else if (dough && !g_rolled && g_oven->Pie() && g_flat > 0.0) {
 						// a pie's dough rolled out from a ball to a round sheet
 						Scene::Hide(P.dough, true);
