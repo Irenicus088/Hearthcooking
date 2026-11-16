@@ -588,6 +588,7 @@ namespace Cook
 			if (a_flow == hc::Flow::Pot) {
 				P.knife = KitAdd(Kit::Role::Knife);
 				P.pot = KitAdd(Kit::Role::Pot);
+				Scene::LookOf(P.pot).hideFlat = true;  // (a game pot can come with a stew already in it: only ours shows)
 				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
 				P.broth = Add("Broth");
 				P.dishRef = AddResult();  // the finished stew's own food (not its bowl), fading in over the broth as it comes together
@@ -3072,7 +3073,6 @@ namespace Cook
 						Scene::Stretch(P.dishRef, 1.0f, 1.0f, 0.3f);  // (flattened: only its top shows over the broth)
 						auto& dl = Scene::LookOf(P.dishRef);
 						dl.alpha = static_cast<float>(fade);
-						dl.skin = Scene::FoodTexture(P.dishRef);  // (all its food in the one look - the surface's)
 						dl.shadow = false;
 					}
 				}
@@ -3164,7 +3164,6 @@ namespace Cook
 							Scene::Stretch(P.ladleStew, 1.0f, 1.0f, 0.3f);
 							auto& dl = Scene::LookOf(P.ladleStew);
 							dl.alpha = static_cast<float>(fade);
-							dl.skin = Scene::FoodTexture(P.ladleStew);
 							dl.shadow = false;
 						}
 						if (P.broth >= 0) {

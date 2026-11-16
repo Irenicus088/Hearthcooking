@@ -30,6 +30,7 @@ namespace Scene
 		bool  shadow = true;
 		float alpha = 1.0f;     // below 1: see-through (blended)
 		bool  onlyFlat = false; // only its flattest shape: a dish's food without its bowl
+		bool  hideFlat = false; // all but its flattest shape: a pot without the food modelled in it
 	};
 
 	void Register();  // kDataLoaded: the menu
