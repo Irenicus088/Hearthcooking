@@ -382,8 +382,10 @@ class Mesh:
             for k, p in enumerate((p0, p1)):
                 self.v(add(p, mul(dirv, rad[i])), (k * urep, i / segs), dirv, ax)
         for i in range(segs):
+            # p0 ring i, p1 ring i, p1 ring i+1, p0 ring i+1: the quad as two triangles over one diagonal (p0_i - p1_i+1)
+            # (it was two over crossing diagonals, which left holes toward the p0 end: thin rods showed as streaks)
             q0, q1, q2, q3 = base + 2 * i, base + 2 * i + 1, base + 2 * i + 3, base + 2 * i + 2
-            self.I += [q0, q2, q1, q1, q2, q3]
+            self.I += [q0, q2, q1, q0, q3, q2]
         if caps:
             for k, (p, nn) in enumerate(((p0, mul(ax, -1)), (p1, ax))):
                 c = self.v(p, (0.5, 0.5), nn, a)
