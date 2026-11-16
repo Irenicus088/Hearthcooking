@@ -214,6 +214,10 @@ namespace Cook
 		std::unique_ptr<hc::Spit> g_spit;
 		std::unique_ptr<hc::Oven> g_oven;
 		Props                    P;
+
+		// The floor of the oven's baking chamber: the game's oven has it higher, at its arched mouth (its lower
+		// opening is the firebox)
+		double OvenFloor() { return L::kOvenFloorZ + (P.game[static_cast<int>(Kit::Role::Oven)] ? 3.6 : 0.0); }
 		std::vector<Grain>       g_grains;
 		float                    g_broth[3]{ 0.6f, 0.42f, 0.22f };
 		int                      g_tossedIn = 0;
@@ -275,6 +279,7 @@ namespace Cook
 		Vec3   g_peelFrom;          // where its trip into the oven starts
 		bool   g_peelLoaded = false;  // the dough on it
 		bool   g_peelBread = false;   // the bake on it, out of the oven
+		double g_peelDwell = -1.0;    // when the empty peel went into the open oven's mouth (-1: it isn't there)
 		bool   g_peelIn = true;
 		bool   g_served = false;
 		double g_serveAt = 0;
@@ -307,7 +312,7 @@ namespace Cook
 		{
 			std::string n = g_recipe ? g_recipe->name : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			return n.find("braided") != std::string::npos || n == "bread" ? 6.6 : 6.0;  // (and a plain loaf)
+			return n.find("braided") != std::string::npos || n == "bread" || n.find("potato bread") != std::string::npos ? 6.6 : 6.0;
 		}
 		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled);
 		std::vector<std::pair<Act, int>> g_acts;
@@ -355,7 +360,7 @@ namespace Cook
 		Vec3 FireCenter()
 		{
 			// the oven's fire burns inside it, at the back of the dome (the bread bakes at the front)
-			return g_flow == hc::Flow::Oven ? Vec3{ L::kOvenX, L::kOvenY + 2.5, L::kOvenFloorZ + 0.5 } : Vec3{ L::kFireX, L::kFireY, 0.6 };
+			return g_flow == hc::Flow::Oven ? Vec3{ L::kOvenX, L::kOvenY + 2.5, OvenFloor() + 0.5 } : Vec3{ L::kFireX, L::kFireY, 0.6 };
 		}
 
 		// ---- the game's meshes: how one lies (longest side along x, shortest up) and fitting one into a space
@@ -1187,7 +1192,7 @@ namespace Cook
 		{
 			if (g_flow == hc::Flow::Oven) {
 				double x = 0, y = 0;
-				return OnPlane(a_mx, a_my, L::kOvenFloorZ + 1.0, x, y) && std::abs(x - L::kOvenX) < 7.0 && y > L::kOvenMouthY - 4.0 && y < L::kOvenY + 7.0;
+				return OnPlane(a_mx, a_my, OvenFloor() + 1.0, x, y) && std::abs(x - L::kOvenX) < 7.0 && y > L::kOvenMouthY - 4.0 && y < L::kOvenY + 7.0;
 			}
 			double x = 0, y = 0;
 			return OnPlane(a_mx, a_my, 1.0, x, y) && std::hypot(x - L::kFireX, y - L::kFireY) <= L::kFireR + 1.5;
@@ -1228,13 +1233,13 @@ namespace Cook
 			return n;
 		}
 		Vec3 PeelRest() { return { -1.0, -17.0, 0.3 }; }
-		Vec3 MouthAt() { return { L::kOvenX, L::kOvenMouthY - 0.6, L::kOvenFloorZ + 2.5 }; }
-		Vec3 BreadAt() { return { L::kOvenX, L::kOvenMouthY + 4.2, L::kOvenFloorZ }; }
+		Vec3 MouthAt() { return { L::kOvenX, L::kOvenMouthY - 0.6, OvenFloor() + 2.5 }; }
+		Vec3 BreadAt() { return { L::kOvenX, L::kOvenMouthY + 4.2, OvenFloor() }; }
 		Vec3 DoorCentre()
 		{
 			const bool   g = P.game[static_cast<int>(Kit::Role::Oven)];
 			const double sc = g ? 0.7 : 1.0;
-			return { L::kOvenX - (g ? 3.4 : 4.9) + std::cos(-g_door * 1.75) * 5.0 * sc, L::kOvenMouthY - (g ? 2.2 : 0.35) + std::sin(-g_door * 1.75) * 5.0 * sc, L::kOvenFloorZ + 3.2 * sc };
+			return { L::kOvenX - (g ? 3.4 : 4.9) + std::cos(-g_door * 1.75) * 5.0 * sc, L::kOvenMouthY - (g ? 2.2 : 0.35) + std::sin(-g_door * 1.75) * 5.0 * sc, OvenFloor() + 3.2 * sc };
 		}
 
 		int UnitAt(float a_mx, float a_my, Unit::At a_where)
@@ -1312,7 +1317,7 @@ namespace Cook
 			std::string n = g_recipe ? g_recipe->name : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			if (n.find("potato bread") != std::string::npos) {
-				return { { "potato" }, { "milk" }, { "flour", "egg", "butter" } };
+				return { { "potato" }, { "milk" }, { "egg" }, { "flour", "butter" } };
 			}
 			if (n.find("sweet roll") != std::string::npos) {
 				return { { "flour", "butter", "egg" }, { "milk" } };
@@ -1680,9 +1685,17 @@ namespace Cook
 				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 					g_peelAt = { x, y, kBoardTop + 1.2 };
 					// into the open oven for what's baking
-					if (!g_peelBread && g_oven->InOven() && g_door > 0.6 && (NearScreen(MouthAt(), mx, my, 6.0, 50.0f) || NearScreen(BreadAt(), mx, my, 6.0, 60.0f))) {
+					// held in the open oven's mouth a moment, it slides under the bake and takes it (passing by doesn't)
+					const bool inMouth = g_door > 0.6 && (NearScreen(MouthAt(), mx, my, 6.0, 50.0f) || NearScreen(BreadAt(), mx, my, 6.0, 60.0f));
+					if (!(inMouth && !g_peelBread && g_oven->InOven())) {
+						g_peelDwell = -1.0;
+					} else if (g_peelDwell < 0.0) {
+						g_peelDwell = Audio::Now();  // (when it went in)
+					}
+					if (g_peelDwell >= 0.0 && Audio::Now() - g_peelDwell > 0.6) {
 						g_oven->Unload();
 						g_peelBread = true;
+						g_peelDwell = -1.0;
 						Audio::Play({ "peel", 0.7f });
 					}
 					// slid under the dough: it's on
@@ -2008,6 +2021,14 @@ namespace Cook
 					if (OverServe(mx, my)) {
 						Serve();  // off the peel onto the plate
 						g_peelBread = false;
+					} else if (g_door > 0.6 && NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
+						// back into the oven, to bake on
+						g_peelFrom = g_peelAt;
+						g_peelT = 0.0;
+						g_peelIn = true;
+						g_peelBread = false;
+						g_oven->Load();
+						Audio::Play({ "peel", 0.7f });
 					}
 					break;  // else it rests on the peel
 				}
@@ -2901,7 +2922,7 @@ namespace Cook
 			if (P.door >= 0) {
 				// smaller, and out in front of the mouth: the game's oven stands further forward than ours did
 				const bool gameOven = Game(Kit::Role::Oven);
-				Scene::Place(P.door, { L::kOvenX - (gameOven ? 3.4 : 4.9), L::kOvenMouthY - (gameOven ? 2.2 : 0.35), L::kOvenFloorZ }, RotZ(-g_door * 1.75), gameOven ? 0.7f : 1.0f);
+				Scene::Place(P.door, { L::kOvenX - (gameOven ? 3.4 : 4.9), L::kOvenMouthY - (gameOven ? 2.2 : 0.35), OvenFloor() }, RotZ(-g_door * 1.75), gameOven ? 0.7f : 1.0f);
 			}
 			if (P.peel >= 0) {
 				Vec3   at = PeelRest();
