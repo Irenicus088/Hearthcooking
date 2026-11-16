@@ -642,8 +642,6 @@ namespace Scene
 		return Valid(a_id) ? g_props[a_id].look : (s_none = Look{});
 	}
 
-	::ID3D11ShaderResourceView* Texture(const char* a_path) { return SrvOfPath(a_path); }
-
 	bool FlatBounds(Id a_id, hc::Vec3& a_min, hc::Vec3& a_max)
 	{
 		if (!Valid(a_id)) {
