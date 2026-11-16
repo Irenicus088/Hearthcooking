@@ -2147,6 +2147,8 @@ namespace Cook
 			}
 			cl.cookMode = lk.cookMode;
 			cl.cook[0] = lk.cook[0];
+			std::copy(std::begin(lk.lift), std::end(lk.lift), cl.lift);
+			std::copy(std::begin(lk.tint), std::end(lk.tint), cl.tint);
 			cl.shadow = false;  // the skin casts the shadow
 		}
 
@@ -2483,9 +2485,17 @@ namespace Cook
 				}
 				const Vec3 c = at - frame.Rotate(pc.mid);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
-				lk.cookMode = 1;
-				lk.cook[0] = static_cast<float>(body.charred ? 1.7 : body.cooked * 0.6);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
+				// boiled, not browned: softening, a little darker and taking the broth's colour as it cooks (well
+				// on the way by halfway), skin and cut faces alike
+				const double boiled = Clamp(body.cooked * 1.4, 0.0, 1.0);
+				lk.cookMode = body.charred ? 1 : 0;
+				lk.cook[0] = body.charred ? 1.7f : 0.0f;
+				for (int k = 0; k < 3; ++k) {
+					lk.lift[k] = g_broth[k] * 0.85f;
+					lk.tint[k] = static_cast<float>(1.0 - 0.18 * boiled);
+				}
+				lk.lift[3] = static_cast<float>(0.42 * boiled);
 				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut);
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
