@@ -108,7 +108,8 @@ namespace Cook
 			Peel,        // the peel: to the dough to slide it on, then into the oven
 			Mix,         // stirring the flour into the water
 			Ball,        // the ball of dough, out of the bowl onto the board
-			Apples       // the bowl of cut filling, over the dough
+			Apples,      // the bowl of cut filling, over the dough
+			Roll         // the rolling pin pressed and rolled over the dough
 		};
 
 		struct Unit
@@ -245,6 +246,9 @@ namespace Cook
 		Vec3   g_doughAt{ L::kBoardX, L::kBoardY, kBoardTop };
 		// the oven's bowls, behind the board: water and flour stirred to a dough; the cut filling waiting
 		const Vec3 kMixAt{ -11.0, 11.5, 0.0 }, kFillAt{ -1.0, 11.5, 0.0 };
+		bool   g_pinHeld = false;  // the rolling pin taken up (it follows the pointer; held down, it rolls)
+		Vec3   g_pinAt{};
+		double g_pinRoll = 0.0;   // how far it's rolled (its turn)
 		double g_pushAcc = 0.0;          // kneading or rolling in one hold: how far it's moved since the last push counted
 		Vec3   g_doughLast{};
 		bool   g_doughLastOk = false;
@@ -1192,6 +1196,7 @@ namespace Cook
 			g_spin = 0.0;
 			g_eggT = -1.0;
 			g_cutInMix = false;
+			g_pinHeld = false;
 			g_ball = false;
 			g_milkIn = false;
 			for (int k = 0; k < 4; ++k) {
@@ -1746,6 +1751,13 @@ namespace Cook
 				return;
 			}
 			const bool pot = g_flow == hc::Flow::Pot, spit = g_flow == hc::Flow::Spit, oven = g_flow == hc::Flow::Oven;
+			// the rolling pin in hand: pressed down, to roll
+			if (oven && g_pinHeld) {
+				g_hold = Hold::Roll;
+				g_pushAcc = 0.0;
+				g_doughLastOk = false;
+				return;
+			}
 			// the knife comes down where it is
 			if ((pot || oven) && g_knifeOn && g_knifeAnim < 0 && g_tip <= 0.001) {
 				g_knifeAnim = 0.0;
@@ -1877,17 +1889,19 @@ namespace Cook
 				}
 			}
 			// the rolling pin, taken up: rolls from the dough's middle
-			if (oven && P.pin >= 0 && g_doughOnBoard && !g_rolled && g_oven->Pie() && g_oven->Dough() >= 0.9 && g_flat < 1.0 &&
-				NearScreen({ L::kBoardX, L::kBoardY - L::kBoardD * 0.5 - 1.3, 0.72 }, mx, my, 5.0, 40.0f)) {
-				double x = g_doughAt.x, y = g_doughAt.y;
-				OnPlane(mx, my, kBoardTop + 1.0, x, y);
-				g_hold = Hold::Dough;
-				g_grabX = Clamp(x, L::kBoardX - L::kBoardW * 0.5 + 3.0, L::kBoardX + L::kBoardW * 0.5 - 3.0);  // (where it'd be on the board)
-				g_grabY = Clamp(y, L::kBoardY - L::kBoardD * 0.5 + 3.0, L::kBoardY + L::kBoardD * 0.5 - 3.0);
-				g_strokeLen = 0;
-				g_pushAcc = 0.0;
-				g_doughLastOk = false;
-				return;
+			// the rolling pin: a click takes it up (it goes back on the table once the dough's rolled out); in hand, held
+			// down, it presses and rolls over the dough
+			if (oven && P.pin >= 0 && g_oven->Pie()) {
+				const bool ready = g_doughOnBoard && !g_rolled && g_oven->Dough() >= 0.9 && g_flat < 1.0;
+				if (NearScreen({ L::kBoardX, L::kBoardY - L::kBoardD * 0.5 - 1.3, 0.72 }, mx, my, 5.0, 40.0f)) {
+					if (ready) {
+						g_pinHeld = true;
+						Audio::Take("thunk_", 0.25f);
+					} else {
+						Toast(g_flat >= 1.0 || g_rolled ? "It's rolled out already" : "Knead the dough first, then roll it out");
+					}
+					return;
+				}
 			}
 			// salt
 			if (P.salt >= 0 && NearScreen({ L::kSaltX, L::kSaltY, 1.5 }, mx, my, 2.6, 26.0f)) {
@@ -2096,23 +2110,33 @@ namespace Cook
 					// kneading stays on the board: the dough never leaves it (the peel carries it to the oven)
 					x = Clamp(x, L::kBoardX - L::kBoardW * 0.5 + 3.0, L::kBoardX + L::kBoardW * 0.5 - 3.0);
 					y = Clamp(y, L::kBoardY - L::kBoardD * 0.5 + 3.0, L::kBoardY + L::kBoardD * 0.5 - 3.0);
-					// held and moved about, every bit of the way counts: each few units of it a push (kneaded or rolled)
+					// a push: from where it was taken to where it's let go
+					const double dx = x - g_grabX, dy = y - g_grabY;
+					g_strokeLen = std::hypot(dx, dy);
+					g_squash = Clamp(g_strokeLen / 6.0, 0.0, 1.0);
+					g_squashA = std::atan2(dy, dx);
+					g_carry = { x, y, kCarryZ };
+				}
+				break;
+			case Hold::Roll:
+				// pressed down and rolled about over the dough: every bit of the way over it rolls it out
+				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 					if (g_doughLastOk) {
 						const double ddx = x - g_doughLast.x, ddy = y - g_doughLast.y, d = std::hypot(ddx, ddy);
-						g_strokeLen += d;
-						g_pushAcc += d;
+						g_pinRoll += d;
 						if (d > 0.03) {
 							g_squashA = std::atan2(ddy, ddx);
+						}
+						if (std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 6.0) {
+							g_pushAcc += d;
+							if (g_pushAcc >= 2.0) {
+								DoughPush(g_pushAcc);
+								g_pushAcc = 0.0;
+							}
 						}
 					}
 					g_doughLast = { x, y, 0.0 };
 					g_doughLastOk = true;
-					if (g_pushAcc >= 4.0) {
-						DoughPush(g_pushAcc);
-						g_pushAcc = 0.0;
-					}
-					g_squash = Clamp(g_pushAcc / 4.0, 0.0, 1.0);
-					g_carry = { x, y, kCarryZ };
 				}
 				break;
 			case Hold::Spread:
@@ -2534,16 +2558,20 @@ namespace Cook
 					const bool board = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::abs(x - L::kBoardX) < L::kBoardW * 0.5 + 1.0 && std::abs(y - L::kBoardY) < L::kBoardD * 0.5 + 1.0;
 					if (NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
 						Toast("Use the peel: drag it under the dough, then into the oven");
-					} else if (board && g_pushAcc > 1.2) {
-						DoughPush(g_pushAcc);  // (what was left of the last push)
+					} else if (board && g_strokeLen > 1.2 && !g_rolled && g_doughParts > 0 && g_oven->Pie() && g_oven->Dough() >= 0.9) {
+						Toast("Pick up the rolling pin to roll it out");
+					} else if (board && g_strokeLen > 1.2) {
+						DoughPush(g_strokeLen);  // a push: kneaded
 					}
-					g_pushAcc = 0.0;
-					g_doughLastOk = false;
 					g_squash = 0;
 				}
 				break;
 			case Hold::Door:
 				g_doorWant = g_doorWant > 0.5 ? 1.0 : 0.0;
+				break;
+			case Hold::Roll:
+				g_pushAcc = 0.0;
+				g_doughLastOk = false;  // (lifted: still in hand)
 				break;
 			case Hold::Bread:
 				if (OverServe(mx, my)) {
@@ -2567,9 +2595,13 @@ namespace Cook
 					return;
 				}
 				g_flat = (std::min)(1.0, g_flat + a_len / 30.0);
-				Audio::Take("knead_", 0.5f);
+				Audio::Take("knead_", 0.35f, 0.25f);
 				if (g_flat >= 1.0) {
 					Toast("Rolled out: now the filling");
+					g_pinHeld = false;  // the pin back on the table
+					if (g_hold == Hold::Roll) {
+						g_hold = Hold::None;
+					}
 				}
 			} else {
 				g_oven->Knead(a_len, g_clock);
@@ -2587,6 +2619,9 @@ namespace Cook
 				g_fire.AddLog();
 			} else if (g_hold == Hold::Board) {
 				g_tipWant = 0;
+			}
+			if (g_hold == Hold::None || g_hold == Hold::Roll) {
+				g_pinHeld = false;  // the pin put back
 			}
 			g_hold = Hold::None;
 			g_holdUnit = -1;
@@ -2622,6 +2657,12 @@ namespace Cook
 			}
 			if (g_hold != Hold::None) {
 				Carry(mx, my, dt);
+			}
+			if (g_pinHeld) {
+				double x = 0, y = 0;
+				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
+					g_pinAt = { x, y, 0.0 };
+				}
 			}
 			// the knife follows the mouse over the board
 			g_knifeOn = false;
@@ -3611,10 +3652,12 @@ namespace Cook
 						Scene::Hide(P.pin, !shown);
 						if (shown) {
 							const double f = Clamp(g_flat, 0.0, 1.0);
-							if (g_hold == Hold::Dough && rolling) {
+							if (g_pinHeld) {
+								// in hand: hovering over the board, down on the dough while pressed, turned across the way it's going
 								const double h = (Dumpling() ? 2.6 - 2.34 * f : 1.0 + 1.0 * (1.0 - f)) + 0.05;
-								const double ang = g_strokeLen > 0.2 ? g_squashA + kPi * 0.5 : 0.0;  // across the push
-								Scene::Place(P.pin, { g_carry.x, g_carry.y, kBoardTop + h + 0.72 }, RotZ(ang) * RotX(g_strokeLen / 0.72), 1.0f);
+								const bool   onDough = std::hypot(g_pinAt.x - g_doughAt.x, g_pinAt.y - g_doughAt.y) < 6.0;
+								const double z = kBoardTop + (onDough ? h : 0.0) + 0.72 + (g_hold == Hold::Roll ? 0.0 : 1.6);
+								Scene::Place(P.pin, { g_pinAt.x, g_pinAt.y, z }, RotZ(g_squashA + kPi * 0.5) * RotX(g_pinRoll / 0.72), 1.0f);
 							} else {
 								Scene::Place(P.pin, { L::kBoardX, L::kBoardY - L::kBoardD * 0.5 - 1.3, 0.72 }, RotZ(0.04), 1.0f);  // on the table, in front of the board
 							}
@@ -3739,11 +3782,13 @@ namespace Cook
 						P.crimps.push_back(Add("Hull"));
 					}
 					const bool sheet = !showDish && g_peelT < 0 && g_hold != Hold::Dough && !g_oven->Out() && !g_oven->InOven();
+					// the middle under the corners: thin, so no layer of dough shows under the folds, and gone once they're all in
+					const bool allIn = g_fold[0] > 0.85 && g_fold[1] > 0.85 && g_fold[2] > 0.85 && g_fold[3] > 0.85;
 					if (P.slab >= 0) {
-						Scene::Hide(P.slab, !sheet);
-						if (sheet) {
-							Scene::Place(P.slab, at + Vec3{ 0, 0, 0.14 }, RotZ(kPi * 0.25), 1.0f);
-							Scene::Stretch(P.slab, 4.81f, 4.81f, 0.26f);  // rolled thin
+						Scene::Hide(P.slab, !sheet || allIn);
+						if (sheet && !allIn) {
+							Scene::Place(P.slab, at + Vec3{ 0, 0, 0.05 }, RotZ(kPi * 0.25), 1.0f);
+							Scene::Stretch(P.slab, 4.75f, 4.75f, 0.08f);  // rolled thin
 							auto& sl = Scene::LookOf(P.slab);
 							DoughLook(sl);
 						}
@@ -4201,7 +4246,9 @@ namespace Cook
 			case Hold::Meat:
 				return "Onto the plate to serve, or back on the spit";
 			case Hold::Dough:
-				return g_oven && g_oven->Pie() && g_oven->Dough() >= 0.9 ? (Dumpling() ? "Keep holding and roll it about, out square" : "Keep holding and roll it about, out round") : "Keep holding and work it about to knead";
+				return g_oven && g_oven->Pie() && g_oven->Dough() >= 0.9 ? "Roll it out with the rolling pin" : "A long push to knead";
+			case Hold::Roll:
+				return Dumpling() ? "Hold and roll it about over the dough, out square" : "Hold and roll it about over the dough, out round";
 			case Hold::Mix:
 				return "Round and round until it comes together";
 			case Hold::Ball:
