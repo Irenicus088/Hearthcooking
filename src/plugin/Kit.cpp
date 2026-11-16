@@ -8,6 +8,12 @@ namespace Kit
 {
 	namespace
 	{
+		std::vector<std::string> g_knives;
+		std::string              g_found[static_cast<int>(Role::Count)];  // what Resolve picked by itself
+	}
+
+	namespace
+	{
 		constexpr const char* kIni = "Data\\SKSE\\Plugins\\Hearthcooking.ini";
 		constexpr const char* kNames[] = { "Table", "Pot", "Ladle", "Knife", "Board", "Bowl", "Plate", "Log", "SaltBowl", "Salt", "FirePit", "Spit", "Oven", "Peel" };
 		constexpr const char* kOurs[] = { "Worktop", "Pot", "Ladle", "Knife", "Board", "Bowl", "Plate", "Log", "SaltBowl", "", "FirePit", "SpitPosts", "OvenDome", "Peel" };
@@ -238,6 +244,26 @@ namespace Kit
 
 	const std::vector<std::string>& Decor() { return g_decor; }
 
+	const std::vector<std::string>& Knives() { return g_knives; }
+
+	void SetMesh(Role a_role, const std::string& a_path)
+	{
+		const int k = static_cast<int>(a_role);
+		::WritePrivateProfileStringA("Meshes", kNames[k], a_path.c_str(), kIni);
+		auto& m = g_mesh[k];
+		if (a_path.empty()) {
+			m.path = g_found[k].empty() ? Ours(a_role) : g_found[k];
+			m.vanilla = !g_found[k].empty();
+		} else if (a_path == "ours") {
+			m.path = Ours(a_role);
+			m.vanilla = false;
+		} else {
+			m.path = a_path;
+			m.vanilla = true;
+		}
+		spdlog::info("Kitchen: {} set to {}", kNames[k], m.path);
+	}
+
 	void Resolve()
 	{
 		const auto forms = Gather();
@@ -246,6 +272,7 @@ namespace Kit
 			std::set<std::string> seen;
 			for (const auto& f : forms) {
 				if ((Any(f.file, { "knife", "cleaver" }) || Any(f.name, { "knife", "cleaver" })) && seen.insert(f.path).second) {
+					g_knives.push_back(f.shown);
 					spdlog::info("Kitchen: knife-like {} ({}, \"{}\", from {})", f.shown, f.type == 'F' ? "furniture" : f.type == 'S' ? "static" : "item", f.name, f.plugin);
 				}
 			}
@@ -268,6 +295,7 @@ namespace Kit
 				m.path = best->shown;
 				m.vanilla = true;
 			}
+			g_found[k] = best ? best->shown : std::string();
 			// the others it could have been, best first, so one can be named in the INI instead
 			{
 				std::vector<std::pair<int, const Form*>> all;

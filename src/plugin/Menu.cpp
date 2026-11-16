@@ -4,6 +4,7 @@
 // The settings page in SKSE Menu Framework (if it's installed): every INI setting, changed live, saved to the INI.
 #include "Menu.h"
 #include "Config.h"
+#include "Kit.h"
 
 #define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
 #include "SKSEMenuFramework.h"
@@ -33,6 +34,27 @@ namespace Menu
 			Changed(UI::SliderFloat("Tilt", &v.tiltDeg, 30.0f, 80.0f, "%.0f degrees"));
 			Hint("How far you look down on it.");
 			Changed(UI::SliderFloat("Zoom", &v.zoom, 0.6f, 1.6f, "%.2f"));
+			{
+				// the knife, from every one the game has (for trying them)
+				const auto&  knives = Kit::Knives();
+				const auto&  now = Kit::Get(Kit::Role::Knife);
+				const std::string shown = now.vanilla ? now.path : std::string("Hearthcooking's own");
+				if (UI::BeginCombo("Knife", shown.c_str())) {
+					if (UI::Selectable("The one it finds by itself", false)) {
+						Kit::SetMesh(Kit::Role::Knife, "");
+					}
+					if (UI::Selectable("Hearthcooking's own", !now.vanilla)) {
+						Kit::SetMesh(Kit::Role::Knife, "ours");
+					}
+					for (const auto& k : knives) {
+						if (UI::Selectable(k.c_str(), now.vanilla && _stricmp(now.path.c_str(), k.c_str()) == 0)) {
+							Kit::SetMesh(Kit::Role::Knife, k);
+						}
+					}
+					UI::EndCombo();
+				}
+				Hint("Takes effect the next time the kitchen opens; kept in Hearthcooking.ini.");
+			}
 			UI::SeparatorText("Controls and sound");
 			Changed(UI::SliderFloat("Mouse speed", &v.mouseSpeed, 0.2f, 3.0f, "%.2f"));
 			Changed(UI::SliderFloat("Interface size", &v.uiScale, 0.6f, 1.6f, "%.2f"));

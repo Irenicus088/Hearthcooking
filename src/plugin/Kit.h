@@ -43,4 +43,9 @@ namespace Kit
 
 	// The clutter set about the kitchen (jugs, baskets, sacks, cheese): the game's own, as many as are found
 	const std::vector<std::string>& Decor();
+
+	// Every knife the game has (meshes), for picking one; and setting a role's mesh now (kept in the INI), "" for
+	// the one found by itself
+	const std::vector<std::string>& Knives();
+	void SetMesh(Role a_role, const std::string& a_path);
 }
