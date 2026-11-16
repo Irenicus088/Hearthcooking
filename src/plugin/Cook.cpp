@@ -270,7 +270,7 @@ namespace Cook
 		Vec3   g_lastSpread;
 		double g_peelT = -1;        // the peel's trip into or out of the oven
 		// how many times faster than real each cooks
-		constexpr double kPotSpeed = 2.0, kSpitSpeed = 1.5, kOvenSpeed = 1.0;
+		constexpr double kPotSpeed = 2.0, kSpitSpeed = 1.5, kOvenSpeed = 2.0;
 		Vec3   g_peelAt;            // the peel in the hand
 		Vec3   g_peelFrom;          // where its trip into the oven starts
 		bool   g_peelLoaded = false;  // the dough on it
@@ -2953,8 +2953,14 @@ namespace Cook
 					Scene::Hide(P.slab, !dough || !square);
 					if (dough && square) {
 						// rolled out from a ball to a square sheet
-						const double f = Clamp(g_flat, 0.0, 1.0), side = 5.0 + 3.0 * f, h = 2.6 - 2.0 * f;
-						Scene::Place(P.slab, at + Vec3{ 0, 0, h * 0.5 + 0.05 }, {}, 1.0f);
+						// as its corners fold in, what's left flat is the square between them: the diamond through the
+						// edges' middles (the folded corners lie over it)
+						double folded = 0.0;
+						for (int k = 0; k < 4; ++k) {
+							folded += g_fold[k] * 0.25;
+						}
+						const double f = Clamp(g_flat, 0.0, 1.0), side = (5.0 + 3.0 * f) * (1.0 - 0.293 * folded), h = 2.6 - 2.0 * f;
+						Scene::Place(P.slab, at + Vec3{ 0, 0, h * 0.5 + 0.05 }, RotZ(kPi * 0.25 * folded), 1.0f);
 						Scene::Stretch(P.slab, static_cast<float>(side), static_cast<float>(side), static_cast<float>(h));
 						auto& sl = Scene::LookOf(P.slab);
 						sl.tint[0] = 1.0f, sl.tint[1] = 0.95f, sl.tint[2] = 0.84f;
