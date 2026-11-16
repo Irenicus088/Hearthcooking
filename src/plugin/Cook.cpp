@@ -741,6 +741,34 @@ namespace Cook
 		}
 
 
+		// Bottles and jugs stand up (as the game models them), not lie on their side
+		bool Upright(const Unit& a_u)
+		{
+			std::string n = a_u.name;
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			for (const char* w : { "ale", "mead", "wine", "milk", "jug", "bottle", "vinegar", "brandy", "rum", "flin", "sujamma", "cider" }) {
+				if (n.find(w) != std::string::npos && n.find("kale") == std::string::npos) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		// Stood upright as its mesh is made, its foot at a_at, a_len tall at its longest
+		void Stand(Unit& a_u, const Vec3& a_at, double a_len, double a_turn)
+		{
+			Vec3 mn, mx;
+			if (!Fit(a_u) || !Scene::Bounds(a_u.prop, mn, mx)) {
+				Scene::Hide(a_u.prop, true);
+				return;
+			}
+			const double s = a_len / a_u.dims[0];
+			const Quat   q = RotZ(a_turn);
+			const Vec3   foot{ (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, mn.z };
+			Scene::Place(a_u.prop, a_at - q.Rotate(foot) * s, q, static_cast<float>(s));
+			Scene::Hide(a_u.prop, false);
+		}
+
 		// A form's own textures on its mesh (the game shares one mesh between several things - its stews, its butter
 		// - and tells them apart by alternate textures)
 		void Swaps(Scene::Id a_id, RE::TESForm* a_form)
@@ -3255,7 +3283,11 @@ namespace Cook
 				case Unit::At::Cloth:
 					// the same size everywhere: on the cloth, in the hand and on the board
 					Fit(u);
-					Lay(u, u.clothAt + Vec3{ 0, 0, Thick(u, u.boardLen, 2) * 0.5 + 0.2 }, u.boardLen, RotZ(0.25 * (Hash(i, 9) - 0.5)));
+					if (Upright(u)) {
+						Stand(u, u.clothAt + Vec3{ 0, 0, 0.2 }, u.boardLen, Hash(i, 9) * 6.28);  // a bottle or jug stands
+					} else {
+						Lay(u, u.clothAt + Vec3{ 0, 0, Thick(u, u.boardLen, 2) * 0.5 + 0.2 }, u.boardLen, RotZ(0.25 * (Hash(i, 9) - 0.5)));
+					}
 					break;
 				case Unit::At::Held:
 					Fit(u);
