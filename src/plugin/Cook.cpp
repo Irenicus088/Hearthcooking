@@ -244,6 +244,7 @@ namespace Cook
 		Vec3   g_doughAt{ L::kBoardX, L::kBoardY, kBoardTop };
 		// the oven's bowls, behind the board: water and flour stirred to a dough; the cut filling waiting
 		const Vec3 kMixAt{ -11.0, 11.5, 0.0 }, kFillAt{ -1.0, 11.5, 0.0 };
+		double g_spin = 0.0;  // how far the pot's stew has turned with the stirring (keeps going one way, never jumps back)
 		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
 		bool   g_bowlWater = true;         // a bowl of water to start (else the milk is the wet, and goes in last)
 		bool   g_milkIn = false;
@@ -990,6 +991,7 @@ namespace Cook
 			g_doughParts = 0;
 			g_rolled = false;
 			g_mix = 0.0;
+			g_spin = 0.0;
 			g_ball = false;
 			g_milkIn = false;
 			for (int k = 0; k < 4; ++k) {
@@ -2416,6 +2418,7 @@ namespace Cook
 				g_boardPose.v = dt > 0 ? (g_boardPose.c - g_boardPrev.c) * (1.0 / dt) : Vec3{};
 				const int before = g_chunks.CountIn(hc::Chunks::State::Pot);
 				g_chunks.Step(dt, g_boardPose, g_pot->Swirl());
+				g_spin = std::fmod(g_spin + g_pot->Swirl() * dt * 0.55, 6.283185307);  // (as its pieces go round)
 				hc::Chunks::Event ev[32];
 				const int         n = g_chunks.TakeEvents(ev, 32);
 				for (int k = 0; k < n; ++k) {
@@ -3050,7 +3053,7 @@ namespace Cook
 				const float c = static_cast<float>(Clamp(g_pot->Cooked(), 0.0, 1.5));
 				const float thick = any ? (std::min)(c / 0.95f, 1.0f) : 0.0f;  // how far it's come together
 				// it cooks down: a little lower, thick and opaque, deeper and richer in colour
-				Scene::Place(P.broth, { L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick }, RotZ(std::fmod(t * 0.05, 6.283) + g_ladleA * 0.15), 1.0f);
+				Scene::Place(P.broth, { L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick }, RotZ(std::fmod(t * 0.05, 6.283) + g_spin), 1.0f);
 				auto& lk = Scene::LookOf(P.broth);
 				static constexpr float kDeep[3] = { 0.78f, 0.6f, 0.42f };  // what the broth's colour comes to, by channel
 				for (int j = 0; j < 3; ++j) {
@@ -3065,10 +3068,10 @@ namespace Cook
 					Scene::Hide(P.dishRef, !show);
 					if (show) {
 						const double wide = (std::max)(fmx.x - fmn.x, fmx.y - fmn.y);
-						const double sc = 2.0 * (L::kPotR - 0.25) / (std::max)(0.1, wide);
+						const double sc = 2.0 * (L::kPotR + 0.35) / (std::max)(0.1, wide);  // (its edge tucked under the pot's wall)
 						const Vec3   mid{ (fmn.x + fmx.x) * 0.5, (fmn.y + fmx.y) * 0.5, fmx.z * 0.3 };  // (its top, as flattened below)
 						const Vec3   top{ L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick + 0.08 };
-						const Quat   q = RotZ(std::fmod(t * 0.05, 6.283) + g_ladleA * 0.15);
+						const Quat   q = RotZ(std::fmod(t * 0.05, 6.283) + g_spin);
 						Scene::Place(P.dishRef, top - q.Rotate(mid) * sc, q, static_cast<float>(sc));
 						Scene::Stretch(P.dishRef, 1.0f, 1.0f, 0.3f);  // (flattened: only its top shows over the broth)
 						auto& dl = Scene::LookOf(P.dishRef);
