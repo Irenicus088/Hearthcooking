@@ -243,6 +243,8 @@ namespace Cook
 		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
 		bool   g_bowlWater = true;         // a bowl of water to start (else the milk is the wet, and goes in last)
 		bool   g_milkIn = false;
+		// where the oven's cut things go: a pie's into a bowl of their own, a bread's into the dough's bowl
+		Vec3 CutBowl() { return g_recipe && g_recipe->pie ? kFillAt : kMixAt; }
 		bool   g_ball = false;             // a ball of dough in the bowl
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
@@ -1012,9 +1014,9 @@ namespace Cook
 					                  n.find("milk") != std::string::npos || n.find("egg") != std::string::npos || n.find("jug") != std::string::npos ||
 					                  n.find("sack") != std::string::npos || n.find("bread") != std::string::npos || n.find("jazbay") != std::string::npos ||
 					                  n.find("berr") != std::string::npos || n.find("ear") != std::string::npos || n.find("mirriam") != std::string::npos;
-					u.dice = g_recipe->pie && u.role == Role::Filling && !soft && !u.model.empty();
+					u.dice = u.role == Role::Filling && !soft && !u.model.empty();
 				}
-				g_chunks.SetBowl({ kFillAt.x, kFillAt.y, 1.0 }, 3.5, 2.6, false);
+				g_chunks.SetBowl({ CutBowl().x, CutBowl().y, 1.0 }, 3.5, 2.6, false);
 				g_bowlWater = true;
 				for (const auto& u : g_units) {
 					std::string n = u.name;
@@ -1285,6 +1287,49 @@ namespace Cook
 			Audio::Play({ "flour", 0.7f });
 		}
 
+		// The order a dough's things go into its bowl, by recipe: groups of words, each group after the ones before
+		std::vector<std::vector<std::string>> DoughOrder()
+		{
+			std::string n = g_recipe ? g_recipe->name : std::string();
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			if (n.find("potato bread") != std::string::npos) {
+				return { { "potato" }, { "milk" }, { "flour", "egg", "butter" } };
+			}
+			if (n.find("sweet roll") != std::string::npos) {
+				return { { "flour", "butter", "egg" }, { "milk" } };
+			}
+			return {};
+		}
+
+		// What has to go in before this (lower-case name): "" if nothing's waiting
+		std::string MustGoFirst(const std::string& a_name)
+		{
+			const auto order = DoughOrder();
+			auto group = [&](const std::string& a_n) {
+				for (int g = 0; g < static_cast<int>(order.size()); ++g) {
+					for (const auto& w : order[g]) {
+						if (a_n.find(w) != std::string::npos) {
+							return g;
+						}
+					}
+				}
+				return -1;
+			};
+			const int mine = group(a_name);
+			if (mine <= 0) {
+				return {};
+			}
+			for (const auto& u : g_units) {
+				std::string n = u.name;
+				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				const int g = group(n);
+				if (g >= 0 && g < mine && u.at != Unit::At::Dough && u.at != Unit::At::Pot) {
+					return u.name;
+				}
+			}
+			return {};
+		}
+
 		// The bowl tipped over the dough: the fruit pours out onto it, a neat mound in the middle
 		void PourOnDough()
 		{
@@ -1425,7 +1470,7 @@ namespace Cook
 						if (g_rolled && Dumpling() && r > 2.6 && r < R + 1.2) {
 							// a side to fold in: the quarter nearest where it was taken
 							const double a = std::atan2(dy, dx);
-							g_foldSide = static_cast<int>(std::lround(a / (kPi * 0.5) + 4.0)) % 4;
+							g_foldSide = static_cast<int>(std::lround((a - kPi * 0.25) / (kPi * 0.5) + 4.0)) % 4;  // the nearest corner
 							g_hold = Hold::Crimp;
 							return;
 						}
@@ -1502,7 +1547,7 @@ namespace Cook
 					{
 						// it tips once its right end (the far one) is over the bowl
 						const double ex = g_boardCarry.x + L::kBoardW * 0.5 - 2.0, ey = g_boardCarry.y;
-						g_tipWant = std::hypot(ex - kFillAt.x, ey - kFillAt.y) < 4.5 ? 1.0 : 0.0;
+						g_tipWant = std::hypot(ex - CutBowl().x, ey - CutBowl().y) < 4.5 ? 1.0 : 0.0;
 					}
 					break;
 				}
@@ -1658,7 +1703,7 @@ namespace Cook
 					const double r = std::hypot(x - g_doughAt.x, y - g_doughAt.y);
 					if (r < 2.0 && g_foldWant[g_foldSide] < 1.0) {
 						g_foldWant[g_foldSide] = 1.0;
-						const double a0 = g_foldSide * kPi * 0.5;
+						const double a0 = kPi * 0.25 + g_foldSide * kPi * 0.5;
 						for (int k = -3; k <= 3; ++k) {
 							g_oven->Crimp(a0 + k * (kPi * 0.5 / 6.0));
 						}
@@ -1801,16 +1846,15 @@ namespace Cook
 								PutBack(ui);
 								break;
 							}
-							// the milk goes in last, onto the flour and the rest
+							// some doughs go together in an order (a sweet roll's milk last; a potato bread's milk before its flour)
 							std::string ln = u.name;
 							std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-							const bool milk = ln.find("milk") != std::string::npos;
-							if (milk && g_doughParts < g_doughNeeded - 1) {
-								Toast("The milk goes in last");
+							if (const auto before = MustGoFirst(ln); !before.empty()) {
+								Toast(fmt::format("The {} goes in first", before));
 								PutBack(ui);
 								break;
 							}
-							g_milkIn |= milk;
+							g_milkIn |= ln.find("milk") != std::string::npos;
 							u.at = Unit::At::Dough;
 							++g_doughParts;
 							Flour(kMixAt + Vec3{ 0, 0, 1.0 });
@@ -2181,7 +2225,7 @@ namespace Cook
 					if (!held) {
 						g_bowlPoured = false;
 					}
-					const Vec3 c = held ? g_carry + Vec3{ 0, 0, 0.6 } : Vec3{ kFillAt.x, kFillAt.y, 1.0 };
+					const Vec3 c = held ? g_carry + Vec3{ 0, 0, 0.6 } : Vec3{ CutBowl().x, CutBowl().y, 1.0 };
 					g_chunks.SetBowl(c, 3.5, c.z + 1.6, false);
 				}
 				// the board: lifted and carried to the bowl, tipped over it, and back down
@@ -2672,8 +2716,9 @@ namespace Cook
 				if (pc.prop < 0 || g_units.empty()) {
 					continue;
 				}
-				if (body.state == hc::Chunks::State::None) {
-					Scene::Hide(pc.prop, true);
+				if (body.state == hc::Chunks::State::None ||
+					(g_flow == hc::Flow::Oven && g_recipe && !g_recipe->pie && body.state == hc::Chunks::State::Pot && g_ball)) {
+					Scene::Hide(pc.prop, true);  // (a bread's potato worked into the ball of dough)
 					Scene::Hide(pc.core, true);
 					continue;
 				}
@@ -2980,9 +3025,9 @@ namespace Cook
 					}
 				}
 				if (g_rolled && Dumpling()) {
-					// four sides of the dough, each turning up on its edge and over the filling to the middle
+					// the square sheet's four corners, each folding in over the filling to meet in the middle (an envelope)
 					while (static_cast<int>(P.crimps.size()) < hc::Oven::kCrimps) {
-						P.crimps.push_back(Add("Dough"));
+						P.crimps.push_back(Add("Hull"));
 					}
 					for (int k = 0; k < hc::Oven::kCrimps; ++k) {
 						const auto id = P.crimps[k];
@@ -2991,13 +3036,15 @@ namespace Cook
 						if (!show) {
 							continue;
 						}
-						// a side of the sheet, hinged near the mound's foot, turning up and over until it lies across its top
-						const double a = k * kPi * 0.5, th = g_fold[k] * 2.35;
+						// the corner: from the line between the two edges' middles out to the corner, turned over that line
+						const double f = g_fold[k];
+						const double a = kPi * 0.25 + k * kPi * 0.5, th = f * 2.75;
 						const Vec3   dir{ std::cos(a), std::sin(a), 0.0 };
-						const Vec3   hinge = at + dir * 2.7 + Vec3{ 0, 0, 0.6 };
+						const double d = 2.83, depth = 2.9, lift = 0.15 + 1.25 * std::sin((std::min)(f, 1.0) * kPi * 0.5);  // over the mound
+						const Vec3   hinge = at + dir * d + Vec3{ 0, 0, lift };
 						const Vec3   v = dir * std::cos(th) + Vec3{ 0, 0, std::sin(th) };
-						Scene::Place(id, hinge + v * 1.9, RotZ(a) * RotY(-th), 1.0f);
-						Scene::Stretch(id, 1.9f, 2.6f, 0.28f);
+						Scene::Place(id, hinge + v * (depth * 0.5), RotZ(a) * RotY(-th), 1.0f);
+						Scene::Stretch(id, static_cast<float>(depth), static_cast<float>(5.0 - 2.2 * f), 0.32f);
 						auto& fl = Scene::LookOf(id);
 						fl.tint[0] = 1.0f, fl.tint[1] = 0.95f, fl.tint[2] = 0.84f;
 					}
@@ -3305,9 +3352,13 @@ namespace Cook
 							s.push_back({ "Spread the filling", g_oven && g_oven->Coverage() >= 0.8 });
 						}
 					}
-					s.push_back({ Dumpling() ? "Fold the four sides in over it" : "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
+					s.push_back({ Dumpling() ? "Fold the four corners in over it" : "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
 				} else {
-					unitsDone(Role::Filling, { Unit::At::Dough }, "Work in the ", "");
+					for (const auto& u : g_units) {
+						if (u.role == Role::Filling && !u.dice) {
+							s.push_back({ fmt::format("Work in the {}", u.name), u.at == Unit::At::Dough });
+						}
+					}
 				}
 				s.push_back({ "Into the oven", g_oven && (g_oven->InOven() || g_oven->Out()) });
 				s.push_back({ "Bake it golden", g_oven && g_oven->Brown() >= 0.85 });
@@ -3353,7 +3404,7 @@ namespace Cook
 			case Hold::Spread:
 				return "Spread it out to the edge";
 			case Hold::Crimp:
-				return g_foldSide >= 0 ? "Draw it in, over the filling" : "Pinch your way all round the edge";
+				return g_foldSide >= 0 ? "Draw the corner in, over the filling" : "Pinch your way all round the edge";
 			case Hold::Door:
 				return "Left to open, right to shut";
 			case Hold::Bread:
