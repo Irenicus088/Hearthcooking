@@ -2710,7 +2710,11 @@ namespace Cook
 						if (LieOf(P.knife, lie)) {
 							static const double kCyc[3][3] = { { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 } };
 							// turned over about its length so the edge is down, toward the food
-							const Quat   q = (g_knifeAlong ? RotZ(kPi * 0.5) : Quat{}) * RotY(kPi) * FromRows(kCyc) * lie.q;
+							// (the silver knife is modelled the other way up: it isn't turned)
+							std::string kp = Kit::Get(Kit::Role::Knife).path;
+							std::transform(kp.begin(), kp.end(), kp.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							const bool  flipped = kp.find("silver") != std::string::npos;
+							const Quat  q = (g_knifeAlong ? RotZ(kPi * 0.5) : Quat{}) * (flipped ? Quat{} : RotY(kPi)) * FromRows(kCyc) * lie.q;
 							const double ks = 8.5 / lie.d[0];
 							const Vec3   c{ g_knifeX, g_knifeY, z + lie.d[1] * ks * 0.5 };
 							Scene::Place(P.knife, c - q.Rotate(lie.c) * ks, q, static_cast<float>(ks));

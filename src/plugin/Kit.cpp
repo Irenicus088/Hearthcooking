@@ -154,7 +154,7 @@ namespace Kit
 			case Role::Ladle:
 				return In(n, "ladle") ? 10 : In(x, "ladle") ? 8 : 0;
 			case Role::Knife:
-				if (Any(x, { "dagger", "sheath", "rack", "dwe", "silver", "gold", "ebony", "glass", "elven", "daedric", "draw" }) || In(n, "draw")) {
+				if (Any(x, { "dagger", "sheath", "rack", "dwe", "silver", "gold", "ebony", "glass", "elven", "daedric", "draw", "cleaver", "ruins" }) || In(n, "draw")) {
 					return 0;
 				}
 				{
@@ -314,8 +314,12 @@ namespace Kit
 		{
 			std::set<std::string> seen;
 			for (const auto& f : forms) {
+				// not offered: draw knives, cleavers, Dwemer and ruins knives (not a cook's knife)
+				const bool notCook = Any(f.file, { "draw", "cleaver", "dwe", "ruins" }) || Any(f.name, { "draw", "cleaver", "dwemer", "embalm" });
 				if ((Any(f.file, { "knife", "cleaver" }) || Any(f.name, { "knife", "cleaver" })) && seen.insert(f.path).second) {
-					g_knives.push_back(f.shown);
+					if (!notCook) {
+						g_knives.push_back(f.shown);
+					}
 					spdlog::info("Kitchen: knife-like {} ({}, \"{}\", from {})", f.shown, f.type == 'F' ? "furniture" : f.type == 'S' ? "static" : "item", f.name, f.plugin);
 				}
 			}
