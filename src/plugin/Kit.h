@@ -48,4 +48,10 @@ namespace Kit
 	// the one found by itself
 	const std::vector<std::string>& Knives();
 	void SetMesh(Role a_role, const std::string& a_path);
+
+	// An ingredient's mesh: the game's other meshes like it (by the last word of its name), and the one set for it
+	// in Hearthcooking.ini [Ingredients] ("" for its own)
+	std::vector<std::string> MeshesLike(const std::string& a_name);
+	std::string IngredientMesh(const std::string& a_name);
+	void SetIngredientMesh(const std::string& a_name, const std::string& a_path);
 }

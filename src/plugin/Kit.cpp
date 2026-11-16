@@ -9,6 +9,11 @@ namespace Kit
 	namespace
 	{
 		std::vector<std::string> g_knives;
+		struct Seen
+		{
+			std::string shown, name, file;
+		};
+		std::vector<Seen> g_all;  // every mesh the game's things have (kept for the ingredient swaps)
 		std::string              g_found[static_cast<int>(Role::Count)];  // what Resolve picked by itself
 	}
 
@@ -246,6 +251,38 @@ namespace Kit
 
 	const std::vector<std::string>& Knives() { return g_knives; }
 
+	std::vector<std::string> MeshesLike(const std::string& a_name)
+	{
+		std::string w = Lower(a_name);
+		if (const auto sp = w.find_last_of(' '); sp != std::string::npos) {
+			w = w.substr(sp + 1);  // "red apple": apple
+		}
+		std::vector<std::string> out;
+		std::set<std::string>    seen;
+		if (w.size() < 3) {
+			return out;
+		}
+		for (const auto& f : g_all) {
+			if ((f.name.find(w) != std::string::npos || f.file.find(w) != std::string::npos) && seen.insert(Lower(f.shown)).second) {
+				out.push_back(f.shown);
+			}
+		}
+		return out;
+	}
+
+	std::string IngredientMesh(const std::string& a_name)
+	{
+		char buf[512]{};
+		::GetPrivateProfileStringA("Ingredients", a_name.c_str(), "", buf, sizeof(buf), kIni);
+		return buf;
+	}
+
+	void SetIngredientMesh(const std::string& a_name, const std::string& a_path)
+	{
+		::WritePrivateProfileStringA("Ingredients", a_name.c_str(), a_path.empty() ? nullptr : a_path.c_str(), kIni);
+		spdlog::info("Ingredient {} set to {}", a_name, a_path.empty() ? "its own" : a_path);
+	}
+
 	void SetMesh(Role a_role, const std::string& a_path)
 	{
 		const int k = static_cast<int>(a_role);
@@ -267,6 +304,12 @@ namespace Kit
 	void Resolve()
 	{
 		const auto forms = Gather();
+		g_all.clear();
+		for (const auto& f : forms) {
+			if (f.type == 'M' || f.type == 'A' || f.type == 'I' || f.type == 'S') {
+				g_all.push_back({ f.shown, f.name, f.file });
+			}
+		}
 		spdlog::info("Kitchen: looking through {} meshes for the kitchen's things", forms.size());
 		{
 			std::set<std::string> seen;

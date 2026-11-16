@@ -300,6 +300,8 @@ namespace Cook
 			Knife
 		};
 		bool board_kneading();
+		void NextKnife();
+		bool NextIngredientMesh(float a_mx, float a_my);
 		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled);
 		std::vector<std::pair<Act, int>> g_acts;
 		std::mutex                       g_actMtx;
@@ -673,8 +675,8 @@ namespace Cook
 				return -1;
 			}
 			const auto id = Scene::Add(a_u.model);
-			if (g_recipe && a_u.ing >= 0 && a_u.ing < static_cast<int>(g_recipe->ings.size())) {
-				Swaps(id, g_recipe->ings[a_u.ing].form);
+			if (g_recipe && a_u.ing >= 0 && a_u.ing < static_cast<int>(g_recipe->ings.size()) && a_u.model == g_recipe->ings[a_u.ing].model) {
+				Swaps(id, g_recipe->ings[a_u.ing].form);  // (its own mesh only: another's would be wrongly dressed)
 			}
 			return id;
 		}
@@ -693,6 +695,9 @@ namespace Cook
 					u.role = in.role;
 					u.name = in.name;
 					u.model = in.model;
+					if (const auto set = Kit::IngredientMesh(u.name); !set.empty()) {
+						u.model = set;  // the one chosen for it in the kitchen (N over it on the cloth)
+					}
 					u.prop = AddUnitMesh(u);
 					if (u.prop < 0) {
 						u.prop = Add("Chunk");  // a stand-in if its mesh won't load
@@ -3225,6 +3230,51 @@ namespace Cook
 			}
 		}
 
+		// The next mesh for the ingredient under the pointer on the cloth: its own, then the game's others like it
+		bool NextIngredientMesh(float a_mx, float a_my)
+		{
+			const int ui = g_hold == Hold::None ? UnitAt(a_mx, a_my, Unit::At::Cloth) : -1;
+			if (ui < 0) {
+				return false;
+			}
+			auto&       u = g_units[ui];
+			const auto& own = g_recipe->ings[u.ing].model;
+			std::vector<std::string> list{ own };
+			for (const auto& m : Kit::MeshesLike(u.name)) {
+				if (_stricmp(m.c_str(), own.c_str()) != 0) {
+					list.push_back(m);
+				}
+			}
+			if (list.size() < 2) {
+				Toast(fmt::format("The game has no other {} to try", u.name));
+				return true;
+			}
+			int at = 0;
+			for (int k = 0; k < static_cast<int>(list.size()); ++k) {
+				if (_stricmp(list[k].c_str(), u.model.c_str()) == 0) {
+					at = k;
+				}
+			}
+			const std::string next = list[(at + 1) % list.size()];
+			Kit::SetIngredientMesh(u.name, next == own ? std::string() : next);
+			// every one of that name changes
+			for (auto& o : g_units) {
+				if (o.name != u.name || o.at != Unit::At::Cloth) {
+					continue;
+				}
+				Scene::Remove(o.prop);
+				o.model = next;
+				o.fitted = false;
+				o.prop = AddUnitMesh(o);
+				if (o.prop < 0) {
+					o.prop = Add("Chunk");
+				}
+				Scene::Hide(o.prop, true);
+			}
+			Toast(fmt::format("{}: {}", u.name, next == own ? std::string("its own") : next.substr(next.find_last_of("\\/") + 1)));
+			return true;
+		}
+
 		// The next knife the game has (then Hearthcooking's own, then the one found by itself), kept in the INI
 		void NextKnife()
 		{
@@ -3272,8 +3322,12 @@ namespace Cook
 					}
 				} else if (key == 0x13 && g_phase == Phase::Cooking && (g_flow == hc::Flow::Pot || g_flow == hc::Flow::Oven)) {  // R
 					g_knifeAlong = !g_knifeAlong;
-				} else if (key == 0x31 && g_phase == Phase::Cooking) {  // N
-					NextKnife();
+				} else if (key == 0x31 && g_phase == Phase::Cooking) {  // N: the ingredient under the pointer, else the knife
+					float mx = 0, my = 0;
+					Overlay::MousePos(mx, my);
+					if (!NextIngredientMesh(mx, my)) {
+						NextKnife();
+					}
 				} else if (key == 0x23) {  // H
 					g_help = !g_help;
 				} else if (key == 0x32 || key == Overlay::kPadSoundKey) {  // M
@@ -3665,7 +3719,7 @@ namespace Cook
 			const bool pad = Overlay::UsingPad();
 			// the knife can be swapped from here while there's one in the kitchen
 			const bool knife = g_phase == Phase::Cooking && P.knife >= 0;
-			const Key  keys[4] = { { "N", "Knife", Act::Knife }, { pad ? "X" : "H", "How to cook", Act::Help }, { pad ? "Back" : "M", Audio::Muted() ? "Muted" : "Sound", Act::Mute },
+			const Key  keys[4] = { { "N", "Knife / ingredient", Act::Knife }, { pad ? "X" : "H", "How to cook", Act::Help }, { pad ? "Back" : "M", Audio::Muted() ? "Muted" : "Sound", Act::Mute },
 				 { pad ? "Y" : "Tab", g_phase == Phase::Cooking ? "Put it aside" : "Leave", g_phase == Phase::Cooking ? Act::Abandon : Act::Leave } };
 			const int first = knife ? 0 : 1, count = 4;
 			float     widths[4]{}, total = 0;
