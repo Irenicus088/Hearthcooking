@@ -763,13 +763,13 @@ float4 PSComposite(FSOut i) : SV_Target
 				sd.StencilReadMask = 2;
 				sd.StencilWriteMask = 2;
 				a_dev->CreateDepthStencilState(&sd, &g_dsParityBack);
-				sd.StencilReadMask = 3;
-				sd.StencilWriteMask = 3;
+				sd.StencilReadMask = 1;
+				sd.StencilWriteMask = 1;
 				sd.DepthEnable = TRUE;
 				sd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
 				sd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
 				// drawn where both counts are odd; everything it covers is cleared, drawn or not
-				sd.FrontFace = { D3D11_STENCIL_OP_ZERO, D3D11_STENCIL_OP_ZERO, D3D11_STENCIL_OP_ZERO, D3D11_COMPARISON_EQUAL };
+				sd.FrontFace = { D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_ZERO, D3D11_STENCIL_OP_ZERO, D3D11_COMPARISON_EQUAL };
 				sd.BackFace = sd.FrontFace;
 				a_dev->CreateDepthStencilState(&sd, &g_dsCap);
 			}
@@ -1462,9 +1462,9 @@ float4 PSComposite(FSOut i) : SV_Target
 				}
 				c->OMSetBlendState(g_bsNoColor, nullptr, 0xFFFFFFFF);
 				bool any = false;
-				for (int side = 0; side < 2; ++side) {
-					c->OMSetDepthStencilState(side ? g_dsParityBack : g_dsParity, side ? 2 : 1);
-					c->PSSetShader(side ? g_psParityBack : g_psParity, nullptr, 0);
+				for (int side = 0; side < 1; ++side) {  // (the count in front only: counting behind too lost faces)
+					c->OMSetDepthStencilState(g_dsParity, 1);
+					c->PSSetShader(g_psParity, nullptr, 0);
 					for (const auto& sk : g_frame.items) {
 						if (sk.flesh[3] < 2.5f || sk.flesh[3] > 3.5f || std::memcmp(sk.clips, h.clips, sizeof(h.clips)) != 0 || !bindMesh(sk)) {
 							continue;
@@ -1479,7 +1479,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				ID3D11ShaderResourceView* t[4] = { h.diffuse, nullptr, nullptr, nullptr };
 				c->PSSetShaderResources(0, 4, t);
 				c->OMSetBlendState(g_bsOpaque, nullptr, 0xFFFFFFFF);
-				c->OMSetDepthStencilState(g_dsCap, 3);
+				c->OMSetDepthStencilState(g_dsCap, 1);
 				c->PSSetShader(g_psSolid, nullptr, 0);
 				c->DrawIndexed(h.indexCount, 0, 0);
 			}

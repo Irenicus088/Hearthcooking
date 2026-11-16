@@ -805,7 +805,7 @@ namespace Cook
 		}
 
 		// How far apart the pieces of one thing sit on the board, so the cuts show
-		double Spread(int a_k, int a_n) { return (a_k - (a_n - 1) * 0.0) * 0.0; }  // none: on the board the skin stays whole; the pieces part as they fall
+		double Spread(int a_k, int a_n) { return (a_k - (a_n - 1) * 0.5) * 0.06; }  // a hair: the cuts show, the skin reads whole
 
 		void HideBoardBits(Unit& u)
 		{
