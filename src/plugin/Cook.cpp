@@ -243,6 +243,18 @@ namespace Cook
 		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
 		bool   g_ball = false;             // a ball of dough in the bowl
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
+		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
+		double g_fold[4]{}, g_foldWant[4]{};
+		int    g_foldSide = -1;
+		bool   Dumpling()
+		{
+			if (!g_recipe || !g_recipe->pie) {
+				return false;
+			}
+			std::string n = g_recipe->name;
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return n.find("dumpling") != std::string::npos;
+		}
 		int    g_doughParts = 0, g_doughNeeded = 0;
 		bool   g_rolled = false;
 		double g_squash = 0, g_squashA = 0, g_strokeLen = 0;
@@ -873,6 +885,10 @@ namespace Cook
 			g_rolled = false;
 			g_mix = 0.0;
 			g_ball = false;
+			for (int k = 0; k < 4; ++k) {
+				g_fold[k] = g_foldWant[k] = 0.0;
+			}
+			g_foldSide = -1;
 			g_doughOnBoard = false;
 			g_squash = 0;
 			g_stock = 0;
@@ -1318,6 +1334,13 @@ namespace Cook
 					if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 						const double dx = x - g_doughAt.x, dy = y - g_doughAt.y, r = std::hypot(dx, dy);
 						const double R = g_rolled ? 5.0 : 3.2;
+						if (g_rolled && Dumpling() && r > 2.6 && r < R + 1.2) {
+							// a side to fold in: the quarter nearest where it was taken
+							const double a = std::atan2(dy, dx);
+							g_foldSide = static_cast<int>(std::lround(a / (kPi * 0.5) + 4.0)) % 4;
+							g_hold = Hold::Crimp;
+							return;
+						}
 						if (g_rolled && std::abs(r - R) < 1.2) {
 							g_hold = Hold::Crimp;
 							return;
@@ -1533,6 +1556,19 @@ namespace Cook
 				}
 				break;
 			case Hold::Crimp:
+				if (g_foldSide >= 0 && OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
+					// a dumpling's side, drawn in over the filling: once it's past halfway in, it folds
+					const double r = std::hypot(x - g_doughAt.x, y - g_doughAt.y);
+					if (r < 2.0 && g_foldWant[g_foldSide] < 1.0) {
+						g_foldWant[g_foldSide] = 1.0;
+						const double a0 = g_foldSide * kPi * 0.5;
+						for (int k = -3; k <= 3; ++k) {
+							g_oven->Crimp(a0 + k * (kPi * 0.5 / 6.0));
+						}
+						Audio::Take("knead_", 0.4f);
+					}
+					break;
+				}
 				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 					const double dx = x - g_doughAt.x, dy = y - g_doughAt.y;
 					if (std::abs(std::hypot(dx, dy) - 5.0) < 1.6) {
@@ -2050,6 +2086,9 @@ namespace Cook
 				g_door += Clamp(g_doorWant - g_door, -dt * 3.0, dt * 3.0);
 				g_oven->SetDoor(g_door > 0.5);
 				g_oven->Step(dt * kOvenSpeed, g_fire.Heat());
+				for (int k = 0; k < 4; ++k) {
+					g_fold[k] += Clamp(g_foldWant[k] - g_fold[k], -dt * 3.0, dt * 2.2);
+				}
 				// the board: lifted and carried to the bowl, tipped over it, and back down
 				g_boardY = L::kBoardY;
 				const bool lifting = g_hold == Hold::Board;
@@ -2809,7 +2848,26 @@ namespace Cook
 						lk.uv[3] = Hash(id, 23) * 0.7f;
 					}
 				}
-				if (g_rolled) {
+				if (g_rolled && Dumpling()) {
+					// four sides of the dough, each turning up on its edge and over the filling to the middle
+					while (static_cast<int>(P.crimps.size()) < hc::Oven::kCrimps) {
+						P.crimps.push_back(Add("Dough"));
+					}
+					for (int k = 0; k < hc::Oven::kCrimps; ++k) {
+						const auto id = P.crimps[k];
+						const bool show = k < 4 && g_fold[k] > 0.01 && !showDish && g_peelT < 0 && g_hold != Hold::Dough;
+						Scene::Hide(id, !show);
+						if (!show) {
+							continue;
+						}
+						const double a = k * kPi * 0.5, th = g_fold[k] * 2.6;  // flat outward .. folded over the top
+						const Vec3   dir{ std::cos(a), std::sin(a), 0.0 };
+						const Vec3   hinge = at + dir * 2.6 + Vec3{ 0, 0, 0.5 };
+						const Vec3   v = dir * std::cos(th) + Vec3{ 0, 0, std::sin(th) };
+						Scene::Place(id, hinge + v * 1.5, RotZ(a) * RotY(-th), 1.0f);
+						Scene::Stretch(id, 1.6f, 2.4f, 0.3f);
+					}
+				} else if (g_rolled) {
 					while (static_cast<int>(P.crimps.size()) < hc::Oven::kCrimps) {
 						const auto id = Add("Dough");
 						P.crimps.push_back(id);
@@ -3110,7 +3168,7 @@ namespace Cook
 							s.push_back({ "Spread the filling", g_oven && g_oven->Coverage() >= 0.8 });
 						}
 					}
-					s.push_back({ "Fold the edge up over it", g_oven && g_oven->Crimped() >= 0.9 });
+					s.push_back({ Dumpling() ? "Fold the four sides in over it" : "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
 				} else {
 					unitsDone(Role::Filling, { Unit::At::Dough }, "Work in the ", "");
 				}
@@ -3158,7 +3216,7 @@ namespace Cook
 			case Hold::Spread:
 				return "Spread it out to the edge";
 			case Hold::Crimp:
-				return "Pinch your way all round the edge";
+				return g_foldSide >= 0 ? "Draw it in, over the filling" : "Pinch your way all round the edge";
 			case Hold::Door:
 				return "Left to open, right to shut";
 			case Hold::Bread:
@@ -3511,7 +3569,7 @@ namespace Cook
 				lines.push_back("A pie's fruit first: dice it on the board, then drag the board by its left end over the bowl behind it to sweep it in.");
 				lines.push_back("Drag the flour, butter and the rest into the bowl of water and stir round until it's a ball; lift it onto the board and knead: long pushes, in a steady rhythm.");
 				if (g_recipe && g_recipe->pie) {
-					lines.push_back("Drag the bowl of filling over the dough to heap it on, then pinch round the edge to fold it up over the filling.");
+					lines.push_back("Drag the bowl of filling over the dough to heap it on. A dumpling: take each side of the dough and draw it in over the filling. A pie: pinch round the edge to crimp it.");
 				}
 				lines.push_back("Open the door (drag it left). Drag the peel under the dough, carry it into the mouth, shut the door. Peek, but each peek lets the heat out.");
 			}
