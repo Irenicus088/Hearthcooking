@@ -2958,6 +2958,9 @@ namespace Cook
 				const double broken = Clamp(done, 0.0, 1.0);
 				// (a pie's fruit in its bowl or on the dough is heaped smaller, so it all fits)
 				const double shrink = g_flow == hc::Flow::Oven && pc.onDough ? 0.42 : g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot ? 0.7 : 1.0 - 0.55 * broken;
+				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot) {
+					at.z -= 0.45 * broken + 0.35 * broken * Hash(b, 41);  // sunk into it as it thickens, some deeper than others
+				}
 				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
@@ -2977,14 +2980,17 @@ namespace Cook
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
 			if (P.broth >= 0 && g_pot) {
-				Scene::Place(P.broth, { L::kPotX, L::kPotY, L::kLiquidZ }, RotZ(std::fmod(t * 0.05, 6.283) + g_ladleA * 0.15), 1.0f);
-				auto&       lk = Scene::LookOf(P.broth);
 				const bool  any = g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn > 0;
 				const float c = static_cast<float>(Clamp(g_pot->Cooked(), 0.0, 1.5));
-				lk.lift[0] = any ? g_broth[0] * (1.0f - 0.15f * c) : 0.55f;
-				lk.lift[1] = any ? g_broth[1] * (1.0f - 0.15f * c) : 0.55f;
-				lk.lift[2] = any ? g_broth[2] * (1.0f - 0.15f * c) : 0.52f;
-				lk.lift[3] = any ? 0.82f : 0.6f;  // plain water until something's in it
+				const float thick = any ? (std::min)(c / 0.95f, 1.0f) : 0.0f;  // how far it's come together
+				// it cooks down: a little lower, thick and opaque, deeper and richer in colour
+				Scene::Place(P.broth, { L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick }, RotZ(std::fmod(t * 0.05, 6.283) + g_ladleA * 0.15), 1.0f);
+				auto& lk = Scene::LookOf(P.broth);
+				static constexpr float kDeep[3] = { 0.78f, 0.6f, 0.42f };  // what the broth's colour comes to, by channel
+				for (int j = 0; j < 3; ++j) {
+					lk.lift[j] = any ? g_broth[j] * (1.0f - (1.0f - kDeep[j]) * thick) * (1.0f - 0.12f * (std::max)(0.0f, c - 1.0f)) : (j == 2 ? 0.52f : 0.55f);
+				}
+				lk.lift[3] = any ? 0.82f + 0.17f * thick : 0.6f;  // plain water until something's in it; thick by the end
 				const double tp = g_pot->Temp();
 				if (tp > 0.42) {
 					const int n = static_cast<int>((tp - 0.42) * 40.0);
@@ -2997,7 +3003,7 @@ namespace Cook
 						Render3D::Sprite s;
 						s.pos[0] = static_cast<float>(L::kPotX + std::cos(a) * r);
 						s.pos[1] = static_cast<float>(L::kPotY + std::sin(a) * r);
-						s.pos[2] = static_cast<float>(L::kLiquidZ + 0.05);
+						s.pos[2] = static_cast<float>(L::kLiquidZ - 0.45 * thick + 0.05);
 						s.size = static_cast<float>(0.12 + 0.35 * p);
 						s.color[0] = s.color[1] = s.color[2] = 0.95f;
 						s.color[3] = static_cast<float>(0.8 * (1.0 - p * p));
