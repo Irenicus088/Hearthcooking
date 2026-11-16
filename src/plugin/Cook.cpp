@@ -263,6 +263,20 @@ namespace Cook
 		int    g_sauceN = 0;     // in the bowl so far
 		double g_sauceTip = 0.0;
 		double g_eggT = -1.0;  // an egg cracked over the mixing bowl: time since (-1: none yet)
+		int g_campfire = -1;  // which campfire recording plays at the pot and spit (picked once per cook)
+
+		// The fire's loop: the oven's own roar in its box, a campfire anywhere else (one of two recordings).
+		void FireLoop(double a_vol)
+		{
+			if (g_campfire < 0) {
+				g_campfire = Rand01() < 0.5 ? 0 : 1;
+			}
+			const char* names[3] = { "loop_fire", "loop_fire2", "loop_oven" };
+			const int on = g_flow == hc::Flow::Oven ? 2 : g_campfire;
+			for (int k = 0; k < 3; ++k) {
+				Audio::SetLoop(names[k], k == on ? static_cast<float>(a_vol) : 0.0f);
+			}
+		}
 		double g_spin = 0.0;  // how far the pot's stew has turned with the stirring (keeps going one way, never jumps back)
 		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
 		bool   g_bowlWater = true;         // a bowl of water to start (else the milk is the wet, and goes in last)
@@ -1285,6 +1299,7 @@ namespace Cook
 			g_mix = 0.0;
 			g_spin = 0.0;
 			g_eggT = -1.0;
+			g_campfire = -1;
 			g_sauceN = 0;
 			g_sauceTip = 0.0;
 			g_cutInMix = false;
@@ -2522,7 +2537,7 @@ namespace Cook
 									*id = AddUnitMesh(u);
 								}
 								g_eggT = 0.0;
-								Audio::Take("thunk_", 0.35f);
+								Audio::Take("egg_", 0.7f, 0.05f);
 							} else {
 								Flour(kMixAt + Vec3{ 0, 0, 1.0 });
 							}
@@ -3068,11 +3083,7 @@ namespace Cook
 					}
 				}
 			}
-			Audio::SetLoop("loop_fire", static_cast<float>(Clamp(g_fire.Heat() * 0.75, 0.0, 0.85)));
-			// the fire pops now and then
-			if (Rand01() < dt * (0.5 + 3.0 * g_fire.Heat())) {
-				Audio::Take("crackle_", 0.25f + 0.3f * Rand01(), 0.15f, g_flow == hc::Flow::Oven ? 0.3f : 0.4f);
-			}
+			FireLoop(Clamp(g_fire.Heat() * 0.75, 0.0, 0.85));
 			// the grains, drops, sparks and puffs
 			for (auto& g : g_grains) {
 				g.age += dt;
@@ -5162,7 +5173,7 @@ namespace Cook
 			Step(dt);
 		} else {
 			g_fire.Step(dt);
-			Audio::SetLoop("loop_fire", static_cast<float>(Clamp(g_fire.Heat() * 0.5, 0.0, 0.6)));
+			FireLoop(Clamp(g_fire.Heat() * 0.5, 0.0, 0.6));
 			Audio::SetLoop("loop_simmer", 0.0f);
 			Audio::SetLoop("loop_boil", 0.0f);
 			Audio::SetLoop("loop_sizzle", 0.0f);
