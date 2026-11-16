@@ -2926,7 +2926,7 @@ namespace Cook
 					continue;
 				}
 				if (body.state == hc::Chunks::State::None ||
-					(g_flow == hc::Flow::Oven && g_recipe && !g_recipe->pie && body.state == hc::Chunks::State::Pot && g_ball)) {
+					(g_flow == hc::Flow::Oven && g_recipe && !g_recipe->pie && !g_topping && body.state == hc::Chunks::State::Pot && g_ball)) {
 					Scene::Hide(pc.prop, true);  // (a bread's potato worked into the ball of dough)
 					Scene::Hide(pc.core, true);
 					continue;
