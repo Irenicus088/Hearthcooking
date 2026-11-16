@@ -247,8 +247,13 @@ namespace Cook
 		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
 		bool   g_bowlWater = true;         // a bowl of water to start (else the milk is the wet, and goes in last)
 		bool   g_milkIn = false;
+		// a topped bread (garlic bread): no dough - the bread itself is cut, buttered and topped
+		bool   g_topping = false, g_buttered = false;
+		int    BreadUnit();
+		bool   BreadCut();
+		bool   BreadOnBoard();
 		// where the oven's cut things go: a pie's into a bowl of their own, a bread's into the dough's bowl
-		Vec3 CutBowl() { return g_recipe && g_recipe->pie ? kFillAt : kMixAt; }
+		Vec3 CutBowl() { return g_recipe && (g_recipe->pie || g_topping) ? kFillAt : kMixAt; }
 		bool   g_ball = false;             // a ball of dough in the bowl
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
@@ -1044,6 +1049,31 @@ namespace Cook
 					                  n.find("berr") != std::string::npos || n.find("ear") != std::string::npos || n.find("mirriam") != std::string::npos;
 					u.dice = u.role == Role::Filling && !soft && !u.model.empty();
 				}
+				g_topping = false;
+				g_buttered = false;
+				bool flour = false;
+				for (auto& u : g_units) {
+					std::string n = u.name;
+					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					flour |= n.find("flour") != std::string::npos;
+					g_topping |= n == "bread";
+				}
+				g_topping = g_topping && !flour && !g_recipe->pie;
+				if (g_topping) {
+					// no dough to make: the bread is the base
+					g_doughNeeded = 0;
+					g_doughParts = 1;
+					g_ball = true;
+					g_doughOnBoard = false;
+					g_oven->Knead(5.0, 0.0);
+					for (auto& u : g_units) {
+						std::string n = u.name;
+						std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						if (n == "bread") {
+							u.thin = true;  // cut one way, into slices
+						}
+					}
+				}
 				g_chunks.SetBowl({ CutBowl().x, CutBowl().y, 1.0 }, 3.5, 2.6, false);
 				g_bowlWater = true;
 				for (const auto& u : g_units) {
@@ -1214,8 +1244,36 @@ namespace Cook
 		// all done but the baking: it takes the dish's own shape
 		bool DoughReady()
 		{
+			if (g_topping) {
+				bool topped = true;
+				for (const auto& u : g_units) {
+					topped &= !u.dice || u.at == Unit::At::Dough;
+				}
+				return g_oven && g_buttered && BreadCut() && topped && !g_oven->Out();
+			}
 			return g_oven && g_doughOnBoard && g_doughParts > 0 && (g_doughNeeded == 0 || (g_doughParts >= g_doughNeeded && g_oven->Dough() >= 0.9)) &&
 			       (!g_oven->Pie() || (g_rolled && g_oven->Crimped() >= 0.9)) && !g_oven->Out();
+		}
+		int BreadUnit()
+		{
+			for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
+				std::string n = g_units[i].name;
+				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				if (n == "bread") {
+					return i;
+				}
+			}
+			return -1;
+		}
+		bool BreadOnBoard()
+		{
+			const int b = BreadUnit();
+			return g_topping && b >= 0 && g_units[b].at == Unit::At::Board;
+		}
+		bool BreadCut()
+		{
+			const int b = BreadUnit();
+			return b >= 0 && g_units[b].cut.cutCount > 0;
 		}
 		bool OverMix(float mx, float my) { return NearScreen(kMixAt + Vec3{ 0, 0, 1.6 }, mx, my, 4.2, 40.0f); }
 		bool OverFill(float mx, float my) { return NearScreen(kFillAt + Vec3{ 0, 0, 1.4 }, mx, my, 6.0, 70.0f); }
@@ -1361,6 +1419,31 @@ namespace Cook
 		// The bowl tipped over the dough: the fruit pours out onto it, a neat mound in the middle
 		void PourOnDough()
 		{
+			if (g_topping && !g_buttered) {
+				Toast("Butter the bread first");
+				return;
+			}
+			if (g_topping) {
+				g_bowlPoured = true;
+				int k = 0;
+				for (int b = 0; b < g_chunks.Count() && b < static_cast<int>(g_pieces.size()); ++b) {
+					auto& body = g_chunks.At(b);
+					auto& pc = g_pieces[b];
+					if (body.state != hc::Chunks::State::Pot || pc.onDough) {
+						continue;
+					}
+					// scattered along the slices
+					const double t = (k % 12) / 11.0 - 0.5, w = ((k * 7) % 5) / 4.0 - 0.5;
+					pc.onDough = true;
+					pc.doughOff = { t * 7.0, w * 2.0, 0.6 + 0.2 * (k / 12) };
+					pc.turn = Hash(b, 41) * 6.28;
+					body.state = hc::Chunks::State::Lost;
+					g_units[pc.unit].at = Unit::At::Dough;
+					++k;
+				}
+				Audio::Take("knead_", 0.45f);
+				return;
+			}
 			if (g_doughNeeded > 0 && g_oven->Dough() < 0.9) {
 				Toast("Knead the dough first");
 				return;
@@ -1415,7 +1498,7 @@ namespace Cook
 				return;
 			}
 			// the board, by its left end
-			if ((pot || (oven && AnyOnBoard() && !g_doughOnBoard)) && P.board >= 0) {
+			if ((pot || (oven && AnyOnBoard() && !g_doughOnBoard && !BreadOnBoard())) && P.board >= 0) {
 				double lx = 0, ly = 0;
 				if (OverBoard(mx, my, lx, ly) && lx < -L::kBoardW * 0.5 + 3.6) {
 					bool any = g_chunks.CountIn(hc::Chunks::State::Board) > 0;
@@ -1859,6 +1942,26 @@ namespace Cook
 					} else {
 						double x = 0, y = 0;
 						const bool onDough = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 7.0;
+						if (g_topping && BreadUnit() == ui) {
+							bool waiting = false;
+							for (const auto& d : g_units) {
+								waiting |= d.dice && d.at != Unit::At::Pot && d.at != Unit::At::Dough;
+							}
+							if (waiting) {
+								Toast("Cut the garlic first, and into its bowl");
+								PutBack(ui);
+								break;
+							}
+							if (P.board >= 0 && OverBoard(mx, my, lx, ly) && !AnyOnBoard() && Fit(u)) {
+								u.at = Unit::At::Board;
+								u.lane = 1;
+								g_doughAt = { L::kBoardX, L::kBoardY + L::kLaneY[1], kBoardTop };
+								Audio::Take("thunk_", 0.4f);
+								break;
+							}
+							PutBack(ui);
+							break;
+						}
 						if (u.dice) {
 							// cut on the board first (while the board's free of dough)
 							if (P.board >= 0 && OverBoard(mx, my, lx, ly)) {
@@ -1874,6 +1977,18 @@ namespace Cook
 								Toast(fmt::format("Cut the {} on the board first", u.name));
 							}
 							PutBack(ui);
+							break;
+						}
+						if (g_topping && u.role == Role::Dough) {
+							// the butter, spread over the cut bread
+							if (BreadOnBoard() && BreadCut() && P.board >= 0 && OverBoard(mx, my, lx, ly)) {
+								u.at = Unit::At::Dough;
+								g_buttered = true;
+								Audio::Take("knead_", 0.45f);
+							} else {
+								Toast(BreadOnBoard() ? "Cut the bread first, then butter it" : "Butter goes on the cut bread");
+								PutBack(ui);
+							}
 							break;
 						}
 						if (u.role == Role::Dough && P.mixBowl >= 0 && OverMix(mx, my) && !g_ball) {
@@ -2278,10 +2393,17 @@ namespace Cook
 				for (int k = 0; k < 4; ++k) {
 					g_fold[k] += Clamp(g_foldWant[k] - g_fold[k], -dt * 3.0, dt * 2.2);
 				}
+				if (g_topping && !g_doughOnBoard && DoughReady()) {
+					g_doughOnBoard = true;  // the topped bread is what the peel takes
+					if (const int b = BreadUnit(); b >= 0) {
+						g_units[b].at = Unit::At::Dough;  // (the dish's own shape stands for the slices now)
+						HideBoardBits(g_units[b]);
+					}
+				}
 				// the fruit bowl: lifted, its fruit riding in it; over the dough it tips and pours
 				{
 					const bool held = g_hold == Hold::Apples;
-					const bool over = held && std::hypot(g_carry.x - g_doughAt.x, g_carry.y - g_doughAt.y) < 4.5 && g_doughOnBoard;
+					const bool over = held && std::hypot(g_carry.x - g_doughAt.x, g_carry.y - g_doughAt.y) < 4.5 && (g_doughOnBoard || BreadOnBoard());
 					g_bowlTip += Clamp((over && !g_bowlPoured ? 1.0 : 0.0) - g_bowlTip, -dt * 3.0, dt * 2.0);
 					if (g_bowlTip > 0.6 && !g_bowlPoured) {
 						PourOnDough();
@@ -2649,6 +2771,12 @@ namespace Cook
 					break;
 				case Unit::At::Board:
 					PlaceBoardUnit(u);
+						if (g_topping && g_buttered && &u - g_units.data() == BreadUnit()) {
+							for (auto id : u.segs) {
+								auto& bl = Scene::LookOf(id);  // buttered: a golden sheen
+								bl.lift[0] = 1.0f, bl.lift[1] = 0.86f, bl.lift[2] = 0.42f, bl.lift[3] = 0.3f;
+							}
+						}
 					break;
 				case Unit::At::Spit:
 					{
@@ -3081,7 +3209,7 @@ namespace Cook
 					}
 					wl.shadow = false;
 					if (P.mixBall >= 0) {
-						const bool inBowl = (g_mix > 0.25 || g_ball) && !g_doughOnBoard && g_hold != Hold::Ball;
+						const bool inBowl = (g_mix > 0.25 || g_ball) && !g_doughOnBoard && g_hold != Hold::Ball && !g_topping;
 						const bool held = g_hold == Hold::Ball;
 						const double r = 1.0 + 1.6 * Clamp(g_mix, 0.0, 1.0);
 						Scene::Hide(P.mixBall, !(inBowl || held));
@@ -3490,9 +3618,19 @@ namespace Cook
 					}
 					s.push_back({ Dumpling() ? "Fold the four corners in over it" : "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
 				} else {
-					for (const auto& u : g_units) {
-						if (u.role == Role::Filling && !u.dice) {
-							s.push_back({ fmt::format("Work in the {}", u.name), u.at == Unit::At::Dough });
+					if (g_topping) {
+						bool topped = true;
+						for (const auto& u : g_units) {
+							topped &= !u.dice || u.at == Unit::At::Dough;
+						}
+						s.push_back({ "Cut the bread into slices", BreadCut() });
+						s.push_back({ "Butter it", g_buttered });
+						s.push_back({ "The garlic on top", topped });
+					} else {
+						for (const auto& u : g_units) {
+							if (u.role == Role::Filling && !u.dice) {
+								s.push_back({ fmt::format("Work in the {}", u.name), u.at == Unit::At::Dough });
+							}
 						}
 					}
 				}
