@@ -325,7 +325,8 @@ namespace Cook
 
 		Vec3 FireCenter()
 		{
-			return g_flow == hc::Flow::Oven ? Vec3{ L::kOvenX, -0.5, L::kFireboxZ } : Vec3{ L::kFireX, L::kFireY, 0.6 };
+			// the oven's fire burns inside it, at the back of the dome (the bread bakes at the front)
+			return g_flow == hc::Flow::Oven ? Vec3{ L::kOvenX, L::kOvenY + 2.5, L::kOvenFloorZ + 0.5 } : Vec3{ L::kFireX, L::kFireY, 0.6 };
 		}
 
 		// ---- the game's meshes: how one lies (longest side along x, shortest up) and fitting one into a space
@@ -564,7 +565,7 @@ namespace Cook
 				P.mixBall = Add("Dough");
 				Scene::Hide(P.mixBall, true);
 				P.fillBowl = KitAdd(Kit::Role::Bowl);
-				Settle(P.fillBowl, Kit::Role::Bowl, kFillAt, { 7.0, 7.0, 0.0 }, 0.0, false, kFillAt);
+				Settle(P.fillBowl, Kit::Role::Bowl, kFillAt, { 8.5, 8.5, 0.0 }, 0.0, false, kFillAt);
 				P.dough = Add("Dough");
 				Scene::Hide(P.dough, true);
 				P.disk = Add("DoughDisk");
@@ -751,7 +752,7 @@ namespace Cook
 		}
 
 		// How far apart the pieces of one thing sit on the board, so the cuts show
-		double Spread(int a_k, int a_n) { return (a_k - (a_n - 1) * 0.5) * 0.18; }
+		double Spread(int a_k, int a_n) { return (a_k - (a_n - 1) * 0.5) * 0.06; }  // a hair: the cuts show, the skin reads whole
 
 		void HideBoardBits(Unit& u)
 		{
@@ -954,7 +955,7 @@ namespace Cook
 					                  n.find("berr") != std::string::npos || n.find("ear") != std::string::npos || n.find("mirriam") != std::string::npos;
 					u.dice = g_recipe->pie && u.role == Role::Filling && !soft && !u.model.empty();
 				}
-				g_chunks.SetBowl({ kFillAt.x, kFillAt.y, 1.0 }, 2.8, 2.6, false);
+				g_chunks.SetBowl({ kFillAt.x, kFillAt.y, 1.0 }, 3.5, 2.6, false);
 			} else {
 				g_chunks.SetBowl({ L::kPotX, L::kPotY, L::kLiquidZ }, L::kPotR, L::kPotRim, true);
 			}
@@ -1109,7 +1110,7 @@ namespace Cook
 		{
 			if (g_flow == hc::Flow::Oven) {
 				double x = 0, y = 0;
-				return OnPlane(a_mx, a_my, L::kFireboxZ, x, y) && std::abs(x - L::kOvenX) < 7.0 && y > -9.0 && y < 2.0;
+				return OnPlane(a_mx, a_my, L::kOvenFloorZ + 1.0, x, y) && std::abs(x - L::kOvenX) < 7.0 && y > L::kOvenMouthY - 4.0 && y < L::kOvenY + 7.0;
 			}
 			double x = 0, y = 0;
 			return OnPlane(a_mx, a_my, 1.0, x, y) && std::hypot(x - L::kFireX, y - L::kFireY) <= L::kFireR + 1.5;
@@ -1387,7 +1388,11 @@ namespace Cook
 					if (OnPlane(mx, my, 6.0, x, y)) {
 						g_boardCarry = { x + L::kBoardW * 0.5 - 1.8, y, 6.0 };
 					}
-					g_tipWant = OverFill(mx, my) ? 1.0 : 0.0;
+					{
+						// it tips once its right end (the far one) is over the bowl
+						const double ex = g_boardCarry.x + L::kBoardW * 0.5 - 2.0, ey = g_boardCarry.y;
+						g_tipWant = std::hypot(ex - kFillAt.x, ey - kFillAt.y) < 4.5 ? 1.0 : 0.0;
+					}
 					break;
 				}
 				if (OnPlane(mx, my, kBoardTop, x, y)) {
@@ -2264,14 +2269,14 @@ namespace Cook
 				Vec3         at;
 				double       rz = 0;
 				if (g_flow == hc::Flow::Oven) {
-					at = { L::kOvenX - 3.0 + k * 1.5, -0.4 + (k % 2) * 0.8, 1.6 + (k / 3) * 1.2 };
-					rz = kPi * 0.5 + (k % 2 ? 0.2 : -0.2);
+					at = { fc.x - 2.4 + (k % 3) * 2.4, fc.y + (k % 2) * 0.7, fc.z + 0.5 + (k / 3) * 1.0 };
+					rz = (k % 2 ? 0.25 : -0.25);  // across the back of the dome
 				} else {
 					static constexpr double kA[5] = { 0.3, 2.4, 4.4, 1.3, 3.4 };
 					at = { fc.x + std::cos(kA[k]) * 1.2, fc.y + std::sin(kA[k]) * 1.2, 0.95 + (k >= 3 ? 1.3 : 0.0) };
 					rz = kA[k] + kPi * 0.5;
 				}
-				PlaceLog(id, at, rz, 8.4 * (0.8 + 0.2 * fuel), k >= 3 ? 0.15 : 0.0);
+				PlaceLog(id, at, rz, (g_flow == hc::Flow::Oven ? 5.5 : 8.4) * (0.8 + 0.2 * fuel), k >= 3 ? 0.15 : 0.0);
 				auto& lk = Scene::LookOf(id);
 				const float dark = static_cast<float>(0.25 + 0.75 * fuel);
 				lk.tint[0] = lk.tint[1] = lk.tint[2] = dark;
@@ -2538,7 +2543,8 @@ namespace Cook
 				}
 				// in the pot it breaks down as it cooks: smaller and smaller (to about half by the end)
 				const double broken = body.state == hc::Chunks::State::Pot && g_flow == hc::Flow::Pot ? Clamp(body.cooked * 1.2, 0.0, 1.0) : 0.0;
-				const double shrink = 1.0 - 0.5 * broken;
+				// (a pie's fruit in its bowl or on the dough is heaped smaller, so it all fits)
+				const double shrink = g_flow == hc::Flow::Oven && (body.state == hc::Chunks::State::Pot || pc.onDough) ? 0.7 : 1.0 - 0.5 * broken;
 				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
@@ -3126,7 +3132,7 @@ namespace Cook
 			case Hold::FireLog:
 				return "Drop it anywhere to take the heat down (back on the fire to keep it)";
 			case Hold::Board:
-				return g_flow == hc::Flow::Oven ? "Over the empty bowl: it tips in" : "Drag right to tip it into the pot; up and down to line it up";
+				return g_flow == hc::Flow::Oven ? "Its right end over the empty bowl: it tips in" : "Drag right to tip it into the pot; up and down to line it up";
 			case Hold::Ladle:
 				return "Round and round. Lift it out to the bowl when it's done";
 			case Hold::LadleOut:
