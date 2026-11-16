@@ -324,6 +324,10 @@ namespace Kit
 			if (!m.vanilla) {
 				m.path = Ours(role);
 			}
+			// kept: once found, a thing stays the same from one game to the next (until it's changed in the INI)
+			if (set.empty() && k != static_cast<int>(Role::SaltBowl)) {
+				::WritePrivateProfileStringA("Meshes", key.c_str(), m.vanilla ? m.path.c_str() : "ours", kIni);
+			}
 			spdlog::info("Kitchen: {:<8} {} {}{}", key, m.vanilla ? "the game's" : "ours      ", m.path.empty() ? "(none)" : m.path,
 				best && m.vanilla && m.path == best->shown ? fmt::format(" ({}, \"{}\", from {})", best->type == 'F' ? "furniture" : best->type == 'S' ? "static" : "item", best->name, best->plugin) : "");
 		}
