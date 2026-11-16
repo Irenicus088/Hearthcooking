@@ -1912,16 +1912,28 @@ namespace Cook
 									g_rolled = true;
 									Flour(g_doughAt);
 								}
-								g_stock += 12;
-								g_lastFill = ui;
-								// a first dollop where it landed
-								for (int k = 0; k < 3; ++k) {
-									const double ox = (x - g_doughAt.x) + (Rand01() - 0.5) * 1.4, oy = (y - g_doughAt.y) + (Rand01() - 0.5) * 1.4;
-									if (std::hypot(ox, oy) < 4.6) {
-										g_oven->Fill(ox / 5.0, oy / 5.0);
-										const auto id = Add("Chunk");
-										P.fill.emplace_back(id, Vec3{ ox, oy, static_cast<double>(ui) });
-										--g_stock;
+								// its berries (or fruit) scattered over the whole inside: all of them in, it's covered
+								int total = 0, done = 0;
+								for (const auto& o : g_units) {
+									if (o.role == Role::Filling && !o.dice) {
+										++total;
+										done += o.at == Unit::At::Dough;
+									}
+								}
+								const int per = 60 / (std::max)(1, total);
+								for (int k = 0; k < per; ++k) {
+									const int    n = (done - 1) * per + k;  // the next in one spiral over the lot
+									const double r = 4.1 * std::sqrt((n + 0.5) / (per * (std::max)(1, total))), a = n * 2.39996;
+									const double ox = std::cos(a) * r, oy = std::sin(a) * r;
+									g_oven->Fill(ox / 5.0, oy / 5.0);
+									P.fill.emplace_back(Add("Dough"), Vec3{ ox, oy, static_cast<double>(ui) });
+								}
+								if (done >= total) {
+									for (int rr = 0; rr < 3; ++rr) {
+										for (int aa = 0; aa < 24; ++aa) {
+											const double ang = aa / 24.0 * 2.0 * kPi, rad = 0.25 + rr * 0.3;
+											g_oven->Fill(std::cos(ang) * rad, std::sin(ang) * rad);
+										}
 									}
 								}
 								Audio::Take("knead_", 0.4f);
@@ -2999,9 +3011,9 @@ namespace Cook
 						Scene::Hide(P.result, true);
 					}
 					const bool dough = g_doughParts > 0 && g_doughOnBoard && !g_oven->Out();
-					const bool square = Dumpling() && g_flat > 0.0;
+					const bool square = Dumpling() && g_flat > 0.0 && !g_rolled;
 					Scene::Hide(P.dough, !dough || g_rolled || square);
-					Scene::Hide(P.disk, !dough || !g_rolled || square);
+					Scene::Hide(P.disk, !dough || !g_rolled || square || Dumpling());  // (a dumpling's sheet is drawn in its parts)
 					Scene::Hide(P.slab, !dough || !square);
 					if (dough && square) {
 						// rolled out from a ball to a square sheet
@@ -3084,42 +3096,58 @@ namespace Cook
 					Scene::Hide(id, !show);
 					if (show) {
 						const int ui = static_cast<int>(off.z);
-						Scene::Place(id, at + Vec3{ off.x, off.y, 1.35 }, RotZ(Hash(id, 21) * 6.28), 1.0f);
-						Scene::Stretch(id, 0.9f, 0.8f, 0.55f);
+						// a round berry (or bit of fruit), wearing the colour of what it came from
+						const float br = static_cast<float>(0.32 + 0.1 * Hash(id, 24));
+						Scene::Place(id, at + Vec3{ off.x, off.y, 0.75 + br }, RotZ(Hash(id, 21) * 6.28), br);
 						auto& lk = Scene::LookOf(id);
 						for (const auto& u : g_units) {
 							if (&u - g_units.data() == ui) {
 								lk.skin = Scene::Skin(u.prop);
 							}
 						}
-						lk.uv[0] = lk.uv[1] = 0.3f;
-						lk.uv[2] = Hash(id, 22) * 0.7f;
-						lk.uv[3] = Hash(id, 23) * 0.7f;
+						lk.uv[0] = lk.uv[1] = 0.12f;
+						lk.uv[2] = 0.45f + Hash(id, 22) * 0.1f;
+						lk.uv[3] = 0.45f + Hash(id, 23) * 0.1f;
 					}
 				}
 				if (g_rolled && Dumpling()) {
-					// the square sheet's four corners, each folding in over the filling to meet in the middle (an envelope)
+					// the square sheet as five parts: the middle (a diamond through the edges' middles) and the four corner
+					// triangles, each folding over its line onto the filling to meet in the middle (an envelope)
 					while (static_cast<int>(P.crimps.size()) < hc::Oven::kCrimps) {
 						P.crimps.push_back(Add("Hull"));
 					}
+					const bool sheet = !showDish && g_peelT < 0 && g_hold != Hold::Dough && !g_oven->Out() && !g_oven->InOven();
+					if (P.slab >= 0) {
+						Scene::Hide(P.slab, !sheet);
+						if (sheet) {
+							Scene::Place(P.slab, at + Vec3{ 0, 0, 0.35 }, RotZ(kPi * 0.25), 1.0f);
+							Scene::Stretch(P.slab, 5.66f, 5.66f, 0.6f);
+							auto& sl = Scene::LookOf(P.slab);
+							sl.tint[0] = 1.0f, sl.tint[1] = 0.95f, sl.tint[2] = 0.84f;
+						}
+					}
 					for (int k = 0; k < hc::Oven::kCrimps; ++k) {
 						const auto id = P.crimps[k];
-						const bool show = k < 4 && g_fold[k] > 0.01 && !showDish && g_peelT < 0 && g_hold != Hold::Dough && !g_oven->Out() && !g_oven->InOven();
+						const bool show = k < 4 && sheet;
 						Scene::Hide(id, !show);
 						if (!show) {
 							continue;
 						}
-						// the corner: from the line between the two edges' middles out to the corner, turned over that line
 						const double f = g_fold[k];
-						const double a = kPi * 0.25 + k * kPi * 0.5, th = f * 2.75;
+						const double a = kPi * 0.25 + k * kPi * 0.5, th = f * 2.9;
 						const Vec3   dir{ std::cos(a), std::sin(a), 0.0 };
-						const double d = 2.83, depth = 2.9, lift = 0.15 + 1.25 * std::sin((std::min)(f, 1.0) * kPi * 0.5);  // over the mound
-						const Vec3   hinge = at + dir * d + Vec3{ 0, 0, lift };
+						const Vec3   hinge = at + dir * 2.83 + Vec3{ 0, 0, 0.35 + 1.1 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };
 						const Vec3   v = dir * std::cos(th) + Vec3{ 0, 0, std::sin(th) };
-						Scene::Place(id, hinge + v * (depth * 0.5), RotZ(a) * RotY(-th), 1.0f);
-						Scene::Stretch(id, static_cast<float>(depth), static_cast<float>(5.0 - 2.2 * f), 0.32f);
+						// a corner square standing on its point at the fold line, its inner half cut away: the triangle
+						Scene::Place(id, hinge, RotZ(a) * RotY(-th) * RotZ(kPi * 0.25), 1.0f);
+						Scene::Stretch(id, 4.0f, 4.0f, 0.6f);
 						auto& fl = Scene::LookOf(id);
 						fl.tint[0] = 1.0f, fl.tint[1] = 0.95f, fl.tint[2] = 0.84f;
+						std::memset(fl.clips, 0, sizeof(fl.clips));
+						fl.clips[0][0] = static_cast<float>(-v.x);
+						fl.clips[0][1] = static_cast<float>(-v.y);
+						fl.clips[0][2] = static_cast<float>(-v.z);
+						fl.clips[0][3] = static_cast<float>(-v.Dot(hinge));
 					}
 				} else if (g_rolled) {
 					while (static_cast<int>(P.crimps.size()) < hc::Oven::kCrimps) {
@@ -3451,9 +3479,7 @@ namespace Cook
 								s.push_back({ fmt::format("Add the {}", u.name), u.at == Unit::At::Dough });
 							}
 						}
-						if (!anyDice) {
-							s.push_back({ "Spread the filling", g_oven && g_oven->Coverage() >= 0.8 });
-						}
+						(void)anyDice;  // (no spreading: the filling covers the inside as it goes in)
 					}
 					s.push_back({ Dumpling() ? "Fold the four corners in over it" : "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
 				} else {
