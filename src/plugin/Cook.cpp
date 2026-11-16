@@ -778,11 +778,15 @@ namespace Cook
 				return false;
 			};
 			float c[3] = { 0.92f, 0.88f, 0.76f };
-			if (has({ "beef", "venison", "meat", "horker", "mammoth", "goat", "horse", "dog", "rabbit", "haunch", "leg", "steak" })) {
+			if (has({ "crab" })) {
+				c[0] = 0.96f, c[1] = 0.94f, c[2] = 0.9f;  // crab meat: white inside
+			} else if (has({ "beef", "venison", "meat", "horker", "mammoth", "goat", "horse", "dog", "rabbit", "haunch", "leg", "steak" })) {
 				c[0] = 0.72f, c[1] = 0.3f, c[2] = 0.27f;
 			} else if (has({ "salmon" })) {
 				c[0] = 0.95f, c[1] = 0.55f, c[2] = 0.4f;
-			} else if (has({ "chicken", "pheasant", "fish", "clam", "mudcrab" })) {
+			} else if (has({ "crab" })) {
+				c[0] = 0.96f, c[1] = 0.94f, c[2] = 0.9f;  // white inside
+			} else if (has({ "chicken", "pheasant", "fish", "clam" })) {
 				c[0] = 0.93f, c[1] = 0.8f, c[2] = 0.72f;
 			} else if (has({ "carrot" })) {
 				c[0] = 0.98f, c[1] = 0.58f, c[2] = 0.2f;
@@ -997,7 +1001,7 @@ namespace Cook
 			g_pieces.clear();
 			BuildKitchen(a_r->oven, g_flow);
 			g_fire = hc::Fire(a_r->oven ? 9.0 : 5.0);
-			g_fire.Light(2);
+			g_fire.Light(a_r->oven ? 0 : 2);  // the oven starts cold: firewood goes in first
 			g_pot.reset();
 			g_spit.reset();
 			g_oven.reset();
@@ -2045,7 +2049,10 @@ namespace Cook
 					break;  // else it rests on the peel
 				}
 				if (g_peelLoaded && NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
-					if (g_door < 0.6) {
+					if (g_fire.Logs() == 0) {
+						Toast("Put firewood in the oven first");
+						g_peelLoaded = false;
+					} else if (g_door < 0.6) {
 						Toast("Open the oven door first");
 						g_peelLoaded = false;  // the dough slides back onto the board
 					} else {
@@ -3489,6 +3496,7 @@ namespace Cook
 						}
 					}
 				}
+				s.push_back({ "Firewood into the oven", g_fire.Logs() > 0 || (g_oven && (g_oven->InOven() || g_oven->Out())) });
 				s.push_back({ "Into the oven", g_oven && (g_oven->InOven() || g_oven->Out()) });
 				s.push_back({ "Bake it golden", g_oven && g_oven->Brown() >= 0.85 });
 				s.push_back({ "Out onto the plate", g_served });
