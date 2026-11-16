@@ -265,6 +265,7 @@ namespace Cook
 		Vec3 CutBowl() { return g_recipe && (g_recipe->pie || g_topping || !g_cutInMix) ? kFillAt : kMixAt; }
 		Vec3 PourAt() { return BreadCuts() ? kMixAt : g_doughAt; }  // where the right bowl tips toward
 		bool CutsWaiting();  // a bread's cut things still in the right bowl
+		void DoughPush(double a_len);  // a push of the dough: kneaded, or rolled out
 		bool   g_ball = false;             // a ball of dough in the bowl
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
