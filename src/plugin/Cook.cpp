@@ -362,6 +362,16 @@ namespace Cook
 			Scene::Place(a_id, a_at, RotZ(a_rotZ), a_scale);
 		}
 
+		// how far the finished stew shows in the pot over its pieces (0 .. 1), with its doneness
+		double StewFade()
+		{
+			if (!g_pot || g_flow != hc::Flow::Pot || g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn == 0) {
+				return 0.0;
+			}
+			const double k = Clamp((g_pot->Cooked() - 0.3) / (0.95 - 0.3), 0.0, 1.0);
+			return k * k * (3.0 - 2.0 * k);
+		}
+
 		Vec3 FireCenter()
 		{
 			// the oven's fire burns inside it, at the back of the dome (the bread bakes at the front)
@@ -566,6 +576,9 @@ namespace Cook
 				P.pot = KitAdd(Kit::Role::Pot);
 				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
 				P.broth = Add("Broth");
+				P.dishRef = AddResult();  // the finished stew's own food (not its bowl), fading in over the broth as it comes together
+				Scene::Hide(P.dishRef, true);
+				Scene::LookOf(P.dishRef).onlyFlat = true;
 				P.ladleSoup = Add("Broth");  // a ladleful, carried to the bowl
 				Scene::Hide(P.ladleSoup, true);
 				P.ladle = KitAdd(Kit::Role::Ladle);
@@ -2984,7 +2997,14 @@ namespace Cook
 				// (a pie's fruit in its bowl or on the dough is heaped smaller, so it all fits)
 				const double shrink = g_flow == hc::Flow::Oven && pc.onDough ? 0.42 : g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot ? 0.7 : 1.0 - 0.55 * broken;
 				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot) {
-					at.z -= 0.45 * broken + 0.35 * broken * Hash(b, 41);  // sunk into it as it thickens, some deeper than others
+					// sunk into it as it thickens, some deeper than others; under the finished stew by the end, and gone
+					const double fade = StewFade();
+					if (fade > 0.97) {
+						Scene::Hide(pc.prop, true);
+						Scene::Hide(pc.core, true);
+						continue;
+					}
+					at.z -= 0.45 * broken + 0.35 * broken * Hash(b, 41) + 1.6 * fade;
 				}
 				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
@@ -3016,6 +3036,25 @@ namespace Cook
 					lk.lift[j] = any ? g_broth[j] * (1.0f - (1.0f - kDeep[j]) * thick) * (1.0f - 0.12f * (std::max)(0.0f, c - 1.0f)) : (j == 2 ? 0.52f : 0.55f);
 				}
 				lk.lift[3] = any ? 0.82f + 0.17f * thick : 0.6f;  // plain water until something's in it; thick by the end
+				// the finished stew showing through more and more (from a third of the way), the whole of its look by the end
+				if (P.dishRef >= 0) {
+					const double fade = StewFade();
+					Vec3         fmn, fmx;
+					const bool   show = fade > 0.01 && Scene::FlatBounds(P.dishRef, fmn, fmx);
+					Scene::Hide(P.dishRef, !show);
+					if (show) {
+						const double wide = (std::max)(fmx.x - fmn.x, fmx.y - fmn.y);
+						const double sc = 2.0 * (L::kPotR - 0.25) / (std::max)(0.1, wide);
+						const Vec3   mid{ (fmn.x + fmx.x) * 0.5, (fmn.y + fmx.y) * 0.5, fmx.z * 0.3 };  // (its top, as flattened below)
+						const Vec3   top{ L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick + 0.08 };
+						const Quat   q = RotZ(std::fmod(t * 0.05, 6.283) + g_ladleA * 0.15);
+						Scene::Place(P.dishRef, top - q.Rotate(mid) * sc, q, static_cast<float>(sc));
+						Scene::Stretch(P.dishRef, 1.0f, 1.0f, 0.3f);  // (flattened: only its top shows over the broth)
+						auto& dl = Scene::LookOf(P.dishRef);
+						dl.alpha = static_cast<float>(fade);
+						dl.shadow = false;
+					}
+				}
 				const double tp = g_pot->Temp();
 				if (tp > 0.42) {
 					const int n = static_cast<int>((tp - 0.42) * 40.0);
@@ -4025,7 +4064,7 @@ namespace Cook
 				if (on) {
 					v = g_spit->Mean(), lo = 0.9, hi = 1.3, top = 1.9;
 					at = { L::kFireX, L::kFireY + 4.0, L::kSpitZ + 7.0 };
-					if (g_spit->Spread() > 0.25) {
+					if (g_spit->Spread() > 0.25 && g_hold != Hold::Crank) {  // (not while it's being turned)
 						warn = "One side's browner: keep turning";
 					}
 				}

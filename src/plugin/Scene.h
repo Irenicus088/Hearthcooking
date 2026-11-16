@@ -28,6 +28,8 @@ namespace Scene
 		float cookRef[3]{ 0, 0, -1 };
 		ID3D11ShaderResourceView* skin = nullptr;  // in place of its own colour texture (a piece wears its ingredient's)
 		bool  shadow = true;
+		float alpha = 1.0f;     // below 1: see-through (blended)
+		bool  onlyFlat = false; // only its flattest shape: a dish's food without its bowl
 	};
 
 	void Register();  // kDataLoaded: the menu
@@ -51,7 +53,8 @@ namespace Scene
 	void  StretchWorld(Id a_id, float a_x, float a_y, float a_z);  // along the kitchen's axes, about its origin (fitting a mesh to a space)
 	void  Hide(Id a_id, bool a_hidden);
 	Look& LookOf(Id a_id);
-	bool  Bounds(Id a_id, hc::Vec3& a_min, hc::Vec3& a_max);  // in its own space, once the graphics card has said
+	bool  Bounds(Id a_id, hc::Vec3& a_min, hc::Vec3& a_max);
+	bool  FlatBounds(Id a_id, hc::Vec3& a_min, hc::Vec3& a_max);  // its flattest shape's (the food in a dish), or the whole's  // in its own space, once the graphics card has said
 	ID3D11ShaderResourceView* Skin(Id a_id);                  // its own colour texture
 	ID3D11ShaderResourceView* Texture(const char* a_path);    // a texture by path (textures\...)
 

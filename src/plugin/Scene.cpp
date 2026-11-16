@@ -23,6 +23,8 @@ namespace Scene
 			bool                          measured = false, asked = false;
 			int                           tries = 0;  // frames spent waiting for its measurement
 			hc::Vec3                      bmin, bmax;
+			int                           flatIndex = -1;  // its flattest shape, when it has more than one
+			hc::Vec3                      fmin, fmax;
 			ID3D11ShaderResourceView*     skin = nullptr;
 			struct Swap
 			{
@@ -228,9 +230,16 @@ namespace Scene
 			}
 			hc::Vec3 lo{ 1e9, 1e9, 1e9 }, hi{ -1e9, -1e9, -1e9 };
 			bool     all = true, any = false;
-			int      shapes = 0, noData = 0;
+			int      shapes = 0, noData = 0, index = -1;
 			std::string kinds;
+			struct ShapeBox
+			{
+				int      index;
+				hc::Vec3 lo, hi;
+			};
+			std::vector<ShapeBox> boxes;
 			RE::BSVisit::TraverseScenegraphGeometries(a_p.node.get(), [&](RE::BSGeometry* a_geo) {
+				++index;
 				auto* tri = a_geo ? a_geo->AsTriShape() : nullptr;
 				auto* rd = a_geo ? a_geo->GetGeometryRuntimeData().rendererData : nullptr;
 				if (LeftOut(a_p, a_geo)) {
@@ -260,6 +269,7 @@ namespace Scene
 				}
 				float rot[9], pos[3], sc;
 				Relative(a_p.node->world, a_geo->world, rot, pos, sc);
+				ShapeBox sb{ index, { 1e9, 1e9, 1e9 }, { -1e9, -1e9, -1e9 } };
 				for (int c = 0; c < 8; ++c) {
 					const float v[3] = { (c & 1) ? mx[0] : mn[0], (c & 2) ? mx[1] : mn[1], (c & 4) ? mx[2] : mn[2] };
 					double      w[3];
@@ -268,7 +278,10 @@ namespace Scene
 					}
 					lo = { (std::min)(lo.x, w[0]), (std::min)(lo.y, w[1]), (std::min)(lo.z, w[2]) };
 					hi = { (std::max)(hi.x, w[0]), (std::max)(hi.y, w[1]), (std::max)(hi.z, w[2]) };
+					sb.lo = { (std::min)(sb.lo.x, w[0]), (std::min)(sb.lo.y, w[1]), (std::min)(sb.lo.z, w[2]) };
+					sb.hi = { (std::max)(sb.hi.x, w[0]), (std::max)(sb.hi.y, w[1]), (std::max)(sb.hi.z, w[2]) };
 				}
+				boxes.push_back(sb);
 				any = true;
 				return RE::BSVisit::BSVisitControl::kContinue;
 			});
@@ -281,6 +294,23 @@ namespace Scene
 				a_p.measured = true;
 				a_p.bmin = lo;
 				a_p.bmax = hi;
+				// the flattest of its shapes (its height over its width): in a dish, the food lying in the bowl
+				a_p.flatIndex = -1;
+				a_p.fmin = lo;
+				a_p.fmax = hi;
+				if (boxes.size() > 1) {
+					double best = 1e9;
+					for (const auto& b : boxes) {
+						const double wide = (std::max)(b.hi.x - b.lo.x, b.hi.y - b.lo.y);
+						const double flat = wide > 1e-3 ? (b.hi.z - b.lo.z) / wide : 1e9;
+						if (flat < best) {
+							best = flat;
+							a_p.flatIndex = b.index;
+							a_p.fmin = b.lo;
+							a_p.fmax = b.hi;
+						}
+					}
+				}
 				spdlog::info("Measured {}: ({:.1f}, {:.1f}, {:.1f}) .. ({:.1f}, {:.1f}, {:.1f})", a_p.model, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z);
 			} else if (a_p.tries > 45) {
 				// the graphics card never said: go by the mesh's bounding sphere, so it shows at all
@@ -612,6 +642,21 @@ namespace Scene
 		return Valid(a_id) ? g_props[a_id].look : (s_none = Look{});
 	}
 
+	bool FlatBounds(Id a_id, hc::Vec3& a_min, hc::Vec3& a_max)
+	{
+		if (!Valid(a_id)) {
+			return false;
+		}
+		auto& p = g_props[a_id];
+		TryBounds(p);
+		if (!p.measured) {
+			return false;
+		}
+		a_min = p.fmin;
+		a_max = p.fmax;
+		return true;
+	}
+
 	bool Bounds(Id a_id, hc::Vec3& a_min, hc::Vec3& a_max)
 	{
 		if (!Valid(a_id)) {
@@ -739,6 +784,9 @@ namespace Scene
 				if (!tri || !Visible(a_geo, p.node.get()) || LeftOut(p, a_geo)) {
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
+				if (p.look.onlyFlat && p.measured && p.flatIndex >= 0 && shapeIndex != p.flatIndex) {
+					return RE::BSVisit::BSVisitControl::kContinue;  // (its bowl)
+				}
 				auto& gd = a_geo->GetGeometryRuntimeData();
 				auto* rd = gd.rendererData;
 				auto* prop = gd.shaderProperty.get();
@@ -850,6 +898,13 @@ namespace Scene
 				std::memcpy(it.cookAxis, lk.cookAxis, sizeof(it.cookAxis));
 				std::memcpy(it.cookRef, lk.cookRef, sizeof(it.cookRef));
 				it.shadow = lk.shadow;
+				if (lk.alpha < 0.999f) {
+					it.alpha = lk.alpha;
+					it.blend = true;
+					it.fade = true;
+					it.test = false;
+					it.shadow = false;
+				}
 				f.items.push_back(std::move(it));
 				return RE::BSVisit::BSVisitControl::kContinue;
 			});

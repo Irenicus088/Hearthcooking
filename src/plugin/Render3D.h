@@ -33,6 +33,7 @@ namespace Render3D
 		float                     specColor[3]{ 1, 1, 1 };
 		float                     specScale = 1.0f, gloss = 30.0f, envScale = 0.0f, alpha = 1.0f, alphaRef = 0.0f;
 		bool                      blend = false;
+		bool                      fade = false;  // blended by its alpha alone, not its texture's (faded in)
 		bool                      test = false;
 
 		// Our touches

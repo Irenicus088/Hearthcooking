@@ -227,7 +227,7 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	if (misc.w > 0.5) clip(a - misc.z);
 	// only blended meshes are see-through: many of the game's opaque textures keep something else in their alpha
 	// (a plant's cabbage drew invisible when it counted)
-	float alpha = scale3.w > 0.5 ? a : 1.0;
+	float alpha = scale3.w > 1.5 ? misc.y : scale3.w > 0.5 ? a : 1.0;
 	float3 N0 = normalize(i.n);
 	float3 albedo = Lin(dif.rgb) * tint.rgb;
 	// a cut piece's skin seen from inside: its flesh, not the back of its peel
@@ -1390,7 +1390,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				ob.cookRef[k] = it.cookRef[k];
 			}
 			ob.posScale[3] = it.scale;
-			ob.scale3[3] = it.blend ? 1.0f : 0.0f;
+			ob.scale3[3] = it.fade ? 2.0f : it.blend ? 1.0f : 0.0f;
 			ob.spec[3] = it.gloss;
 			ob.misc[0] = it.envScale;
 			ob.misc[1] = it.alpha;
