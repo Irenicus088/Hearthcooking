@@ -269,6 +269,12 @@ namespace Cook
 		// where the oven's cut things go: a pie's into a bowl of their own, a bread's into the dough's bowl
 		// A bread's cut things (potato bread's potato): into the right bowl, then poured from it into the mixing bowl
 		bool g_cutInMix = false;
+		bool Crostata()
+		{
+			std::string n = g_recipe ? g_recipe->name : std::string();
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return n.find("crostata") != std::string::npos;
+		}
 		bool BreadCuts() { return g_recipe && g_recipe->oven && !g_recipe->pie && !g_topping; }
 		Vec3 CutBowl() { return g_recipe && (g_recipe->pie || g_topping || !g_cutInMix) ? kFillAt : kMixAt; }
 		Vec3 PourAt() { return BreadCuts() ? kMixAt : g_doughAt; }  // where the right bowl tips toward
@@ -3901,11 +3907,21 @@ namespace Cook
 						Scene::Hide(id, !show);
 						if (show) {
 							const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
-							// a pinch of the rim: a small raised scallop, side by side all round the edge (a crimped pie)
-							Scene::Place(id, at + Vec3{ std::cos(a) * 4.55, std::sin(a) * 4.55, 0.75 }, RotZ(a), 1.0f);
-							Scene::Stretch(id, 0.55f, 0.62f, 0.42f);
-							auto& cl = Scene::LookOf(id);
-							cl.tint[0] = 1.0f, cl.tint[1] = 0.95f, cl.tint[2] = 0.84f;
+							auto&        cl = Scene::LookOf(id);
+							if (Crostata()) {
+								// a rustic fold: the edge lifted up and laid in over the fruit, a broad pleat, each one
+								// overlapping the last all the way round (a galette)
+								const double pleat = (k % 2 ? 0.12 : -0.1) + 0.08 * (Hash(k, 71) - 0.5);
+								const double r = 3.95 + 0.15 * (Hash(k, 72) - 0.5);
+								Scene::Place(id, at + Vec3{ std::cos(a) * r, std::sin(a) * r, 0.78 + 0.06 * (k % 3) }, RotZ(a) * RotY(0.38) * RotX(pleat), 1.0f);
+								Scene::Stretch(id, 1.05f, 0.88f, 0.3f);
+								DoughLook(cl);
+							} else {
+								// a pinch of the rim: a small raised scallop, side by side all round the edge (a crimped pie)
+								Scene::Place(id, at + Vec3{ std::cos(a) * 4.55, std::sin(a) * 4.55, 0.75 }, RotZ(a), 1.0f);
+								Scene::Stretch(id, 0.55f, 0.62f, 0.42f);
+								cl.tint[0] = 1.0f, cl.tint[1] = 0.95f, cl.tint[2] = 0.84f;
+							}
 						}
 					}
 				}
@@ -4269,7 +4285,7 @@ namespace Cook
 						}
 						(void)anyDice;  // (no spreading: the filling covers the inside as it goes in)
 					}
-					s.push_back({ Dumpling() ? "Fold the four corners in over it" : "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
+					s.push_back({ Dumpling() ? "Fold the four corners in over it" : Crostata() ? "Fold the edge in over the fruit" : "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
 				} else {
 					if (g_topping) {
 						bool topped = true;
