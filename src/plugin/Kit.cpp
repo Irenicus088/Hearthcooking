@@ -204,7 +204,14 @@ namespace Kit
 				}
 				return f.type == 'F' && f.oven ? 6 : 0;
 			case Role::Peel:
-				return In(x, "peel") && In(x, "bread") ? 8 : 0;
+				// a baker's peel (a paddle), not a fruit's peel or a boat's paddle
+				if (Any(x, { "orange", "apple", "potato", "fruit", "lemon", "banana", "boat", "oar", "canoe" }) || In(n, "peeled")) {
+					return 0;
+				}
+				if (In(x, "peel") || In(n, "peel")) {
+					return In(x, "bread") || In(x, "byoh") || In(n, "bread") ? 10 : 8;
+				}
+				return Any(x, { "breadpaddle", "bakerpaddle", "ovenpaddle", "breadshovel", "ovenshovel" }) ? 7 : 0;
 			default:
 				return 0;
 			}
@@ -322,6 +329,12 @@ namespace Kit
 					}
 					spdlog::info("Kitchen: knife-like {} ({}, \"{}\", from {})", f.shown, f.type == 'F' ? "furniture" : f.type == 'S' ? "static" : "item", f.name, f.plugin);
 				}
+			}
+		}
+		// anything that could be a baker's peel, so one can be named in the INI if it isn't picked
+		for (const auto& f : forms) {
+			if (Any(f.file, { "peel", "paddle", "shovel" }) || Any(f.name, { "peel", "paddle", "shovel" })) {
+				spdlog::info("Kitchen: peel-like {} ({}, \"{}\", from {})", f.shown, f.type == 'F' ? "furniture" : f.type == 'S' ? "static" : "item", f.name, f.plugin);
 			}
 		}
 		for (int k = 0; k < static_cast<int>(Role::Count); ++k) {

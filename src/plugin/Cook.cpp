@@ -579,7 +579,7 @@ namespace Cook
 					Scene::HideShapes(P.posts, { "pot", "chain", "lid", "beef", "venison", "goat", "meat", "turner", "chicken", "rabbit", "salmon", "food" });
 				}
 				Settle(P.posts, Kit::Role::Spit, { L::kFireX, L::kFireY, 0.0 }, { 2 * L::kSpitX1 - 2 * L::kFireX + 2.0, 0.0, L::kSpitZ + 1.4 }, 0.0, true, { L::kFireX, L::kFireY, 0.0 });
-				P.rod = Add("SpitRod");
+				P.rod = Add(Game(Kit::Role::Spit) ? "SpitCrank" : "SpitRod");  // the game's frame has its own skewer
 			}
 			if (a_flow != hc::Flow::Pot) {
 				P.plate = KitAdd(Kit::Role::Plate);
