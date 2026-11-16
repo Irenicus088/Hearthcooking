@@ -902,6 +902,7 @@ namespace Scene
 				std::memcpy(it.cookRef, lk.cookRef, sizeof(it.cookRef));
 				it.shadow = lk.shadow;
 				it.fleshTex = lk.fleshTex;
+				it.sear = lk.sear;
 				if (lk.alpha < 0.999f) {
 					it.alpha = lk.alpha;
 					it.blend = true;

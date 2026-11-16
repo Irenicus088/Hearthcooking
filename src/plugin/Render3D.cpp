@@ -141,6 +141,13 @@ float3 Cooked(float3 albedo, float c)
 {
 	if (c <= 0.02) return albedo;
 	const float3 golden = float3(0.42, 0.21, 0.07), dark = float3(0.12, 0.055, 0.02), black = float3(0.018, 0.014, 0.012);
+	if (emissive.w > 0.5) {
+		// red meat seared: it darkens toward a deep brown-grey crust, keeping its own colour under it (no golden stage)
+		float3 crust = albedo * float3(0.42, 0.33, 0.28);
+		float3 s = lerp(albedo, crust, smoothstep(0.05, 1.0, c) * 0.92);
+		s = lerp(s, albedo * float3(0.14, 0.1, 0.08), saturate((c - 1.0) / 0.45));
+		return lerp(s, black, saturate((c - 1.45) / 0.4));
+	}
 	float  L = dot(albedo, float3(0.2126, 0.7152, 0.0722));
 	float  detail = clamp(L / 0.28, 0.6, 1.4);
 	float3 col = lerp(albedo, golden * detail, smoothstep(0.05, 1.0, c) * 0.88);
@@ -1419,6 +1426,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			std::memcpy(ob.cook, it.cook, sizeof(ob.cook));
 			ob.cookAxis[3] = static_cast<float>(it.cookMode);
 			ob.cookRef[3] = it.fleshTex ? 1.0f : 0.0f;
+			ob.emissive[3] = it.sear ? 1.0f : 0.0f;
 			Upload(c, g_cbObject, ob);
 			return true;
 		};

@@ -3261,6 +3261,12 @@ namespace Cook
 						Lay(u, SpitAxis(u.spitX), len, RotX(a));
 						auto& lk = Scene::LookOf(u.prop);
 						lk.cookMode = 2;
+						{
+							// red meat darkens on the spit; chicken browns golden
+							std::string ln = u.name;
+							std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							lk.sear = ln.find("chicken") == std::string::npos;
+						}
 						for (int b = 0; b < hc::Spit::kBands; ++b) {
 							lk.cook[b] = static_cast<float>(g_spit->Band(b));
 						}
