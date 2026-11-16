@@ -797,10 +797,58 @@ def kitchen():
 
     # garlic broken into its cloves: a row of them along x, each a plump crescent lying on its side
     cloves = Mesh()
-    for k in range(5):
-        x = -2.6 + k * 1.3
-        cloves.ellipsoid((x, 0.12 * (1 if k % 2 else -1), 0.5), 0.68, 0.46, 0.5, segs=16, rings=10, noise=0.06, seed=60 + k, flatten_bottom=0.42)
-    nif("GarlicCloves", [("Cloves", cloves, "clove", (0.35, 30))])
+
+    def clove(m, at, yaw, roll, length, seed):
+        """One clove: a plump crescent - a rounded back, a flatter inside face, a point at its tip, a flat root."""
+        g = np.random.default_rng(seed)
+        nt, na = 18, 20
+        base = len(m.V)
+        w = length * 0.66                      # its width at the widest: plump
+        cy, sy = math.cos(yaw), math.sin(yaw)
+        cr, sr = math.cos(roll), math.sin(roll)
+        pts = []
+        for i in range(nt + 1):
+            t = i / nt
+            # thick toward the root end (t 0), drawn to a point at the tip (t 1)
+            prof = (math.sin(math.pi * (0.1 + 0.9 * t)) ** 0.6) * (1.0 - 0.35 * t ** 2.5)
+            prof = max(prof, 0.0) if i < nt else 0.0
+            bend = 0.16 * length * math.sin(math.pi * t) * (0.6 + 0.4 * t)   # the back curves up and over
+            for j in range(na + 1):
+                th = 2 * math.pi * j / na
+                cy_, cz_ = math.cos(th), math.sin(th)
+                # the back (z+) round and full, the inside (z-) flatter, the sides a little pinched (a wedge)
+                rz = w * 0.5 * prof * (1.0 if cz_ > 0 else 0.55)
+                ry = w * 0.5 * prof * (0.85 + 0.15 * abs(cz_))
+                x = (t - 0.5) * length
+                y = cy_ * ry
+                z = cz_ * rz + bend
+                pts.append((x, y, z, t, j / na, cy_, cz_))
+        # placed: turned about z (yaw), then rolled about its length, standing on the board
+        out = []
+        for (x, y, z, t, v, ny, nz) in pts:
+            y2, z2 = y * cr - z * sr, y * sr + z * cr
+            ny2, nz2 = ny * cr - nz * sr, ny * sr + nz * cr
+            X, Y = x * cy - y2 * sy, x * sy + y2 * cy
+            nX, nY = -ny2 * sy, ny2 * cy
+            out.append(((X + at[0], Y + at[1], z2 + at[2]), (t, v), (nX, nY, nz2), (cy, sy, 0)))
+        zmin = min(p[0][2] for p in out) - at[2]  # (on the board, or up on the others)
+        for (pp, uv, n, tg) in out:
+            m.v((pp[0], pp[1], pp[2] - zmin), uv, n, tg)
+        for i in range(nt):
+            for j in range(na):
+                p0 = base + i * (na + 1) + j
+                m.I += [p0, p0 + na + 1, p0 + 1, p0 + 1, p0 + na + 1, p0 + na + 2]
+        # the root end closed flat
+        c = m.v(((-0.5 * length) * cy + at[0], (-0.5 * length) * sy + at[1], out[0][0][2] - zmin), (0, 0.5), (-cy, -sy, 0), (0, 0, 1))
+        for j in range(na):
+            m.I += [c, base + j + 1, base + j]
+
+    # a loose handful, longest along x (about 5 long: half that on the board), each clove 15% fuller than before
+    lay = [(-1.55, -0.3, 0.3, 0.4, 0.0), (-0.5, 0.4, -0.6, -0.3, 0.0), (0.6, -0.35, 2.8, 0.5, 0.0), (1.6, 0.35, 2.4, -0.4, 0.0),
+           (0.05, -0.05, 1.2, 1.3, 0.55), (-1.0, 0.1, 3.5, -1.1, 0.45), (1.05, 0.05, -0.3, 0.9, 0.5)]
+    for k, (x, y, yaw, roll, up) in enumerate(lay):
+        clove(cloves, (x, y, up), yaw, roll, 1.56, 70 + k)
+    nif("GarlicCloves", [("Cloves", cloves, "clove", (0.45, 40))])
 
     # the rolling pin: along x, its middle at the origin - a long barrel and a handle each end
     pin, pinh = Mesh(), Mesh()
