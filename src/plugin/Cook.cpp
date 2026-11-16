@@ -1212,7 +1212,7 @@ namespace Cook
 			g_pieces.clear();
 			BuildKitchen(a_r->oven, g_flow);
 			g_fire = hc::Fire(a_r->oven ? 9.0 : 5.0);
-			g_fire.Light(a_r->flow == hc::Flow::Pot ? 2 : 0);  // the oven and the spit start cold: firewood goes in first
+			g_fire.Light(0);  // every fire starts cold: firewood goes in (the pot's once everything's in it)
 			g_pot.reset();
 			g_spit.reset();
 			g_oven.reset();
@@ -2325,7 +2325,10 @@ namespace Cook
 				}
 				break;
 			case Hold::Log:
-				if (OverFire(mx, my) && g_fire.AddLog()) {
+				if (g_flow == hc::Flow::Pot && OverFire(mx, my) && g_fire.Logs() == 0 &&
+					(!AllInPot() || (g_recipe && g_recipe->salted && g_pot && g_pot->Seasoning().amount < 0.7))) {
+					Toast(!AllInPot() ? "Everything into the pot first, then the firewood under it" : "Salt it first, then the firewood under it");
+				} else if (OverFire(mx, my) && g_fire.AddLog()) {
 					Audio::Take("log_", 0.8f);
 					static const float spark[4] = { 1.0f, 0.55f, 0.15f, 1.0f };
 					Spray(FireCenter() + Vec3{ 0, 0, 1.0 }, 18, spark, 4.0, 12.0, 0.12f, false, Render3D::Sprite::Kind::Ember, 1.2);
@@ -3946,6 +3949,7 @@ namespace Cook
 				if (g_recipe->salted) {
 					s.push_back({ "A pinch of salt", g_pot && g_pot->Seasoning().amount >= 0.7 });
 				}
+				s.push_back({ "Firewood under the pot", g_fire.Logs() > 0 || (g_pot && g_pot->Cooked() > 0.05) });
 				s.push_back({ "Keep it at a simmer, and stir", g_pot && g_pot->Cooked() >= 0.92 });
 				s.push_back({ "Ladle it into the bowl", g_served });
 			} else if (g_flow == hc::Flow::Spit) {
