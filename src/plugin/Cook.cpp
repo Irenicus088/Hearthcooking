@@ -2926,7 +2926,7 @@ namespace Cook
 				Vec3       at = body.p;
 				if (pc.onDough) {
 					// on the dough until it's folded up (then the dish's own shape stands for it)
-					if (!g_oven || DoughReady() || !g_doughOnBoard || g_oven->InOven() || g_oven->Out() || g_peelT >= 0 || g_peelLoaded) {
+					if (!g_oven || DoughReady() || (!g_doughOnBoard && !g_topping) || g_oven->InOven() || g_oven->Out() || g_peelT >= 0 || g_peelLoaded) {
 						Scene::Hide(pc.prop, true);
 						Scene::Hide(pc.core, true);
 						continue;
