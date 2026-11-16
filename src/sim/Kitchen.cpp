@@ -343,6 +343,29 @@ namespace hc
 		}
 	}
 
+	namespace
+	{
+		double Longest(const Chunks::Body& b) { return m::Max(b.size.x, m::Max(b.size.y, b.size.z)); }
+		double Shortest(const Chunks::Body& b) { return m::Min(b.size.x, m::Min(b.size.y, b.size.z)); }
+
+		// Into the broth: it lies flat (its thinnest side up), all of it inside the pot's wall
+		void Settle(Chunks::Body& b, double a_dx, double a_dy)
+		{
+			b.state = Chunks::State::Pot;
+			b.potA = Atan2(a_dy, a_dx);
+			const double room = m::Max(0.0, kPotR - Longest(b) * 0.5 - 0.35);
+			b.potR = m::Min(m::Sqrt(a_dx * a_dx + a_dy * a_dy), room);
+			Quat flat;
+			if (b.size.x <= b.size.y && b.size.x <= b.size.z) {
+				flat = Quat::FromAxisAngle({ 0, 1, 0 }, 1.5708);
+			} else if (b.size.y <= b.size.z) {
+				flat = Quat::FromAxisAngle({ 1, 0, 0 }, 1.5708);
+			}
+			b.q = Quat::FromAxisAngle({ 0, 0, 1 }, b.bob * 3.7) * flat;
+			b.w = {};
+		}
+	}
+
 	void Chunks::Collide(Body& b, const Board& a_board, double a_dt)
 	{
 		constexpr double kG = 140.0;
@@ -399,9 +422,7 @@ namespace hc
 			}
 			// into the broth
 			if (d < ri - b.r * 0.6 && b.p.z < kLiquidZ + b.r * 0.2 && b.p.z > kPotFloor) {
-				b.state = State::Pot;
-				b.potA = Atan2(dy, dx);
-				b.potR = m::Min(d, ri - b.r - 0.25);
+				Settle(b, dx, dy);
 				Push(Event::Kind::Splash, b.p, -b.v.z);
 				return;
 			}
@@ -460,9 +481,7 @@ namespace hc
 						// straight in: only the broth stops it
 						const double dx = b.p.x - kPotX, dy = b.p.y - kPotY;
 						if (b.v.z < 0.0 && b.p.z < kLiquidZ + b.r * 0.2 && dx * dx + dy * dy < kPotR * kPotR) {
-							b.state = State::Pot;
-							b.potA = Atan2(dy, dx);
-							b.potR = m::Min(m::Sqrt(dx * dx + dy * dy), kPotR - b.r - 0.25);
+							Settle(b, dx, dy);
 							Push(Event::Kind::Splash, b.p, -b.v.z);
 						} else if (b.p.z < kPotFloor) {
 							Aim(b, i + 101);  // can't happen, but never lost
@@ -477,7 +496,7 @@ namespace hc
 						b.potA += a_swirl * dt * (0.55 + 0.45 * (1.0 - b.potR / ri));
 						b.bob += dt;
 						b.p = { kPotX + m::Cos(b.potA) * b.potR, kPotY + m::Sin(b.potA) * b.potR,
-							kLiquidZ - b.r * 0.35 + 0.1 * m::Sin(b.bob * 2.1) };
+							kLiquidZ - Shortest(b) * 0.2 + 0.08 * m::Sin(b.bob * 2.1) };
 						b.q.Integrate({ 0.0, 0.0, a_swirl * 0.6 }, dt);
 					}
 					break;

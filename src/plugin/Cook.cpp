@@ -1293,7 +1293,7 @@ namespace Cook
 					const double a = std::atan2(dy, dx);
 					const double dA = Wrap(a - g_ladleA);
 					g_ladleA = a;
-					g_ladleR = Clamp(r, 1.0, L::kPotR - 1.6);
+					g_ladleR = Clamp(r, 0.8, L::kPotR - 2.6);  // the cup well in, so the handle clears the rim
 					if (g_pot && std::abs(dA) < 1.5) {
 						g_pot->Stir(dA);
 						g_stirred += std::abs(dA);
@@ -2269,7 +2269,8 @@ namespace Cook
 					const double cupR = (mx.y - mn.y) * 0.5;
 					const Vec3   cup{ mx.x - cupR, (mn.y + mx.y) * 0.5, mn.z + cupR * 0.9 };  // the middle of its cup, at the rim
 					const bool   out = g_hold == Hold::LadleOut;
-					const Quat   q = RotZ(g_ladleA - kPi);
+					// leaned back so the handle climbs out over the rim (the cup tips a little with it); held out, nearly level
+					const Quat   q = RotZ(g_ladleA - kPi) * RotY(out ? 0.12 : 0.85);
 					const Vec3   at = out ? g_ladleOutAt : Vec3{ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ - 0.3 };
 					Scene::Place(P.ladle, at - q.Rotate(cup) * ls, q, static_cast<float>(ls));
 					Scene::Hide(P.ladle, false);
