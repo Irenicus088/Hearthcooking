@@ -1117,7 +1117,7 @@ namespace Cook
 			} else if (has({ "crab" })) {
 				c[0] = 0.96f, c[1] = 0.94f, c[2] = 0.9f;  // white inside
 			} else if (has({ "chicken", "pheasant", "fish", "clam" })) {
-				c[0] = 0.93f, c[1] = 0.8f, c[2] = 0.72f;
+				c[0] = 0.95f, c[1] = 0.84f, c[2] = 0.8f;  // pale pink
 			} else if (has({ "carrot" })) {
 				c[0] = 0.98f, c[1] = 0.58f, c[2] = 0.2f;
 			} else if (has({ "yam", "pumpkin", "gourd" })) {

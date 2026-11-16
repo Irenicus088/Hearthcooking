@@ -312,7 +312,7 @@ def all_flesh():
          sinew=0.15, sinew_col=(196, 150, 150), grain=0.7)
     meat("pheasant", 30, lean=(160, 68, 86), lean_dark=(118, 42, 62), fat=(236, 214, 150), marbling=0.4,
          fat_width=0.014, sinew=0.45, sinew_col=(226, 196, 180), grain=0.6, fat_tint=(246, 230, 196))
-    meat("chicken", 40, lean=(244, 178, 166), lean_dark=(226, 150, 140), fat=(252, 232, 222), marbling=0.35,
+    meat("chicken", 40, lean=(246, 206, 200), lean_dark=(234, 184, 180), fat=(252, 238, 232), marbling=0.35,
          fat_width=0.016, sinew=0.2, sinew_col=(252, 236, 228), grain=0.8)
     carrot()
     potato()
