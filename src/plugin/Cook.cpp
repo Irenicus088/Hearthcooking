@@ -250,6 +250,9 @@ namespace Cook
 		bool   g_pinHeld = false;  // the rolling pin taken up (it follows the pointer; held down, it rolls)
 		Vec3   g_pinAt{};
 		double g_pinRoll = 0.0;   // how far it's rolled (its turn)
+		double g_rollDX = 1.0, g_rollDY = 0.0;  // which way it's being rolled, smoothed
+		double g_pinAxis = 0.0;   // which way it rolls: 0 left-right, 1 up-down (snapped, with a margin), and as drawn
+		double g_pinTurn = 0.0;
 		double g_pushAcc = 0.0;          // kneading or rolling in one hold: how far it's moved since the last push counted
 		Vec3   g_doughLast{};
 		bool   g_doughLastOk = false;
@@ -2154,8 +2157,15 @@ namespace Cook
 					if (g_doughLastOk) {
 						const double ddx = x - g_doughLast.x, ddy = y - g_doughLast.y, d = std::hypot(ddx, ddy);
 						g_pinRoll += d;
-						if (d > 0.03) {
-							g_squashA = std::atan2(ddy, ddx);
+						if (d > 0.02) {
+							// the way it's going, smoothed; rolls left-right while that's mostly it, up-down once it's mostly that
+							g_rollDX += (std::abs(ddx) / d - g_rollDX) * 0.25;
+							g_rollDY += (std::abs(ddy) / d - g_rollDY) * 0.25;
+							if (g_rollDX > g_rollDY * 1.4) {
+								g_pinAxis = 0.0;
+							} else if (g_rollDY > g_rollDX * 1.4) {
+								g_pinAxis = 1.0;
+							}
 						}
 						if (std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 6.0) {
 							g_pushAcc += d;
@@ -3720,7 +3730,8 @@ namespace Cook
 								const double h = (Dumpling() ? 2.6 - 2.34 * f : 1.0 + 1.0 * (1.0 - f)) + 0.05;
 								const bool   onDough = std::hypot(g_pinAt.x - g_doughAt.x, g_pinAt.y - g_doughAt.y) < 6.0;
 								const double z = kBoardTop + (onDough ? h : 0.0) + 0.72 + (g_hold == Hold::Roll ? 0.0 : 1.6);
-								Scene::Place(P.pin, { g_pinAt.x, g_pinAt.y, z }, RotZ(g_squashA + kPi * 0.5) * RotX(g_pinRoll / 0.72), 1.0f);
+								g_pinTurn += (g_pinAxis - g_pinTurn) * 0.25;  // (turning to it, not snapping)
+								Scene::Place(P.pin, { g_pinAt.x, g_pinAt.y, z }, RotZ(kPi * 0.5 + g_pinTurn * kPi * 0.5) * RotX(g_pinRoll / 0.72), 1.0f);
 							} else {
 								Scene::Place(P.pin, { L::kBoardX, L::kBoardY - L::kBoardD * 0.5 - 1.3, 0.72 }, RotZ(0.04), 1.0f);  // on the table, in front of the board
 							}
