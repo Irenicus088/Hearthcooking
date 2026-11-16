@@ -241,6 +241,8 @@ namespace Cook
 		// the oven's bowls, behind the board: water and flour stirred to a dough; the cut filling waiting
 		const Vec3 kMixAt{ -11.0, 11.5, 0.0 }, kFillAt{ -1.0, 11.5, 0.0 };
 		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
+		bool   g_bowlWater = true;         // a bowl of water to start (else the milk is the wet, and goes in last)
+		bool   g_milkIn = false;
 		bool   g_ball = false;             // a ball of dough in the bowl
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
@@ -641,6 +643,38 @@ namespace Cook
 		}
 
 
+		// A form's own textures on its mesh (the game shares one mesh between several things - its stews, its butter
+		// - and tells them apart by alternate textures)
+		void Swaps(Scene::Id a_id, RE::TESForm* a_form)
+		{
+			auto* sw = a_id >= 0 && a_form ? a_form->As<RE::TESModelTextureSwap>() : nullptr;
+			if (!sw || !sw->alternateTextures) {
+				return;
+			}
+			for (std::uint32_t i = 0; i < sw->numAlternateTextures; ++i) {
+				const auto& alt = sw->alternateTextures[i];
+				if (!alt.textureSet) {
+					continue;
+				}
+				const char* name = alt.name3D.c_str();
+				Scene::SwapTextures(a_id, name ? name : "", static_cast<int>(alt.index3D), alt.textureSet->textures[0].textureName.c_str(),
+					alt.textureSet->textures[1].textureName.c_str());
+			}
+		}
+
+		// An ingredient's mesh, as it looks in the game
+		Scene::Id AddUnitMesh(const Unit& a_u)
+		{
+			if (a_u.model.empty()) {
+				return -1;
+			}
+			const auto id = Scene::Add(a_u.model);
+			if (g_recipe && a_u.ing >= 0 && a_u.ing < static_cast<int>(g_recipe->ings.size())) {
+				Swaps(id, g_recipe->ings[a_u.ing].form);
+			}
+			return id;
+		}
+
 		void BuildUnits()
 		{
 			g_units.clear();
@@ -655,7 +689,7 @@ namespace Cook
 					u.role = in.role;
 					u.name = in.name;
 					u.model = in.model;
-					u.prop = u.model.empty() ? -1 : Scene::Add(u.model);
+					u.prop = AddUnitMesh(u);
 					if (u.prop < 0) {
 						u.prop = Add("Chunk");  // a stand-in if its mesh won't load
 						if (u.prop >= 0) {
@@ -754,7 +788,7 @@ namespace Cook
 			std::copy(std::begin(a_box), std::end(a_box), p.box);
 			p.mid = a_mid;
 			p.cut = a_cut;
-			p.prop = u.model.empty() ? -1 : Scene::Add(u.model);
+			p.prop = AddUnitMesh(u);
 			if (p.prop < 0) {
 				p.prop = Add("Chunk");  // its mesh won't load: a plain piece
 			}
@@ -890,6 +924,7 @@ namespace Cook
 			g_rolled = false;
 			g_mix = 0.0;
 			g_ball = false;
+			g_milkIn = false;
 			for (int k = 0; k < 4; ++k) {
 				g_fold[k] = g_foldWant[k] = 0.0;
 			}
@@ -980,6 +1015,14 @@ namespace Cook
 					u.dice = g_recipe->pie && u.role == Role::Filling && !soft && !u.model.empty();
 				}
 				g_chunks.SetBowl({ kFillAt.x, kFillAt.y, 1.0 }, 3.5, 2.6, false);
+				g_bowlWater = true;
+				for (const auto& u : g_units) {
+					std::string n = u.name;
+					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					if (u.role == Role::Dough && n.find("milk") != std::string::npos) {
+						g_bowlWater = false;  // the milk is the wet: an empty bowl, the dry things first
+					}
+				}
 			} else {
 				g_chunks.SetBowl({ L::kPotX, L::kPotY, L::kLiquidZ }, L::kPotR, L::kPotRim, true);
 			}
@@ -1021,18 +1064,7 @@ namespace Cook
 				return -1;
 			}
 			const auto id = Scene::Add(m->GetModel());
-			auto*      sw = form->As<RE::TESModelTextureSwap>();
-			if (id >= 0 && sw && sw->alternateTextures) {
-				for (std::uint32_t i = 0; i < sw->numAlternateTextures; ++i) {
-					const auto& alt = sw->alternateTextures[i];
-					if (!alt.textureSet) {
-						continue;
-					}
-					const char* name = alt.name3D.c_str();
-					Scene::SwapTextures(id, name ? name : "", static_cast<int>(alt.index3D), alt.textureSet->textures[0].textureName.c_str(),
-						alt.textureSet->textures[1].textureName.c_str());
-				}
-			}
+			Swaps(id, form);
 			return id;
 		}
 
@@ -1538,7 +1570,12 @@ namespace Cook
 				if (OnPlane(mx, my, 1.8, x, y)) {
 					const double a = std::atan2(y - kMixAt.y, x - kMixAt.x), dA = Wrap(a - g_mixA);
 					g_mixA = a;
-					if (std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
+					if (g_recipe->salted && g_oven->Seasoning().amount < 0.3 && std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
+						if (Audio::Now() - g_lastStir > 1.5) {
+							g_lastStir = Audio::Now();
+							Toast("A pinch of salt first");
+						}
+					} else if (std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
 						g_mix = (std::min)(1.0, g_mix + std::abs(dA) / (2.0 * kPi * 4.0));  // four turns round
 						g_stirred += std::abs(dA);
 						if (g_stirred > 1.6 && Audio::Now() - g_lastStir > 0.3) {
@@ -1764,13 +1801,23 @@ namespace Cook
 								PutBack(ui);
 								break;
 							}
+							// the milk goes in last, onto the flour and the rest
+							std::string ln = u.name;
+							std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							const bool milk = ln.find("milk") != std::string::npos;
+							if (milk && g_doughParts < g_doughNeeded - 1) {
+								Toast("The milk goes in last");
+								PutBack(ui);
+								break;
+							}
+							g_milkIn |= milk;
 							u.at = Unit::At::Dough;
 							++g_doughParts;
 							Flour(kMixAt + Vec3{ 0, 0, 1.0 });
 							break;
 						}
 						if (u.role == Role::Dough) {
-							Toast("Into the bowl of water, to make the dough");
+							Toast(g_bowlWater ? "Into the bowl of water, to make the dough" : "Into the mixing bowl, to make the dough");
 							PutBack(ui);
 							break;
 						}
@@ -2306,7 +2353,7 @@ namespace Cook
 				u.segs.push_back(u.prop);
 			}
 			while (static_cast<int>(u.segs.size()) < n) {
-				const auto id = u.model.empty() ? Add("Chunk") : Scene::Add(u.model);
+				const auto id = u.model.empty() ? Add("Chunk") : AddUnitMesh(u);
 				u.segs.push_back(id >= 0 ? id : Add("Chunk"));
 			}
 			while (static_cast<int>(u.cores.size()) < n) {
@@ -2828,7 +2875,7 @@ namespace Cook
 				Vec3 mn, mx;
 				if (showDish && P.result >= 0 && Scene::Bounds(P.result, mn, mx)) {
 					const double big = (std::max)(mx.x - mn.x, mx.y - mn.y);
-					const double s = 8.0 / (std::max)(0.1, big) * (0.8 + 0.2 * Clamp(g_oven->Rise(), 0.0, 1.0));
+					const double s = 6.0 / (std::max)(0.1, big) * (0.8 + 0.2 * Clamp(g_oven->Rise(), 0.0, 1.0));  // the same size as it's served
 					const Vec3   c{ (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, mn.z };
 					Scene::Place(P.result, at - c * s, {}, static_cast<float>(s));
 					auto& lk = Scene::LookOf(P.result);
@@ -2882,10 +2929,19 @@ namespace Cook
 					auto& wl = Scene::LookOf(P.mixWater);
 					// clear water (a cool blue over the bowl's wood), clouding with the flour as it goes in and is stirred
 					const double cloud = Clamp(m * 0.45 + g_mix * 0.6, 0.0, 1.0);
-					wl.lift[0] = static_cast<float>(0.32 + 0.6 * cloud);
-					wl.lift[1] = static_cast<float>(0.46 + 0.4 * cloud);
-					wl.lift[2] = static_cast<float>(0.6 + 0.12 * cloud);
-					wl.lift[3] = static_cast<float>(0.45 + 0.5 * cloud);
+					if (g_bowlWater) {
+						wl.lift[0] = static_cast<float>(0.32 + 0.6 * cloud);
+						wl.lift[1] = static_cast<float>(0.46 + 0.4 * cloud);
+						wl.lift[2] = static_cast<float>(0.6 + 0.12 * cloud);
+						wl.lift[3] = static_cast<float>(0.45 + 0.5 * cloud);
+					} else {
+						// an empty bowl, then the flour and the rest heaped in it, then the milk wetting it
+						Scene::Hide(P.mixWater, !water || g_doughParts == 0);
+						wl.lift[0] = g_milkIn ? 0.95f : 0.9f;
+						wl.lift[1] = g_milkIn ? 0.92f : 0.86f;
+						wl.lift[2] = g_milkIn ? 0.84f : 0.76f;
+						wl.lift[3] = 0.95f;
+					}
 					wl.shadow = false;
 					if (P.mixBall >= 0) {
 						const bool inBowl = (g_mix > 0.25 || g_ball) && !g_doughOnBoard && g_hold != Hold::Ball;
@@ -3218,7 +3274,7 @@ namespace Cook
 					s.push_back({ "Sweep it into the bowl", allInBowl });
 				}
 				if (g_doughNeeded > 0) {
-					unitsDone(Role::Dough, { Unit::At::Dough }, "Into the water: the ", "");
+					unitsDone(Role::Dough, { Unit::At::Dough }, g_bowlWater ? "Into the water: the " : "Into the bowl: the ", g_bowlWater ? "" : "");
 				}
 				if (g_recipe->salted) {
 					s.push_back({ "A pinch of salt", g_oven && g_oven->Seasoning().amount >= 0.7 });
