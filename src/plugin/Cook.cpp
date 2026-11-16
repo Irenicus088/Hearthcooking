@@ -3015,6 +3015,16 @@ namespace Cook
 						Scene::Hide(pc.core, true);
 						continue;
 					}
+					// a dumpling's filling goes under each corner as it folds over it (the corner over its quarter)
+					if (Dumpling() && g_rolled) {
+						const double pa = std::atan2(pc.doughOff.y, pc.doughOff.x);
+						const int    k = static_cast<int>(std::floor(Wrap(pa) / (kPi * 0.5) + 4.0)) % 4;  // (corner k points at pi/4 + k pi/2)
+						if (g_fold[k] > 0.45 || (std::hypot(pc.doughOff.x, pc.doughOff.y) < 0.6 && g_fold[0] + g_fold[1] + g_fold[2] + g_fold[3] > 3.0)) {
+							Scene::Hide(pc.prop, true);
+							Scene::Hide(pc.core, true);
+							continue;
+						}
+					}
 					frame = RotZ(pc.turn) * body.q;
 					at = g_doughAt + pc.doughOff + Vec3{ 0, 0, 0.9 };
 				}
@@ -3415,7 +3425,7 @@ namespace Cook
 						const double f = g_fold[k];
 						const double a = kPi * 0.25 + k * kPi * 0.5, th = f * 2.9;
 						const Vec3   dir{ std::cos(a), std::sin(a), 0.0 };
-						const Vec3   hinge = at + dir * 2.41 + Vec3{ 0, 0, 0.14 + 0.75 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };
+						const Vec3   hinge = at + dir * 2.41 + Vec3{ 0, 0, 0.14 + 1.05 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };  // (up over the filling)
 						const Vec3   v = dir * std::cos(th) + Vec3{ 0, 0, std::sin(th) };
 						// a corner square standing on its point at the fold line, its inner half cut away: the triangle
 						Scene::Place(id, hinge, RotZ(a) * RotY(-th) * RotZ(kPi * 0.25), 1.0f);
