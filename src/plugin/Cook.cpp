@@ -259,7 +259,11 @@ namespace Cook
 		bool   BreadCut();
 		bool   BreadOnBoard();
 		// where the oven's cut things go: a pie's into a bowl of their own, a bread's into the dough's bowl
-		Vec3 CutBowl() { return g_recipe && (g_recipe->pie || g_topping) ? kFillAt : kMixAt; }
+		// A bread's cut things (potato bread's potato): into the right bowl, then poured from it into the mixing bowl
+		bool g_cutInMix = false;
+		bool BreadCuts() { return g_recipe && g_recipe->oven && !g_recipe->pie && !g_topping; }
+		Vec3 CutBowl() { return g_recipe && (g_recipe->pie || g_topping || !g_cutInMix) ? kFillAt : kMixAt; }
+		Vec3 PourAt() { return BreadCuts() ? kMixAt : g_doughAt; }  // where the right bowl tips toward
 		bool   g_ball = false;             // a ball of dough in the bowl
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
@@ -1167,6 +1171,7 @@ namespace Cook
 			g_mix = 0.0;
 			g_spin = 0.0;
 			g_eggT = -1.0;
+			g_cutInMix = false;
 			g_ball = false;
 			g_milkIn = false;
 			for (int k = 0; k < 4; ++k) {
@@ -1497,6 +1502,9 @@ namespace Cook
 		}
 		int InFillBowl()
 		{
+			if (BreadCuts() && g_cutInMix) {
+				return 0;  // (poured into the mixing bowl)
+			}
 			int n = 0;
 			for (int b = 0; b < g_chunks.Count() && b < static_cast<int>(g_pieces.size()); ++b) {
 				n += g_chunks.At(b).state == hc::Chunks::State::Pot && !g_pieces[b].onDough;
@@ -1623,7 +1631,7 @@ namespace Cook
 				std::string n = u.name;
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				const int g = group(n);
-				if (g >= 0 && g < mine && u.at != Unit::At::Dough && u.at != Unit::At::Pot) {
+				if (g >= 0 && g < mine && ((u.at != Unit::At::Dough && u.at != Unit::At::Pot) || (u.dice && BreadCuts() && !g_cutInMix))) {
 					return u.name;
 				}
 			}
@@ -2713,9 +2721,14 @@ namespace Cook
 				// the fruit bowl: lifted, its fruit riding in it; over the dough it tips and pours
 				{
 					const bool held = g_hold == Hold::Apples;
-					const bool over = held && std::hypot(g_carry.x - g_doughAt.x, g_carry.y - g_doughAt.y) < 4.5 && (g_doughOnBoard || BreadOnBoard());
+					const bool over = held && (BreadCuts() ? std::hypot(g_carry.x - kMixAt.x, g_carry.y - kMixAt.y) < 4.5 && !g_cutInMix
+					                                       : std::hypot(g_carry.x - g_doughAt.x, g_carry.y - g_doughAt.y) < 4.5 && (g_doughOnBoard || BreadOnBoard()));
 					g_bowlTip += Clamp((over && !g_bowlPoured ? 1.0 : 0.0) - g_bowlTip, -dt * 3.0, dt * 2.0);
-					if (g_bowlTip > 0.6 && !g_bowlPoured) {
+					if (g_bowlTip > 0.6 && !g_bowlPoured && BreadCuts()) {
+						g_cutInMix = true;  // into the mixing bowl, first of the dough's things
+						g_bowlPoured = true;
+						Audio::Take("thunk_", 0.4f);
+					} else if (g_bowlTip > 0.6 && !g_bowlPoured) {
 						PourOnDough();
 						if (!g_bowlPoured) {
 							g_hold = Hold::None;  // not ready for it: the bowl goes back
@@ -2724,7 +2737,7 @@ namespace Cook
 					if (!held) {
 						g_bowlPoured = false;
 					}
-					const Vec3 c = held ? g_carry + Vec3{ 0, 0, 0.6 } : Vec3{ CutBowl().x, CutBowl().y, 1.0 };
+					const Vec3 c = held && !(BreadCuts() && g_cutInMix) ? g_carry + Vec3{ 0, 0, 0.6 } : Vec3{ CutBowl().x, CutBowl().y, 1.0 };
 					g_chunks.SetBowl(c, 3.5, c.z + 1.6, false);
 				}
 				// the board: lifted and carried to the bowl, tipped over it, and back down
@@ -2942,8 +2955,8 @@ namespace Cook
 				const bool fitted = !Game(Kit::Role::Bowl) || FitBox(P.fillBowl, Kit::Get(Kit::Role::Bowl), kFillAt, { 8.5, 8.5, 0.0 }, 0.0, false, p);
 				if (fitted) {
 					const Vec3   base = g_hold == Hold::Apples ? g_carry : kFillAt;
-					const double ang = std::atan2(g_doughAt.y - base.y, g_doughAt.x - base.x);
-					const Quat   T = RotZ(ang) * RotY(g_bowlTip * 1.7) * RotZ(-ang);  // its far side dips toward the dough
+					const double ang = std::atan2(PourAt().y - base.y, PourAt().x - base.x);
+					const Quat   T = RotZ(ang) * RotY(g_bowlTip * 1.7) * RotZ(-ang);  // its far side dips toward the dough (or the mixing bowl)
 					p.pos = base + T.Rotate(p.pos - kFillAt);
 					p.q = T * p.q;
 					Apply(P.fillBowl, p);
@@ -3262,9 +3275,10 @@ namespace Cook
 					at = g_doughAt + pc.doughOff + Vec3{ 0, 0, 0.9 };
 				}
 				// in the fruit bowl as it tips to pour: they ride with it, not through its side
-				if (!pc.onDough && g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot && g_bowlTip > 0.001 && (g_hold == Hold::Apples || g_bowlTip > 0.01)) {
+				if (!pc.onDough && g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot && g_bowlTip > 0.001 && (g_hold == Hold::Apples || g_bowlTip > 0.01) &&
+					!(BreadCuts() && g_cutInMix)) {
 					const Vec3   base = g_hold == Hold::Apples ? g_carry : kFillAt;  // (the bowl turns about this, as it's drawn)
-					const double ang = std::atan2(g_doughAt.y - base.y, g_doughAt.x - base.x);
+					const double ang = std::atan2(PourAt().y - base.y, PourAt().x - base.x);
 					const Quat   T = RotZ(ang) * RotY(g_bowlTip * 1.7) * RotZ(-ang);
 					at = base + T.Rotate(at - base);
 					frame = T * frame;
