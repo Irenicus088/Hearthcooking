@@ -27,7 +27,7 @@ rng = np.random.default_rng(11)
 TOP_W, TOP_D, HEARTH_EDGE = 74.0, 40.0, 5.0
 BOARD_W, BOARD_D, BOARD_H = 20.0, 12.5, 1.1
 FIRE_R = 7.5
-POT_R, POT_WALL, POT_FLOOR, POT_RIM = 5.27, 0.4, 2.9, 8.67  # (15% smaller than it was)
+POT_R, POT_WALL, POT_FLOOR, POT_RIM = 6.2, 0.45, 3.4, 10.2
 SPIT_Z, SPIT_HALF, CRANK_OFF, CRANK_R = 13.0, 13.0, 16.1, 3.25
 OVEN_FLOOR = 9.0
 
@@ -551,16 +551,17 @@ def kitchen():
     bolster.box(-0.18, 0.18, -0.4, 0.0, 0.5, 1.6)
     nif("Knife", [("Blade", blade, "iron", IRON), ("Handle", handle, "handle", WOOD), ("Bolster", bolster, "iron", IRON)])
 
-    # the pot (its axis at the origin, its base at 0, heights as in the kitchen less its lift), its lugs; it hangs,
-    # so no legs. Its old shape, 15% smaller
+    # the pot (its axis at the origin, heights as in the kitchen), its legs and lugs
     pot = Mesh()
-    k_ = 0.85
     f0 = POT_FLOOR
-    prof = [(0.0, f0 - 0.6 * k_), (4.6 * k_, f0 - 0.6 * k_), (6.4 * k_, f0 + 0.6 * k_), (7.1 * k_, f0 + 2.8 * k_), (7.15 * k_, 6.8 * k_), (6.85 * k_, 9.3 * k_),
-            (POT_R + POT_WALL, POT_RIM - 0.15), (POT_R + POT_WALL, POT_RIM), (POT_R, POT_RIM), (POT_R, 6.0 * k_), (5.8 * k_, f0 + 1.0 * k_), (4.6 * k_, f0), (0.0, f0)]
+    prof = [(0.0, f0 - 0.6), (4.6, f0 - 0.6), (6.4, f0 + 0.6), (7.1, f0 + 2.8), (7.15, 6.8), (6.85, 9.3), (POT_R + POT_WALL, POT_RIM - 0.15),
+            (POT_R + POT_WALL, POT_RIM), (POT_R, POT_RIM), (POT_R, 6.0), (5.8, f0 + 1.0), (4.6, f0), (0.0, f0)]
     pot.lathe(prof, 56, urep=3.0, vrep=2.0)
+    for k in range(3):
+        a = k * 2 * math.pi / 3 + 0.5
+        pot.cylinder((4.4 * math.cos(a), 4.4 * math.sin(a), 0.0), (4.8 * math.cos(a), 4.8 * math.sin(a), f0 - 0.4), 0.35, 8)
     for s in (-1, 1):
-        pot.box(s * (POT_R + POT_WALL) - 0.45, s * (POT_R + POT_WALL) + 0.45, -0.45, 0.45, POT_RIM - 1.4, POT_RIM - 0.55)
+        pot.box(s * (POT_R + POT_WALL) - 0.5, s * (POT_R + POT_WALL) + 0.5, -0.5, 0.5, POT_RIM - 1.6, POT_RIM - 0.6)
     nif("Pot", [("Pot", pot, "iron", IRON)])
 
     # the broth's surface: a disk (the DLL tints it for the dish and turns it as it's stirred)
@@ -848,44 +849,6 @@ def kitchen():
     for k, (x, y, yaw, roll, up) in enumerate(lay):
         clove(cloves, (x * 1.15, y * 1.15, up * 1.15), yaw, roll, 1.56 * 1.15, 70 + k)  # (15% bigger again)
     nif("GarlicCloves", [("Cloves", cloves, "clove", (0.45, 40))])
-
-    # the pot's hanger: a bar across the spit's frame (its middle at the origin), and the pot's bail hung from it - an
-    # arch from the pot's sides at its rim up to the bar
-    POT_LIFT, POT_BAR_Z = 3.2, 16.5
-    bar, bail = Mesh(), Mesh()
-    bar.cylinder((-SPIT_HALF - 0.6, 0, 0), (SPIT_HALF + 0.6, 0, 0), 0.36, 12, urep=(2 * SPIT_HALF + 1.2) / (2 * math.pi * 0.36))
-    # the pot's handle (a bail): an arch from a lug either side of its rim, and an S-hook hung on the bar holding it
-    rim = -(POT_BAR_Z - (POT_RIM + POT_LIFT))
-    lug = rim - 0.45
-    A_ = POT_R + POT_WALL + 0.15
-    hb = 2.7                                   # how high the bail stands over its lugs
-    apex = lug + hb
-    pts = [(A_ * math.cos(math.pi * i / 24), 0.0, lug + hb * math.sin(math.pi * i / 24) ** 0.8) for i in range(25)]
-    for i in range(24):
-        bail.cylinder(pts[i], pts[i + 1], 0.13, 8)
-    for s_ in (-1, 1):  # the lugs it turns in, either side of the pot
-        bail.cylinder((s_ * (A_ - 0.45), 0, lug), (s_ * (A_ + 0.2), 0, lug), 0.2, 8)
-        bail.cylinder((s_ * (A_ - 0.45), 0, lug - 0.25), (s_ * (A_ - 0.45), 0, lug + 0.25), 0.22, 8)
-
-    def tube(m, path, r):
-        for a_, b_ in zip(path, path[1:]):
-            m.cylinder(a_, b_, r, 8)
-
-    hook = []
-    rb, rh = 0.36 + 0.14, 0.13 + 0.15           # round the bar; round the bail's wire
-    # over the bar: from its far side round the top to its near side, then down
-    for i in range(13):
-        t = math.pi * (-0.25 + 1.5 * i / 12)    # from below-behind, over the top, to the front
-        hook.append((0.0, -rb * math.cos(t), rb * math.sin(t)))
-    top_end = hook[-1]
-    # the shank, down to the bail
-    hook.append((0.0, top_end[1], apex + rh + 0.35))
-    # under the bail's top: round below it and up its far side
-    for i in range(13):
-        t = math.pi * (0.5 + 1.25 * i / 12)
-        hook.append((0.0, top_end[1] * 0.0 + rh * math.cos(t) + top_end[1] * (1 - i / 12), apex + rh * math.sin(t)))
-    tube(bail, hook, 0.12)
-    nif("PotBar", [("Bar", bar, "iron", IRON), ("Bail", bail, "iron", IRON)])
 
     # the rolling pin: along x, its middle at the origin - a long barrel and a handle each end
     pin, pinh = Mesh(), Mesh()
