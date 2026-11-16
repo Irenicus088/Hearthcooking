@@ -3693,6 +3693,14 @@ namespace Cook
 					lk.lift[3] = 0.0f;
 					lk.cookMode = g_burntLook ? 1 : 0;
 					lk.cook[0] = 1.65f;
+					if (g_flow == hc::Flow::Oven && g_oven && !g_burntLook) {
+						// served as it came out: underdone stays pale (as it looked in the oven)
+						const double br = g_oven->Brown();
+						lk.cookMode = 1;
+						lk.cook[0] = static_cast<float>(br > 0.6 ? (br - 0.6) * 1.2 : 0.0);
+						lk.lift[0] = 0.94f, lk.lift[1] = 0.86f, lk.lift[2] = 0.7f;
+						lk.lift[3] = -static_cast<float>(Clamp(0.85 - br * 0.9, 0.0, 0.85));
+					}
 					Scene::Hide(P.result, false);
 				}
 			}
