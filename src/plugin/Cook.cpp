@@ -1771,6 +1771,15 @@ namespace Cook
 			case Hold::Peel:
 				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 					g_peelAt = { x, y, kBoardTop + 1.2 };
+					// at the oven it's raised to the mouth (where the door is), not pushed in under it
+					{
+						double hx = 0, hy = 0;
+						const double mz = OvenFloor() + 0.3;
+						if (OnPlane(mx, my, mz, hx, hy) && std::abs(hx - L::kOvenX) < L::kOvenMouthW && hy > L::kOvenMouthY - 9.0) {
+							const double up = Clamp((hy - (L::kOvenMouthY - 9.0)) / 4.0, 0.0, 1.0);  // lifting as it comes up to it
+							g_peelAt = g_peelAt + (Vec3{ hx, hy, mz } - g_peelAt) * up;
+						}
+					}
 					// into the open oven for what's baking
 					// held in the open oven's mouth a moment, it slides under the bake and takes it (passing by doesn't)
 					const bool inMouth = g_door > 0.6 && InMouth(mx, my);

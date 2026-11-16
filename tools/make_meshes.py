@@ -622,13 +622,13 @@ def kitchen():
         posts.cylinder((x, 0, SPIT_Z - 0.6), (x, 0.9, SPIT_Z + 1.0), 0.28, 8)
     nif("SpitPosts", [("Posts", posts, "handle", WOOD)])
     rod, grip = Mesh(), Mesh()
-    rod.cylinder((-SPIT_HALF - 1.2, 0, 0), (CRANK_OFF, 0, 0), 0.24, 10)
+    rod.cylinder((-SPIT_HALF - 1.2, 0, 0), (CRANK_OFF, 0, 0), 0.24, 10, urep=(CRANK_OFF + SPIT_HALF + 1.2) / (2 * math.pi * 0.24))
     rod.cylinder((CRANK_OFF, 0, 0), (CRANK_OFF, 0, CRANK_R), 0.22, 8)
     grip.cylinder((CRANK_OFF, 0, CRANK_R), (CRANK_OFF + 1.9, 0, CRANK_R), 0.32, 10)
     nif("SpitRod", [("Rod", rod, "iron", IRON), ("Grip", grip, "handle", WOOD)])
     # with the game's spit frame, which has its own skewer: only the crank end, from its right post out
     crod, cgrip = Mesh(), Mesh()
-    crod.cylinder((SPIT_HALF + 0.6, 0, 0), (CRANK_OFF, 0, 0), 0.24, 10)
+    crod.cylinder((SPIT_HALF + 0.6, 0, 0), (CRANK_OFF, 0, 0), 0.24, 10, urep=(CRANK_OFF - SPIT_HALF - 0.6) / (2 * math.pi * 0.24))
     crod.cylinder((CRANK_OFF, 0, 0), (CRANK_OFF, 0, CRANK_R), 0.22, 8)
     cgrip.cylinder((CRANK_OFF, 0, CRANK_R), (CRANK_OFF + 1.9, 0, CRANK_R), 0.32, 10)
     nif("SpitCrank", [("Rod", crod, "iron", IRON), ("Grip", cgrip, "handle", WOOD)])
@@ -713,7 +713,7 @@ def kitchen():
 
     peel, ph = Mesh(), Mesh()
     peel.rounded_box(7.0, 7.0, 0.25, 0.12, 6)
-    ph.cylinder((0, -3.4, 0.0), (0, -17.5, 0.0), 0.42, 12)
+    ph.cylinder((0, -3.4, 0.0), (0, -17.5, 0.0), 0.42, 12, urep=14.1 / (2 * math.pi * 0.42))  # the grain evenly along it, not squeezed round it
     nif("Peel", [("Blade", peel, "board", WOOD), ("Handle", ph, "handle", WOOD)])
 
     # the bowl and plate the dish is served on, the salt
