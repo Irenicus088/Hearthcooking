@@ -593,7 +593,7 @@ namespace Cook
 			for (int k = 0; k < 3; ++k) {
 				a_u.dims[k] = lie.d[k];
 			}
-			a_u.boardLen = Clamp(a_u.dims[0] * 0.5, 4.0, 9.0);
+			a_u.boardLen = Clamp(a_u.dims[0] * 0.5, 2.5, 9.0);  // half the game's own size, within reason
 			a_u.cut.x0 = 0.0;
 			a_u.cut.x1 = a_u.boardLen;
 			a_u.cut.target = (std::max)(0.6, a_u.boardLen / 6.0);
@@ -2132,14 +2132,19 @@ namespace Cook
 		// A piece of a thing: its own mesh (the skin) cut to the box, and inside it the core - a closed egg of its
 		// flesh the thing's size, cut the same, whose cut faces are drawn solid. Laid in the frame (x along it, y
 		// across, z up) with the whole's middle at a_c. Nothing can be seen through.
-		void PlacePiece(Scene::Id a_id, Scene::Id a_core, Unit& u, const Vec3& a_c, const Quat& a_frame, const double (&a_box)[6], bool a_cut)
+		void PlacePiece(Scene::Id a_id, Scene::Id a_core, Unit& u, const Vec3& a_c, const Quat& a_frame, const double (&a_boxIn)[6], bool a_cut, double a_f = 1.0)
 		{
 			if (!Fit(u)) {
 				Scene::Hide(a_id, true);
 				Scene::Hide(a_core, true);
 				return;
 			}
-			const double s = u.boardLen / u.dims[0];
+			// a_f: the whole shrunk about its middle (a piece breaking down in the pot), its cuts with it
+			double a_box[6];
+			for (int k = 0; k < 6; ++k) {
+				a_box[k] = std::abs(a_boxIn[k]) < 1e6 ? a_boxIn[k] * a_f : a_boxIn[k];
+			}
+			const double s = u.boardLen / u.dims[0] * a_f;
 			const Quat   q = a_frame * u.lie;
 			Scene::Place(a_id, a_c - q.Rotate(u.center) * s, q, static_cast<float>(s));
 			Scene::Hide(a_id, false);
@@ -2159,7 +2164,7 @@ namespace Cook
 			}
 			// the solid: a box round the piece (the cell, within the thing's measured bounds); the renderer draws
 			// its cut faces exactly where they're inside the thing's own mesh
-			const double R[3] = { u.boardLen * 0.5, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5), (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) };
+			const double R[3] = { u.boardLen * 0.5 * a_f, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * a_f, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * a_f };
 			double       lo[3], hi[3];
 			for (int ax = 0; ax < 3; ++ax) {
 				lo[ax] = (std::max)(a_box[ax * 2], -R[ax]);
@@ -2369,10 +2374,13 @@ namespace Cook
 				}
 				switch (u.at) {
 				case Unit::At::Cloth:
-					Lay(u, u.clothAt + Vec3{ 0, 0, Thick(u, (std::min)(5.2, u.dims[0] * 0.6), 2) * 0.5 + 0.2 }, (std::min)(5.2, Clamp(u.dims[0] * 0.6, 2.5, 5.2)), RotZ(0.25 * (Hash(i, 9) - 0.5)));
+					// the same size everywhere: on the cloth, in the hand and on the board
+					Fit(u);
+					Lay(u, u.clothAt + Vec3{ 0, 0, Thick(u, u.boardLen, 2) * 0.5 + 0.2 }, u.boardLen, RotZ(0.25 * (Hash(i, 9) - 0.5)));
 					break;
 				case Unit::At::Held:
-					Lay(u, g_carry, Clamp(u.dims[0] * 0.6, 2.5, 5.2), RotZ(0.3));
+					Fit(u);
+					Lay(u, g_carry, u.boardLen, RotZ(0.3));
 					break;
 				case Unit::At::Board:
 					PlaceBoardUnit(u);
@@ -2528,7 +2536,10 @@ namespace Cook
 					frame = RotZ(pc.turn) * body.q;
 					at = g_doughAt + pc.doughOff + Vec3{ 0, 0, 0.9 };
 				}
-				const Vec3 c = at - frame.Rotate(pc.mid);  // where its whole would have its middle
+				// in the pot it breaks down as it cooks: smaller and smaller (to about half by the end)
+				const double broken = body.state == hc::Chunks::State::Pot && g_flow == hc::Flow::Pot ? Clamp(body.cooked * 1.2, 0.0, 1.0) : 0.0;
+				const double shrink = 1.0 - 0.5 * broken;
+				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
 				// boiled, not browned: softening, a little darker and taking the broth's colour as it cooks (well
@@ -2540,8 +2551,8 @@ namespace Cook
 					lk.lift[k] = g_broth[k] * 0.85f;
 					lk.tint[k] = static_cast<float>(1.0 - 0.18 * boiled);
 				}
-				lk.lift[3] = static_cast<float>(0.42 * boiled);
-				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut);
+				lk.lift[3] = static_cast<float>(0.55 * boiled);
+				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut, shrink);
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
 			if (P.broth >= 0 && g_pot) {
