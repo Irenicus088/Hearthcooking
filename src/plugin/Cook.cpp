@@ -113,7 +113,7 @@ namespace Cook
 			Role                      role = Role::Toss;
 			std::string               name, model;
 			Scene::Id                 prop = -1;
-			std::vector<Scene::Id>    segs;  // on the board: its own mesh cut to each piece (the cut faces drawn from inside)
+			std::vector<Scene::Id>    segs, cores;  // on the board: its own mesh cut to each piece, and its solid inside
 			enum class At
 			{
 				Cloth,
@@ -141,7 +141,7 @@ namespace Cook
 		struct Piece
 		{
 			Scene::Id prop = -1;
-			Scene::Id cube = -1;  // a die: a solid block of its flesh, with its skin over the outer side
+			Scene::Id core = -1;  // its solid inside: a smooth egg of flesh the thing's size, cut the same
 			int       unit = 0;
 			double    box[6]{};  // x0 x1 y0 y1 z0 z1
 			Vec3      mid;
@@ -699,7 +699,7 @@ namespace Cook
 			std::memcpy(a_out, c, sizeof(c));
 		}
 
-		int NewPiece(int a_unit, int a_body, const double (&a_box)[6], const Vec3& a_mid, bool a_cut, bool a_dice = false)
+		int NewPiece(int a_unit, int a_body, const double (&a_box)[6], const Vec3& a_mid, bool a_cut)
 		{
 			auto& u = g_units[a_unit];
 			Piece p;
@@ -711,8 +711,8 @@ namespace Cook
 			if (p.prop < 0) {
 				p.prop = Add("Chunk");  // its mesh won't load: a plain piece
 			}
-			if (a_dice) {
-				p.cube = Add("Chunk");
+			if (a_cut) {
+				p.core = Add("Core");
 			}
 			if (static_cast<int>(g_pieces.size()) <= a_body) {
 				g_pieces.resize(a_body + 1);
@@ -729,19 +729,14 @@ namespace Cook
 			for (auto id : u.segs) {
 				Scene::Hide(id, true);
 			}
+			for (auto id : u.cores) {
+				Scene::Hide(id, true);
+			}
 		}
 
 		// Its pieces stacked in layers when it's diced both ways (a horizontal cut or two, as a cook would), so a
 		// tall thing comes apart in dice rather than in posts
-		int Layers(const Unit& u)
-		{
-			const auto& c = u.cut;
-			if (c.cutCount == 0 || c.alongCount == 0) {
-				return 1;
-			}
-			const double cell = 0.5 * ((c.x1 - c.x0) / c.Pieces() + c.width / c.Strips());
-			return static_cast<int>(Clamp(std::round(Thick(u, u.boardLen, 2) / cell), 1.0, 3.0));
-		}
+		int Layers(const Unit&) { return 1; }  // pieces go over as they were cut on the board
 		// What's on the board goes over: a body per piece, diced pieces in layers, empty corners (past a round thing's
 		// edge) left out
 		void FinishBoard()
@@ -787,7 +782,7 @@ namespace Cook
 								continue;
 							}
 							const double box[6] = { cut ? xa : -1e7, cut ? xb : 1e7, ny > 1 ? ya : -1e7, ny > 1 ? yb : 1e7, nz > 1 ? za : -1e7, nz > 1 ? zb : 1e7 };
-							NewPiece(i, b, box, mid, cut, ny > 1 || nz > 1);
+							NewPiece(i, b, box, mid, cut);
 							g_chunks.At(b).q = {};  // a fresh piece lies as it was cut, not turned
 						}
 					}
@@ -1003,7 +998,7 @@ namespace Cook
 			}
 			for (auto& p : g_pieces) {
 				Scene::Hide(p.prop, true);
-				Scene::Hide(p.cube, true);
+				Scene::Hide(p.core, true);
 			}
 			if (P.dough >= 0) {
 				Scene::Hide(P.dough, true);
@@ -1807,17 +1802,9 @@ namespace Cook
 		// ---------------------------------------------------------------- every frame: the kitchen as it looks
 		// The ingredient's own mesh, laid in the frame (x along it, y across, z up) with its middle at a_c, cut to the
 		// box (a bound past 1e6 is no cut); the inside shows through the cuts as solid flesh
-		void PlacePiece(Scene::Id a_id, Unit& u, const Vec3& a_c, const Quat& a_frame, const double (&a_box)[6], bool a_cut)
+		// Cuts a thing's look to the box (frame axes about a_c; a bound past 1e6 is no cut)
+		void ClipTo(Scene::Look& lk, const Vec3& a_c, const Quat& a_frame, const double (&a_box)[6], bool a_cut)
 		{
-			if (!Fit(u)) {
-				Scene::Hide(a_id, true);
-				return;
-			}
-			const double s = u.boardLen / u.dims[0];
-			const Quat   q = a_frame * u.lie;
-			Scene::Place(a_id, a_c - q.Rotate(u.center) * s, q, static_cast<float>(s));
-			Scene::Hide(a_id, false);
-			auto& lk = Scene::LookOf(a_id);
 			for (int k = 0; k < 6; ++k) {
 				const int    axis = k / 2;
 				const bool   hi = (k & 1) != 0;
@@ -1829,22 +1816,49 @@ namespace Cook
 				lk.clips[k][2] = on ? static_cast<float>(n.z) : 0.0f;
 				lk.clips[k][3] = static_cast<float>(n.Dot(a_c) + (hi ? v : -v));
 			}
+			std::memset(lk.shape, 0, sizeof(lk.shape));
+		}
+
+		// A piece of a thing: its own mesh (the skin) cut to the box, and inside it the core - a closed egg of its
+		// flesh the thing's size, cut the same, whose cut faces are drawn solid. Laid in the frame (x along it, y
+		// across, z up) with the whole's middle at a_c. Nothing can be seen through.
+		void PlacePiece(Scene::Id a_id, Scene::Id a_core, Unit& u, const Vec3& a_c, const Quat& a_frame, const double (&a_box)[6], bool a_cut)
+		{
+			if (!Fit(u)) {
+				Scene::Hide(a_id, true);
+				Scene::Hide(a_core, true);
+				return;
+			}
+			const double s = u.boardLen / u.dims[0];
+			const Quat   q = a_frame * u.lie;
+			Scene::Place(a_id, a_c - q.Rotate(u.center) * s, q, static_cast<float>(s));
+			Scene::Hide(a_id, false);
+			auto& lk = Scene::LookOf(a_id);
+			ClipTo(lk, a_c, a_frame, a_box, a_cut);
+			lk.flesh[3] = 0.0f;
+			if (a_core < 0) {
+				return;
+			}
+			if (!a_cut) {
+				Scene::Hide(a_core, true);
+				return;
+			}
+			const double rx = u.boardLen * 0.5, ry = (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5), rz = (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5);
+			Scene::Place(a_core, a_c, a_frame, 1.0f);
+			Scene::Stretch(a_core, static_cast<float>(rx * 0.95), static_cast<float>(ry * 0.93), static_cast<float>(rz * 0.93));
+			Scene::Hide(a_core, false);
+			auto& cl = Scene::LookOf(a_core);
+			ClipTo(cl, a_c, a_frame, a_box, true);
 			float fl[3];
 			Flesh(u, fl);
-			std::copy(fl, fl + 3, lk.flesh);
-			lk.flesh[3] = a_cut ? 1.0f : 0.0f;
-			// its rough shape (round, or long with rounded ends), so only the inside of the thing itself shows as flesh
-			const double rx = u.boardLen * 0.5, ry = (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5), rz = (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5);
-			const Vec3   ax[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / rx), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / ry), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / rz) };
-			lk.shape[0][0] = static_cast<float>(a_c.x);
-			lk.shape[0][1] = static_cast<float>(a_c.y);
-			lk.shape[0][2] = static_cast<float>(a_c.z);
-			lk.shape[0][3] = u.dims[0] < 1.6 * u.dims[1] ? 2.0f : 8.0f;
+			std::copy(fl, fl + 3, cl.flesh);
+			cl.flesh[3] = 1.0f;
 			for (int k = 0; k < 3; ++k) {
-				lk.shape[k + 1][0] = a_cut ? static_cast<float>(ax[k].x) : 0.0f;
-				lk.shape[k + 1][1] = a_cut ? static_cast<float>(ax[k].y) : 0.0f;
-				lk.shape[k + 1][2] = a_cut ? static_cast<float>(ax[k].z) : 0.0f;
+				cl.tint[k] = fl[k] * 1.12f;  // its outside, where the skin has gaps (a cabbage's leaves)
 			}
+			cl.cookMode = lk.cookMode;
+			cl.cook[0] = lk.cook[0];
+			cl.shadow = lk.shadow;
 		}
 
 		void PlaceBoardUnit(Unit& u)
@@ -1861,6 +1875,9 @@ namespace Cook
 				const auto id = u.model.empty() ? Add("Chunk") : Scene::Add(u.model);
 				u.segs.push_back(id >= 0 ? id : Add("Chunk"));
 			}
+			while (static_cast<int>(u.cores.size()) < n) {
+				u.cores.push_back(Add("Core"));
+			}
 			const double half = u.boardLen * 0.5, w = u.cut.width;
 			for (int ix = 0; ix < nx; ++ix) {
 				double a, b;
@@ -1870,11 +1887,14 @@ namespace Cook
 					u.cut.Strip(iy, ya, yb);
 					const double box[6] = { nx > 1 ? a - half : -1e7, nx > 1 ? b - half : 1e7, ny > 1 ? ya - w * 0.5 : -1e7, ny > 1 ? yb - w * 0.5 : 1e7, -1e7, 1e7 };
 					const Vec3   c = at + frame.Rotate({ Spread(ix, nx), Spread(iy, ny), 0.0 });
-					PlacePiece(u.segs[ix * ny + iy], u, c, frame, box, n > 1);
+					PlacePiece(u.segs[ix * ny + iy], u.cores[ix * ny + iy], u, c, frame, box, n > 1);
 				}
 			}
 			for (int k = n; k < static_cast<int>(u.segs.size()); ++k) {
 				Scene::Hide(u.segs[k], true);
+			}
+			for (int k = n; k < static_cast<int>(u.cores.size()); ++k) {
+				Scene::Hide(u.cores[k], true);
 			}
 		}
 
@@ -2070,6 +2090,9 @@ namespace Cook
 								Scene::Hide(id, true);
 							}
 						}
+						for (auto id : u.cores) {
+							Scene::Hide(id, true);
+						}
 					}
 				}
 			}
@@ -2153,33 +2176,17 @@ namespace Cook
 				}
 				if (body.state == hc::Chunks::State::None) {
 					Scene::Hide(pc.prop, true);
-					Scene::Hide(pc.cube, true);
+					Scene::Hide(pc.core, true);
 					continue;
 				}
 				auto&      u = g_units[(std::min)(pc.unit, static_cast<int>(g_units.size()) - 1)];
 				const Quat frame = body.state == hc::Chunks::State::Board ? RotY(g_boardPose.tilt) * body.q : body.q;
 				const Vec3 c = body.p - frame.Rotate(pc.mid);  // where its whole would have its middle
-				PlacePiece(pc.prop, u, c, frame, pc.box, pc.cut);
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.cookMode = 1;
 				lk.cook[0] = static_cast<float>(body.charred ? 1.7 : body.cooked * 0.6);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
-				if (pc.cube >= 0) {
-					// a die: a block of flesh the size of what the cell holds, the skin cut to the cell laid over it
-					lk.flesh[3] = 0.0f;
-					Scene::Place(pc.cube, body.p, frame, 1.0f);
-					Scene::Stretch(pc.cube, static_cast<float>(body.size.x * 0.97), static_cast<float>(body.size.y * 0.97), static_cast<float>(body.size.z * 0.97));
-					Scene::Hide(pc.cube, false);
-					auto&       cl = Scene::LookOf(pc.cube);
-					float       fl[3];
-					Flesh(u, fl);
-					for (int k = 0; k < 3; ++k) {
-						cl.tint[k] = fl[k] * 1.12f;
-					}
-					cl.cookMode = 1;
-					cl.cook[0] = lk.cook[0];
-					cl.shadow = lk.shadow;
-				}
+				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut);
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
 			if (P.broth >= 0 && g_pot) {
@@ -2244,26 +2251,23 @@ namespace Cook
 				}
 			}
 			if (P.ladle >= 0) {
-				Lie lie;
-				if (Game(Kit::Role::Ladle) && LieOf(P.ladle, lie)) {
-					// the game's ladle: its long side along the handle, which leans out of the pot and up
-					const double ls = 12.0 / lie.d[0];
+				Vec3 mn, mx;
+				if (Game(Kit::Role::Ladle) && Scene::Bounds(P.ladle, mn, mx) && mx.x - mn.x > mx.y - mn.y) {
+					// the game's ladle as it was made: upright, its cup at the +x end opening up, the handle rising
+					// along -x. Turned so the handle points out of the pot (and away from it once lifted out); the cup
+					// sits in the broth, or level under the pointer with a ladleful in it.
+					const double len = mx.x - mn.x, ls = 12.0 / len;
+					const double cupR = (mx.y - mn.y) * 0.5;
+					const Vec3   cup{ mx.x - cupR, (mn.y + mx.y) * 0.5, mn.z + cupR * 0.9 };  // the middle of its cup, at the rim
 					const bool   out = g_hold == Hold::LadleOut;
-					// lifted out it stays as it was in the pot: the handle up and away, the cup level under the pointer
-					const double yaw = g_ladleA, up = out ? 0.9 : 1.05;
-					// end over end: the game's ladle has its cup at the far end of its length, opening the other way
-					const Quat   lean = RotZ(yaw) * RotY(-up);
-					const Quat   q = lean * RotY(kPi) * lie.q;
-					const Vec3   dir = lean.Rotate({ 1, 0, 0 });  // up the handle, out of the pot
-					const Vec3   bowl = out ? g_ladleOutAt : Vec3{ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ };
-					const Vec3   c = bowl + dir * (lie.d[0] * ls * 0.4);
-					Scene::Place(P.ladle, c - q.Rotate(lie.c) * ls, q, static_cast<float>(ls));
+					const Quat   q = RotZ(g_ladleA - kPi);
+					const Vec3   at = out ? g_ladleOutAt : Vec3{ L::kPotX + std::cos(g_ladleA) * g_ladleR, L::kPotY + std::sin(g_ladleA) * g_ladleR, L::kLiquidZ - 0.3 };
+					Scene::Place(P.ladle, at - q.Rotate(cup) * ls, q, static_cast<float>(ls));
 					Scene::Hide(P.ladle, false);
-					// a ladleful of the stew in its cup
 					const bool full = out && g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn > 0;
 					if (P.ladleSoup >= 0) {
-						const double cup = (std::max)(0.5, lie.d[1] * ls * 0.42);
-						Scene::Place(P.ladleSoup, bowl + dir * (lie.d[0] * ls * 0.02) + Vec3{ 0, 0, 0.35 }, RotZ(g_clock * 0.3), static_cast<float>(cup / 6.1));
+						const double r = cupR * ls * 0.82;
+						Scene::Place(P.ladleSoup, at + Vec3{ 0, 0, -cupR * ls * 0.3 }, RotZ(g_clock * 0.3), static_cast<float>(r / 6.1));
 						Scene::Hide(P.ladleSoup, !full);
 						if (P.broth >= 0) {
 							auto&       sl = Scene::LookOf(P.ladleSoup);

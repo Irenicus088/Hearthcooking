@@ -726,6 +726,10 @@ def kitchen():
     chunk = Mesh()
     chunk.rounded_box(1.0, 1.0, 1.0, 0.2, 4)
     nif("Chunk", [("Chunk", chunk, "flesh", (0.4, 30))])
+    # the inside of a cut thing: a smooth closed egg of its flesh, stretched to the thing and cut with it
+    core = Mesh()
+    core.ellipsoid((0, 0, 0), 1.0, 1.0, 1.0, 40, 24)
+    nif("Core", [("Core", core, "flesh", (0.4, 30))])
     cap = Mesh()
     c = cap.v((0, 0, 0), (0.5, 0.5), (1, 0, 0), (0, 1, 0))
     ring = [cap.v((0, 0.5 * math.cos(2 * math.pi * i / 24), 0.5 * math.sin(2 * math.pi * i / 24)), (0.5 + 0.5 * math.cos(2 * math.pi * i / 24), 0.5 + 0.5 * math.sin(2 * math.pi * i / 24)), (1, 0, 0), (0, 1, 0)) for i in range(25)]

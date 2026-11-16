@@ -16,8 +16,8 @@ namespace Config
 		// Play
 		float mouseSpeed = 1.0f;
 		float uiScale = 1.0f;
-		bool  sound = false;        // all of the kitchen's sounds (off for now, while testing)
-		float volume = 1.0f;        // the kitchen: chopping, the fire, the pot
+		bool  sound = true;         // all of the kitchen's sounds
+		float volume = 0.5f;        // the kitchen: chopping, the fire, the pot
 		float ambience = 1.0f;      // the loops: the fire's crackle, the simmer, the sizzle
 		float effectsVolume = 1.0f; // menu clicks
 		bool  hints = true;         // the line at the bottom saying what to do next
