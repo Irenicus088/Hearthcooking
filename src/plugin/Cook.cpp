@@ -1525,6 +1525,8 @@ namespace Cook
 			}
 			return false;
 		}
+		// something already being cut (or its pieces still on the board): one thing on the board at a time
+		bool OneOnBoard() { return AnyOnBoard() || g_chunks.CountIn(hc::Chunks::State::Board) > 0; }
 		bool CutsWaiting()
 		{
 			if (!BreadCuts() || g_cutInMix) {
@@ -2220,6 +2222,11 @@ namespace Cook
 					auto& u = g_units[ui];
 					double lx = 0, ly = 0;
 					if (g_flow == hc::Flow::Pot) {
+						if (u.role == Role::Chop && P.board >= 0 && g_tip < 0.05 && OverBoard(mx, my, lx, ly) && OneOnBoard()) {
+							Toast("One at a time: into the pot with what's on the board first");
+							PutBack(ui);
+							break;
+						}
 						if (u.role == Role::Chop && P.board >= 0 && g_tip < 0.05 && OverBoard(mx, my, lx, ly)) {
 							const int lane = FreeLane();
 							if (lane >= 0 && Fit(u)) {
@@ -2306,6 +2313,11 @@ namespace Cook
 						}
 						if (u.dice) {
 							// cut on the board first (while the board's free of dough)
+							if (P.board >= 0 && OverBoard(mx, my, lx, ly) && !g_doughOnBoard && OneOnBoard()) {
+								Toast("One at a time: into its bowl with what's on the board first");
+								PutBack(ui);
+								break;
+							}
 							if (P.board >= 0 && OverBoard(mx, my, lx, ly)) {
 								const int lane = g_doughOnBoard ? -1 : FreeLane();
 								if (lane >= 0 && Fit(u)) {
