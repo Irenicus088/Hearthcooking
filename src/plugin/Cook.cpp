@@ -2636,6 +2636,7 @@ namespace Cook
 			}
 			const Vec3   fc = FireCenter();
 			// ---- the fire: its logs, flames, embers, smoke
+			const size_t fireFrom = sp.size();
 			for (int k = 0; k < hc::Fire::kMaxLogs; ++k) {
 				const auto id = P.fireLogs[k];
 				if (id < 0) {
@@ -2721,6 +2722,9 @@ namespace Cook
 					e.kind = Render3D::Sprite::Kind::Ember;
 					sp.push_back(e);
 				}
+			}
+			if (g_flow == hc::Flow::Oven) {
+				sp.resize(fireFrom);  // the oven's fire is shut in its dome: its glow lights the kitchen, its flames aren't seen
 			}
 			for (int k = 0; k < 6 && g_flow != hc::Flow::Pot; ++k) {
 				const double p = std::fmod(t * 0.12 + k / 6.0, 1.0);
