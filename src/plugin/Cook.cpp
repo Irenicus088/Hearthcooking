@@ -109,7 +109,8 @@ namespace Cook
 			Mix,         // stirring the flour into the water
 			Ball,        // the ball of dough, out of the bowl onto the board
 			Apples,      // the bowl of cut filling, over the dough
-			Roll         // the rolling pin pressed and rolled over the dough
+			Roll,        // the rolling pin pressed and rolled over the dough
+			Sauce        // a sauce's bowl of liquids, lifted to pour into the pot
 		};
 
 		struct Unit
@@ -141,6 +142,7 @@ namespace Cook
 			bool                      wentWhole = false;  // into the pot without being cut
 			bool                      thin = false;       // a leek, a carrot: only ever cut across
 			bool                      dice = false;       // the oven: cut on the board first, then into the bowl
+			bool                      byBowl = false;     // a sauce's liquid poured into its bowl: the bottle stood beside it
 			bool                      bulb = false;       // a head of garlic: broken into its cloves (a knock of the knife) before it's diced
 		};
 
@@ -171,7 +173,7 @@ namespace Cook
 
 		struct Props
 		{
-			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, ladleStew = -1, pin = -1, eggA = -1, eggB = -1, yolk = -1, eggWhite = -1, flourHeap = -1, spoon = -1, bowl = -1, posts = -1, rod = -1,
+			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, ladleStew = -1, sauceBowl = -1, sauceIn = -1, pin = -1, eggA = -1, eggB = -1, yolk = -1, eggWhite = -1, flourHeap = -1, spoon = -1, bowl = -1, posts = -1, rod = -1,
 					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1,
 					  mixBowl = -1, mixWater = -1, mixBall = -1, fillBowl = -1, slab = -1, dishRef = -1;
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
@@ -256,6 +258,10 @@ namespace Cook
 		double g_pushAcc = 0.0;          // kneading or rolling in one hold: how far it's moved since the last push counted
 		Vec3   g_doughLast{};
 		bool   g_doughLastOk = false;
+		// A sauce (a basting sauce): its liquids poured into a bowl first, one after another, then the bowl into the pot
+		const Vec3 kSauceAt{ -4.0, 11.5, 0.0 };
+		int    g_sauceN = 0;     // in the bowl so far
+		double g_sauceTip = 0.0;
 		double g_eggT = -1.0;  // an egg cracked over the mixing bowl: time since (-1: none yet)
 		double g_spin = 0.0;  // how far the pot's stew has turned with the stirring (keeps going one way, never jumps back)
 		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
@@ -626,6 +632,15 @@ namespace Cook
 				Scene::Hide(P.ladleStew, true);
 				Scene::LookOf(P.ladleStew).onlyFlat = true;
 				P.ladle = KitAdd(Kit::Role::Ladle);
+				P.sauceBowl = -1;
+				P.sauceIn = -1;
+				if (g_recipe && SauceBowl()) {
+					// a sauce's bowl, on the worktop behind the board, and what's poured into it
+					P.sauceBowl = KitAdd(Kit::Role::Bowl);
+					Settle(P.sauceBowl, Kit::Role::Bowl, kSauceAt, { 7.5, 7.5, 0.0 }, 0.0, false, kSauceAt);
+					P.sauceIn = Add("Broth");
+					Scene::Hide(P.sauceIn, true);
+				}
 				P.bowl = KitAdd(Kit::Role::Bowl);
 				Settle(P.bowl, Kit::Role::Bowl, { L::kServeX, L::kServeY, 0.0 }, { 7.0, 7.0, 0.0 }, 0.0, false, { L::kServeX, L::kServeY, 0.0 });
 			}
@@ -740,6 +755,26 @@ namespace Cook
 			Scene::Hide(a_u.prop, false);
 		}
 
+
+		// A sauce made in a bowl first: its liquids into it, then it into the pot
+		bool SauceBowl()
+		{
+			std::string n = g_recipe ? g_recipe->name : std::string();
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return g_flow == hc::Flow::Pot && n.find("sauce") != std::string::npos;
+		}
+		bool Liquid(const Unit& a_u)
+		{
+			std::string n = a_u.name;
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			for (const char* w : { "ale", "mead", "wine", "milk", "honey", "vinegar", "brandy", "rum", "cider", "oil" }) {
+				if (n.find(w) != std::string::npos && n.find("kale") == std::string::npos) {
+					return true;
+				}
+			}
+			return false;
+		}
+		bool OverSauceBowl(float a_mx, float a_my) { return NearScreen(kSauceAt + Vec3{ 0, 0, 1.5 }, a_mx, a_my, 4.5, 50.0f); }
 
 		// Bottles and jugs stand up (as the game models them), not lie on their side
 		bool Upright(const Unit& a_u)
@@ -1250,6 +1285,8 @@ namespace Cook
 			g_mix = 0.0;
 			g_spin = 0.0;
 			g_eggT = -1.0;
+			g_sauceN = 0;
+			g_sauceTip = 0.0;
 			g_cutInMix = false;
 			g_pinHeld = false;
 			g_ball = false;
@@ -1638,6 +1675,9 @@ namespace Cook
 
 		bool AllInPot()
 		{
+			if (g_sauceN > 0) {
+				return false;  // (a sauce's bowl not poured in yet)
+			}
 			for (const auto& u : g_units) {
 				if (u.at == Unit::At::Cloth || u.at == Unit::At::Board || u.at == Unit::At::Held) {
 					return false;
@@ -1819,6 +1859,11 @@ namespace Cook
 				g_hold = Hold::Roll;
 				g_pushAcc = 0.0;
 				g_doughLastOk = false;
+				return;
+			}
+			// a sauce's bowl, with something in it: lifted, to pour into the pot
+			if (pot && SauceBowl() && g_sauceN > 0 && OverSauceBowl(mx, my)) {
+				g_hold = Hold::Sauce;
 				return;
 			}
 			// the knife comes down where it is
@@ -2185,6 +2230,11 @@ namespace Cook
 					g_carry = { x, y, kCarryZ };
 				}
 				break;
+			case Hold::Sauce:
+				if (OnPlane(mx, my, 9.0, x, y)) {
+					g_carry = { x, y, 9.0 };
+				}
+				break;
 			case Hold::Roll:
 				// pressed down and rolled about over the dough: every bit of the way over it rolls it out
 				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
@@ -2305,6 +2355,30 @@ namespace Cook
 								break;
 							}
 							Toast("The board is full");
+						} else if (SauceBowl() && Liquid(u) && OverSauceBowl(mx, my)) {
+							// poured into the sauce's bowl (the ale before the honey), the bottle stood beside it
+							bool aleWaiting = false;
+							std::string ln = u.name;
+							std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							for (const auto& o : g_units) {
+								std::string on = o.name;
+								std::transform(on.begin(), on.end(), on.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+								aleWaiting |= on.find("ale") != std::string::npos && on.find("kale") == std::string::npos && !o.byBowl && o.at != Unit::At::Pot;
+							}
+							if (ln.find("honey") != std::string::npos && aleWaiting) {
+								Toast("The ale goes in first");
+								PutBack(ui);
+								break;
+							}
+							u.at = Unit::At::Gone;
+							u.byBowl = true;
+							++g_sauceN;
+							Audio::Play({ ln.find("honey") != std::string::npos ? "splash_0" : "pour", 0.6f });
+							break;
+						} else if (SauceBowl() && Liquid(u) && OverPot(mx, my, 1.0)) {
+							Toast("Into the bowl first, then the bowl into the pot");
+							PutBack(ui);
+							break;
 						} else if (OverPot(mx, my, 1.0)) {
 							u.at = Unit::At::Pot;
 							if (u.role == Role::Chop) {
@@ -2653,6 +2727,8 @@ namespace Cook
 			case Hold::Door:
 				g_doorWant = g_doorWant > 0.5 ? 1.0 : 0.0;
 				break;
+			case Hold::Sauce:
+				break;  // (poured as it tipped over the pot; else it goes back)
 			case Hold::Roll:
 				g_pushAcc = 0.0;
 				g_doughLastOk = false;  // (lifted: still in hand)
@@ -2835,6 +2911,26 @@ namespace Cook
 				}
 				if (g_knifeAnim > 0.2) {
 					g_knifeAnim = -1;
+				}
+			}
+			if (g_flow == hc::Flow::Pot && g_pot && SauceBowl()) {
+				// the sauce's bowl: lifted over the pot it tips, and what's in it goes in
+				const bool over = g_hold == Hold::Sauce && std::hypot(g_carry.x - L::kPotX, g_carry.y - L::kPotY) < L::kPotR + 2.5;
+				g_sauceTip += Clamp((over ? 1.0 : 0.0) - g_sauceTip, -dt * 3.0, dt * 2.0);
+				if (g_sauceTip > 0.6 && g_sauceN > 0) {
+					for (auto& o : g_units) {
+						if (o.byBowl && o.at == Unit::At::Gone) {
+							o.at = Unit::At::Pot;
+							++g_tossedIn;
+						}
+					}
+					g_sauceN = 0;
+					Audio::Play({ "pour", 0.8f });
+					static const float drop[4] = { 0.6f, 0.38f, 0.14f, 0.9f };
+					Spray({ L::kPotX, L::kPotY, L::kLiquidZ }, 14, drop, 4.0, 18.0, 0.18f);
+				}
+				if (g_hold == Hold::Sauce && g_sauceN == 0 && g_sauceTip < 0.05) {
+					g_hold = Hold::None;  // emptied: it goes back
 				}
 			}
 			if (g_flow == hc::Flow::Pot && g_pot) {
@@ -3139,6 +3235,34 @@ namespace Cook
 				Scene::Hide(P.pile[k], false);
 			}
 			// ---- the fruit bowl, lifted and tipping toward the dough
+			if (P.sauceBowl >= 0) {
+				Pose p;
+				p.pos = kSauceAt;
+				const bool fitted = !Game(Kit::Role::Bowl) || FitBox(P.sauceBowl, Kit::Get(Kit::Role::Bowl), kSauceAt, { 7.5, 7.5, 0.0 }, 0.0, false, p);
+				const bool held = g_hold == Hold::Sauce;
+				const Vec3 base = held ? g_carry : kSauceAt;
+				const double ang = std::atan2(L::kPotY - base.y, L::kPotX - base.x);
+				const Quat   T = RotZ(ang) * RotY(g_sauceTip * 1.7) * RotZ(-ang);  // its far side dips toward the pot
+				if (fitted) {
+					p.pos = base + T.Rotate(p.pos - kSauceAt);
+					p.q = T * p.q;
+					Apply(P.sauceBowl, p);
+				}
+				if (P.sauceIn >= 0) {
+					Scene::Hide(P.sauceIn, g_sauceN == 0);
+					if (g_sauceN > 0) {
+						Scene::Place(P.sauceIn, base + T.Rotate({ 0, 0, 1.3 + 0.3 * g_sauceN }), T * RotZ(g_clock * 0.1), 0.42f);
+						auto& sl = Scene::LookOf(P.sauceIn);
+						bool honey = false;
+						for (const auto& o : g_units) {
+							honey |= o.byBowl && o.at == Unit::At::Gone && o.name.find("oney") != std::string::npos;
+						}
+						// ale, amber; the honey stirring a deeper gold into it
+						sl.lift[0] = honey ? 0.78f : 0.62f, sl.lift[1] = honey ? 0.48f : 0.38f, sl.lift[2] = honey ? 0.12f : 0.12f, sl.lift[3] = 0.92f;
+						sl.shadow = false;
+					}
+				}
+			}
 			if (P.fillBowl >= 0 && g_flow == hc::Flow::Oven && (g_hold == Hold::Apples || g_bowlTip > 0.01)) {
 				Pose p;
 				p.pos = kFillAt;
@@ -3343,6 +3467,16 @@ namespace Cook
 					}
 					break;
 				default:
+					if (u.byBowl && (u.at == Unit::At::Gone || u.at == Unit::At::Pot)) {
+						// poured: its bottle (or pot of honey) stood by the sauce's bowl
+						int k = 0;
+						for (int j = 0; j < i; ++j) {
+							k += g_units[j].byBowl;
+						}
+						Stand(u, kSauceAt + Vec3{ 5.2 + k * 2.6, -1.2 + k * 0.8, 0.0 }, u.boardLen, 0.4 + k);
+						HideBoardBits(u);
+						break;
+					}
 					Scene::Hide(u.prop, true);
 					HideBoardBits(u);
 					break;
@@ -4253,7 +4387,27 @@ namespace Cook
 					}
 					unitsDone(Role::Chop, { Unit::At::Pot }, "Tip in the ", "");
 				}
-				unitsDone(Role::Toss, { Unit::At::Pot }, "Add the ", "");
+				if (SauceBowl()) {
+					// its liquids into the bowl, then the bowl into the pot
+					bool anyL = false, allIn = true;
+					for (const auto& u : g_units) {
+						if (u.role == Role::Toss && Liquid(u)) {
+							anyL = true;
+							s.push_back({ fmt::format("Into the bowl: the {}", u.name), u.byBowl });
+							allIn &= u.at == Unit::At::Pot;
+						}
+					}
+					if (anyL) {
+						s.push_back({ "Pour the bowl into the pot", allIn });
+					}
+					for (const auto& u : g_units) {
+						if (u.role == Role::Toss && !Liquid(u)) {
+							s.push_back({ fmt::format("Add the {}", u.name), u.at == Unit::At::Pot });
+						}
+					}
+				} else {
+					unitsDone(Role::Toss, { Unit::At::Pot }, "Add the ", "");
+				}
 				if (g_recipe->salted) {
 					s.push_back({ "A pinch of salt", g_pot && g_pot->Seasoning().amount >= 0.7 });
 				}
