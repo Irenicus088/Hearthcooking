@@ -3348,6 +3348,25 @@ namespace Cook
 					sp.push_back(s);
 				}
 			}
+			// the pinch of salt lying on what's in the mixing bowl, until it's stirred in
+			if (g_flow == hc::Flow::Oven && g_oven && P.mixBowl >= 0 && !g_ball && !g_doughOnBoard && g_oven->Seasoning().amount > 0.01 && g_mix < 0.3) {
+				const double amt = Clamp(g_oven->Seasoning().amount, 0.0, 1.0);
+				const int    n = static_cast<int>(14 + amt * 40);
+				const float  fade = static_cast<float>(1.0 - Clamp(g_mix / 0.3, 0.0, 1.0));
+				for (int k = 0; k < n; ++k) {
+					const double a = Hash(k, 31) * 6.283, r = std::sqrt(Hash(k, 32)) * 1.1;
+					Render3D::Sprite s;
+					s.pos[0] = static_cast<float>(kMixAt.x + 0.4 + std::cos(a) * r);
+					s.pos[1] = static_cast<float>(kMixAt.y - 0.3 + std::sin(a) * r * 0.8);
+					s.pos[2] = static_cast<float>(kMixAt.z + 1.5 + 0.4 * g_mix + 0.12 + (1.1 - r) * 0.12);
+					s.size = 0.09f;
+					s.color[0] = s.color[1] = 0.97f;
+					s.color[2] = 0.95f;
+					s.color[3] = fade;
+					s.kind = Render3D::Sprite::Kind::Grain;
+					sp.push_back(s);
+				}
+			}
 			for (const auto& g : g_grains) {
 				Render3D::Sprite s;
 				s.pos[0] = static_cast<float>(g.p.x);
