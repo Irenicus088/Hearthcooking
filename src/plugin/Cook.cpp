@@ -2108,16 +2108,14 @@ namespace Cook
 			if (a_core < 0) {
 				return;
 			}
-			// only a die needs a solid (one from the middle has no skin at all); a slice is whole round its edge, and
-			// its skin's inside shows as flesh
-			const bool diced = std::abs(a_box[2]) < 1e6 || std::abs(a_box[3]) < 1e6 || std::abs(a_box[4]) < 1e6 || std::abs(a_box[5]) < 1e6;
-			if (!a_cut || !diced) {
+			// every cut piece is solid: its cut faces are drawn wherever they're inside the thing
+			if (!a_cut) {
 				Scene::Hide(a_core, true);
 				return;
 			}
-			// the solid: what of the cell the thing's rounded shape fills, found exactly by the shader in a box round it
-			const double k = 0.78;  // well inside the skin (its rough shape is only an egg); the skin's own inside, drawn as flesh, fills the rest
-			const double R[3] = { u.boardLen * 0.5 * k, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * k, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * k };
+			// the solid: a box round the piece (the cell, within the thing's measured bounds); the renderer draws
+			// its cut faces exactly where they're inside the thing's own mesh
+			const double R[3] = { u.boardLen * 0.5, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5), (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) };
 			double       lo[3], hi[3];
 			for (int ax = 0; ax < 3; ++ax) {
 				lo[ax] = (std::max)(a_box[ax * 2], -R[ax]);
@@ -2135,15 +2133,18 @@ namespace Cook
 			ClipTo(cl, a_c, a_frame, a_box, true);
 			std::copy(fl, fl + 3, cl.flesh);
 			cl.flesh[3] = 4.0f;
-			const Vec3 axv[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / R[0]), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / R[1]), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / R[2]) };
-			cl.shape[0][0] = static_cast<float>(a_c.x);
-			cl.shape[0][1] = static_cast<float>(a_c.y);
-			cl.shape[0][2] = static_cast<float>(a_c.z);
-			cl.shape[0][3] = 2.0f;
-			for (int j = 0; j < 3; ++j) {
-				cl.shape[j + 1][0] = static_cast<float>(axv[j].x);
-				cl.shape[j + 1][1] = static_cast<float>(axv[j].y);
-				cl.shape[j + 1][2] = static_cast<float>(axv[j].z);
+			// the thing's bounds as a box (axes over half-sizes), on the face and on the skin that counts for it
+			const Vec3 axv[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / (R[0] * 1.01)), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / (R[1] * 1.01)), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / (R[2] * 1.01)) };
+			for (auto* look : { &cl, &lk }) {
+				look->shape[0][0] = static_cast<float>(a_c.x);
+				look->shape[0][1] = static_cast<float>(a_c.y);
+				look->shape[0][2] = static_cast<float>(a_c.z);
+				look->shape[0][3] = 2.0f;
+				for (int j = 0; j < 3; ++j) {
+					look->shape[j + 1][0] = static_cast<float>(axv[j].x);
+					look->shape[j + 1][1] = static_cast<float>(axv[j].y);
+					look->shape[j + 1][2] = static_cast<float>(axv[j].z);
+				}
 			}
 			cl.cookMode = lk.cookMode;
 			cl.cook[0] = lk.cook[0];

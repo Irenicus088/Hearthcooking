@@ -283,39 +283,67 @@ float4 PSMain(VSOut i) : SV_Target
 
 // A cut piece's solid, drawn on a box round it: the eye's ray against the piece exactly - its cuts (planes) and the
 // thing's own rounded shape (an ellipsoid) - so a piece from the middle is a solid cube however hollow the mesh is.
-float4 PSSolid(VSOut i, out float depth : SV_Depth) : SV_Target
+// A cut piece's face, where the eye's ray first meets one of its cuts inside the thing's box (its measured
+// bounds, shape[] as axes over half-sizes). False where the ray comes in through the box's own sides (the skin's
+// to draw) or misses the piece.
+bool CapPoint(float3 wpos, out float3 q, out float3 n, out float tin)
 {
-	float3 e = camPos.xyz, d = normalize(i.wpos - camPos.xyz);
-	float  tin = 0, tout = 1e9;
-	float3 n = float3(0, 0, 1);
+	float3 e = camPos.xyz, d = normalize(wpos - camPos.xyz);
+	float  tout = 1e9;
+	tin = 0;
+	n = float3(0, 0, 1);
+	q = wpos;
+	bool any = false;
 	[unroll] for (int k = 0; k < 6; k++) {
 		float3 pn = clips[k].xyz;
 		if (all(pn == 0)) continue;
 		float dd = dot(pn, d), de = dot(pn, e) - clips[k].w;
 		if (abs(dd) < 1e-6) {
-			if (de > 0) discard;
+			if (de > 0) return false;
 			continue;
 		}
 		float t = -de / dd;
 		if (dd < 0) {
-			if (t > tin) { tin = t; n = pn; }
+			if (t > tin) { tin = t; n = pn; any = true; }
 		} else {
 			tout = min(tout, t);
 		}
 	}
+	if (!any) return false;
 	float3 r = e - shape[0].xyz;
 	float3 o = float3(dot(shape[1].xyz, r), dot(shape[2].xyz, r), dot(shape[3].xyz, r));
 	float3 v = float3(dot(shape[1].xyz, d), dot(shape[2].xyz, d), dot(shape[3].xyz, d));
-	float  a = dot(v, v), b = dot(o, v), c = dot(o, o) - 1;
-	float  disc = b * b - a * c;
-	if (disc < 0) discard;
-	float sq = sqrt(disc), t0 = (-b - sq) / a, t1 = (-b + sq) / a;
-	// where the ray comes in through the thing's own rounded outside, the skin is the outside: only cut faces
-	// are drawn here, so the egg never shows past a skin that's narrower than it
-	if (t0 > tin) discard;
-	tout = min(tout, t1);
-	if (tin >= tout || tin <= 0) discard;
-	float3 q = e + d * tin;
+	[unroll] for (int a = 0; a < 3; a++) {
+		if (abs(v[a]) < 1e-6) {
+			if (abs(o[a]) > 1) return false;
+			continue;
+		}
+		float t1 = (-1 - o[a]) / v[a], t2 = (1 - o[a]) / v[a];
+		if (min(t1, t2) > tin) return false;  // in through the box's side: not a cut face
+		tout = min(tout, max(t1, t2));
+	}
+	if (tin >= tout || tin <= 0) return false;
+	q = e + d * tin;
+	return true;
+}
+
+// Pass 1 of a cut piece's face: the thing's whole mesh (uncut), counting in the stencil how many of its surfaces
+// lie between the eye and the cut face. An odd count: the face is inside the thing, and gets drawn.
+float4 PSParity(VSOut i) : SV_Target
+{
+	float3 q, n;
+	float  tin;
+	if (!CapPoint(i.wpos, q, n, tin)) discard;
+	if (length(i.wpos - camPos.xyz) >= tin - 1e-4) discard;
+	return 0;
+}
+
+// Pass 2: on a box round the piece, the face itself (only where pass 1 left an odd count)
+float4 PSSolid(VSOut i, out float depth : SV_Depth) : SV_Target
+{
+	float3 q, n;
+	float  tin;
+	if (!CapPoint(i.wpos, q, n, tin)) discard;
 	float4 cp = mul(viewProj, float4(q, 1));
 	depth = cp.z / cp.w;
 	return Shade(i, true, q, n);
@@ -535,6 +563,10 @@ float4 PSComposite(FSOut i) : SV_Target
 		ID3D11PixelShader*  g_ps = nullptr;
 		ID3D11PixelShader*  g_psCut = nullptr;
 		ID3D11PixelShader*  g_psSolid = nullptr;
+		ID3D11PixelShader*  g_psParity = nullptr;
+		ID3D11DepthStencilState* g_dsParity = nullptr;
+		ID3D11DepthStencilState* g_dsCap = nullptr;
+		ID3D11BlendState*        g_bsNoColor = nullptr;
 		ID3D11VertexShader* g_vsShadowCut = nullptr;
 		ID3D11PixelShader*  g_psShadowCut = nullptr;
 		ID3D11PixelShader*  g_psSprite = nullptr;
@@ -640,7 +672,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				return ok;
 			};
 			if (!vs("VSMain", &g_vs, true) || !vs("VSShadow", &g_vsShadow, false) || !vs("VSShadowCut", &g_vsShadowCut, false) || !vs("VSFull", &g_vsFull, false) || !vs("VSSprite", &g_vsSprite, false) ||
-				!ps("PSMain", &g_ps) || !ps("PSCut", &g_psCut) || !ps("PSSolid", &g_psSolid) || !ps("PSShadowCut", &g_psShadowCut) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
+				!ps("PSMain", &g_ps) || !ps("PSCut", &g_psCut) || !ps("PSSolid", &g_psSolid) || !ps("PSParity", &g_psParity) || !ps("PSShadowCut", &g_psShadowCut) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
 				!ps("PSComposite", &g_psComposite)) {
 				return false;
 			}
@@ -703,9 +735,31 @@ float4 PSComposite(FSOut i) : SV_Target
 			a_dev->CreateDepthStencilState(&dd, &g_dsRead);
 			dd.DepthEnable = FALSE;
 			a_dev->CreateDepthStencilState(&dd, &g_dsOff);
+			// a cut piece's face: count the thing's surfaces before it (flip the low bit), then draw it where odd
+			{
+				D3D11_DEPTH_STENCIL_DESC sd{};
+				sd.DepthEnable = FALSE;
+				sd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+				sd.DepthFunc = D3D11_COMPARISON_ALWAYS;
+				sd.StencilEnable = TRUE;
+				sd.StencilReadMask = 1;
+				sd.StencilWriteMask = 1;
+				sd.FrontFace = { D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_INVERT, D3D11_COMPARISON_ALWAYS };
+				sd.BackFace = sd.FrontFace;
+				a_dev->CreateDepthStencilState(&sd, &g_dsParity);
+				sd.DepthEnable = TRUE;
+				sd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+				sd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+				sd.FrontFace = { D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_ZERO, D3D11_STENCIL_OP_ZERO, D3D11_COMPARISON_EQUAL };
+				sd.BackFace = sd.FrontFace;
+				a_dev->CreateDepthStencilState(&sd, &g_dsCap);
+			}
 			D3D11_BLEND_DESC bd{};
 			bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 			a_dev->CreateBlendState(&bd, &g_bsOpaque);
+			bd.RenderTarget[0].RenderTargetWriteMask = 0;
+			a_dev->CreateBlendState(&bd, &g_bsNoColor);
+			bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 			auto& rt = bd.RenderTarget[0];
 			rt.BlendEnable = TRUE;
 			rt.SrcBlend = D3D11_BLEND_ONE;
@@ -805,7 +859,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			td.SampleDesc.Count = g_msaa;
 			td.BindFlags = D3D11_BIND_RENDER_TARGET;
 			bool ok = SUCCEEDED(g_dev->CreateTexture2D(&td, nullptr, &g_color)) && SUCCEEDED(g_dev->CreateRenderTargetView(g_color, nullptr, &g_colorRTV));
-			td.Format = DXGI_FORMAT_D32_FLOAT;
+			td.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;  // a stencil, for the faces of cut pieces
 			td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 			ok = ok && SUCCEEDED(g_dev->CreateTexture2D(&td, nullptr, &g_depth)) && SUCCEEDED(g_dev->CreateDepthStencilView(g_depth, nullptr, &g_depthDSV));
 			td.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -1358,7 +1412,7 @@ float4 PSComposite(FSOut i) : SV_Target
 		{
 			const float clear[4] = { 0, 0, 0, 0 };
 			c->ClearRenderTargetView(g_colorRTV, clear);
-			c->ClearDepthStencilView(g_depthDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
+			c->ClearDepthStencilView(g_depthDSV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 			c->OMSetRenderTargets(1, &g_colorRTV, g_depthDSV);
 			D3D11_VIEWPORT vp{ 0, 0, static_cast<float>(g_w), static_cast<float>(g_h), 0, 1 };
 			c->RSSetViewports(1, &vp);
@@ -1370,17 +1424,45 @@ float4 PSComposite(FSOut i) : SV_Target
 				c->OMSetBlendState(a_blend ? g_bsPremul : g_bsOpaque, nullptr, 0xFFFFFFFF);
 				c->OMSetDepthStencilState(a_blend ? g_dsRead : g_dsOn, 0);
 				for (const auto& it : g_frame.items) {
-					if (it.blend != a_blend || !bindMesh(it)) {
-						continue;
+					if (it.blend != a_blend || it.flesh[3] > 3.5f || !bindMesh(it)) {
+						continue;  // (a cut piece's face is drawn after, with its stencil)
 					}
 					ID3D11ShaderResourceView* t[4] = { it.diffuse, it.normal, it.env, it.envMask };
 					c->PSSetShaderResources(0, 4, t);
-					const float fm = it.flesh[3];  // 1-2 cut faces from the mesh's inside, 3 skin with flesh inside, 4 the solid
-					c->PSSetShader(fm > 3.5f ? g_psSolid : (fm > 0.5f && fm < 2.5f) ? g_psCut : g_ps, nullptr, 0);
+					const float fm = it.flesh[3];  // 1-2 cut faces from the mesh's inside, 3 skin with flesh inside
+					c->PSSetShader((fm > 0.5f && fm < 2.5f) ? g_psCut : g_ps, nullptr, 0);
 					c->DrawIndexed(it.indexCount, 0, 0);
 				}
 			};
 			drawPass(false);
+			// the cut pieces' faces: for each, its skin's whole mesh counts surfaces into the stencil, then the face
+			// is drawn on a box round it wherever the count was odd (inside the thing), clearing it as it goes
+			for (const auto& h : g_frame.items) {
+				if (h.flesh[3] <= 3.5f) {
+					continue;
+				}
+				c->OMSetBlendState(g_bsNoColor, nullptr, 0xFFFFFFFF);
+				c->OMSetDepthStencilState(g_dsParity, 1);
+				c->PSSetShader(g_psParity, nullptr, 0);
+				bool any = false;
+				for (const auto& sk : g_frame.items) {
+					if (sk.flesh[3] < 2.5f || sk.flesh[3] > 3.5f || std::memcmp(sk.clips, h.clips, sizeof(h.clips)) != 0 || !bindMesh(sk)) {
+						continue;
+					}
+					c->DrawIndexed(sk.indexCount, 0, 0);
+					any = true;
+				}
+				if (!any || !bindMesh(h)) {
+					continue;
+				}
+				ID3D11ShaderResourceView* t[4] = { h.diffuse, nullptr, nullptr, nullptr };
+				c->PSSetShaderResources(0, 4, t);
+				c->OMSetBlendState(g_bsOpaque, nullptr, 0xFFFFFFFF);
+				c->OMSetDepthStencilState(g_dsCap, 1);
+				c->PSSetShader(g_psSolid, nullptr, 0);
+				c->DrawIndexed(h.indexCount, 0, 0);
+			}
+			c->PSSetShader(g_ps, nullptr, 0);
 			drawPass(true);
 			// the sprites: soft ones first (steam, smoke, bubbles, salt), then the light (fire, embers, glow) on top
 			if (!g_frame.sprites.empty()) {
