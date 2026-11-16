@@ -179,6 +179,48 @@ namespace Scene
 		}
 
 		// Collects a prop's measured geometries into its own-space bounds, once every one is in
+		// A shape's buffers: its own, or for a skinned one (some of the game's meat) its skin partition's - drawn as
+		// it was modelled, unposed
+		struct Buffers
+		{
+			::ID3D11Buffer* vb = nullptr;
+			::ID3D11Buffer* ib = nullptr;
+			std::uint64_t   desc = 0;
+			std::uint32_t   indexCount = 0, vertexCount = 0;
+		};
+		bool BuffersOf(RE::BSGeometry* a_geo, Buffers& a_out)
+		{
+			auto* tri = a_geo ? a_geo->AsTriShape() : nullptr;
+			if (!tri) {
+				return false;
+			}
+			auto& gd = a_geo->GetGeometryRuntimeData();
+			if (auto* rd = gd.rendererData; rd && rd->vertexBuffer && rd->indexBuffer) {
+				a_out.vb = reinterpret_cast<::ID3D11Buffer*>(rd->vertexBuffer);
+				a_out.ib = reinterpret_cast<::ID3D11Buffer*>(rd->indexBuffer);
+				std::memcpy(&a_out.desc, &rd->vertexDesc, sizeof(a_out.desc));
+				a_out.indexCount = static_cast<std::uint32_t>(tri->GetTrishapeRuntimeData().triangleCount) * 3;
+				a_out.vertexCount = tri->GetTrishapeRuntimeData().vertexCount;
+				return true;
+			}
+			auto* skin = gd.skinInstance.get();
+			auto* part = skin ? skin->skinPartition.get() : nullptr;
+			if (!part || part->numPartitions == 0) {
+				return false;
+			}
+			const auto& p0 = part->partitions[0];
+			auto*       bd = p0.buffData;
+			if (!bd || !bd->vertexBuffer || !bd->indexBuffer) {
+				return false;
+			}
+			a_out.vb = reinterpret_cast<::ID3D11Buffer*>(bd->vertexBuffer);
+			a_out.ib = reinterpret_cast<::ID3D11Buffer*>(bd->indexBuffer);
+			std::memcpy(&a_out.desc, &bd->vertexDesc, sizeof(a_out.desc));
+			a_out.indexCount = static_cast<std::uint32_t>(p0.triangles) * 3;
+			a_out.vertexCount = part->vertexCount;
+			return true;
+		}
+
 		void TryBounds(Prop& a_p)
 		{
 			if (a_p.measured || !a_p.node) {
@@ -198,16 +240,18 @@ namespace Scene
 				if (a_p.tries == 0 && a_geo && a_geo->GetRTTI()) {
 					kinds += fmt::format("{}'{}' ", a_geo->GetRTTI()->name, a_geo->name.c_str());
 				}
-				if (!tri || !rd || !rd->vertexBuffer) {
+				Buffers bufs;
+				if (!BuffersOf(a_geo, bufs)) {
 					++noData;
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
-				auto*         vb = reinterpret_cast<::ID3D11Buffer*>(rd->vertexBuffer);
-				std::uint64_t desc = 0;
-				std::memcpy(&desc, &rd->vertexDesc, sizeof(desc));
-				const auto id = reinterpret_cast<std::uint64_t>(vb) ^ (static_cast<std::uint64_t>(tri->GetTrishapeRuntimeData().vertexCount) << 48) ^ (desc * 0x9E3779B97F4A7C15ull);
+				(void)rd;
+				(void)tri;
+				auto*         vb = bufs.vb;
+				std::uint64_t desc = bufs.desc;
+				const auto id = reinterpret_cast<std::uint64_t>(vb) ^ (static_cast<std::uint64_t>(bufs.vertexCount) << 48) ^ (desc * 0x9E3779B97F4A7C15ull);
 				if (!a_p.asked) {
-					Render3D::RequestMeasure(id, vb, desc, tri->GetTrishapeRuntimeData().vertexCount);
+					Render3D::RequestMeasure(id, vb, desc, bufs.vertexCount);
 				}
 				float mn[3], mx[3];
 				if (!Render3D::MeasureResult(id, mn, mx)) {
@@ -658,15 +702,17 @@ namespace Scene
 				auto* prop = gd.shaderProperty.get();
 				auto* lit = prop ? netimmerse_cast<RE::BSLightingShaderProperty*>(prop) : nullptr;
 				auto* mat = lit ? static_cast<RE::BSLightingShaderMaterialBase*>(lit->material) : nullptr;
-				if (!rd || !rd->vertexBuffer || !rd->indexBuffer || !mat) {
+				Buffers bufs;
+				(void)rd;
+				if (!mat || !BuffersOf(a_geo, bufs)) {
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
 				Render3D::Item it;
-				it.vb = reinterpret_cast<::ID3D11Buffer*>(rd->vertexBuffer);
-				it.ib = reinterpret_cast<::ID3D11Buffer*>(rd->indexBuffer);
-				std::memcpy(&it.desc, &rd->vertexDesc, sizeof(it.desc));
-				it.indexCount = static_cast<std::uint32_t>(tri->GetTrishapeRuntimeData().triangleCount) * 3;
-				it.vertexCount = tri->GetTrishapeRuntimeData().vertexCount;
+				it.vb = bufs.vb;
+				it.ib = bufs.ib;
+				it.desc = bufs.desc;
+				it.indexCount = bufs.indexCount;
+				it.vertexCount = bufs.vertexCount;
 				it.name = a_geo->name.c_str();
 				// The geometry's place, with the prop's stretches: along its own axes (inside its rotation) and along the
 				// kitchen's (outside it). One matrix, not a pure rotation: world = W R S (rel) * s + t.

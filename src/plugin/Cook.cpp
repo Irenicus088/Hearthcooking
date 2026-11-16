@@ -649,7 +649,7 @@ namespace Cook
 					}
 					Scene::Hide(u.prop, true);
 					const int k = static_cast<int>(g_units.size());
-					u.clothAt = { (k < 5 ? -31.5 : -25.5) + kClothShift, 8.5 - (k % 5) * 6.0, 0.0 };
+					u.clothAt = { -31.5 + 5.0 * (k / 4) + kClothShift, 5.5 - (k % 4) * 6.5, 0.0 };  // clear of the recipe card
 					g_units.push_back(std::move(u));
 				}
 			}
@@ -2110,7 +2110,7 @@ namespace Cook
 				return;
 			}
 			// the solid: what of the cell the thing's rounded shape fills, found exactly by the shader in a box round it
-			const double k = 0.92;  // inside the skin; the skin's own inside (drawn as flesh) rims it
+			const double k = 0.78;  // well inside the skin (its rough shape is only an egg); the skin's own inside, drawn as flesh, fills the rest
 			const double R[3] = { u.boardLen * 0.5 * k, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * k, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * k };
 			double       lo[3], hi[3];
 			for (int ax = 0; ax < 3; ++ax) {
