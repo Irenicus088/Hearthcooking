@@ -385,7 +385,7 @@ namespace Cook
 			if (!g_pot || g_flow != hc::Flow::Pot || g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn == 0) {
 				return 0.0;
 			}
-			const double k = Clamp((g_pot->Cooked() - 0.9) / (1.05 - 0.9), 0.0, 1.0)  /* (the meter's middle: 1 of 2) */;
+			const double k = Clamp((g_pot->Cooked() - 0.5) / (0.95 - 0.5), 0.0, 1.0)  /* (from a quarter along the meter: 0.5 of 2; whole by ready) */;
 			return k * k * (3.0 - 2.0 * k);
 		}
 
