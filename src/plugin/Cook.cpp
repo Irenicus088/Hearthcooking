@@ -3217,10 +3217,11 @@ namespace Cook
 				} else {
 					Scene::Place(P.peel, at, RotZ(rz), 1.0f);
 					// in the cutting board's wood
-					if (auto* wood = P.board >= 0 ? Scene::Skin(P.board) : nullptr) {
+					if (auto* wood = Game(Kit::Role::Table) && P.kitchen >= 0 ? Scene::Skin(P.kitchen) : nullptr) {  // (as the board wears it)
 						auto& pl = Scene::LookOf(P.peel);
 						pl.skin = wood;
-						pl.uv[0] = pl.uv[1] = 1.0f;
+						pl.tint[0] = 1.45f, pl.tint[1] = 1.3f, pl.tint[2] = 1.12f;
+						pl.uv[0] = pl.uv[1] = 0.45f;
 					}
 				}
 			}

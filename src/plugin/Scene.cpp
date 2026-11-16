@@ -25,6 +25,7 @@ namespace Scene
 			hc::Vec3                      bmin, bmax;
 			int                           flatIndex = -1;  // its flattest shape, when it has more than one
 			int                           bowlIndex = -1;  // its widest shape if that stands tall (a dish's bowl)
+			bool                          foodBySwap = false;  // its food is the shapes its form retextures
 			hc::Vec3                      fmin, fmax;
 			ID3D11ShaderResourceView*     skin = nullptr;
 			struct Swap
@@ -35,6 +36,18 @@ namespace Scene
 			std::vector<Swap> swaps;
 			std::vector<std::string> hideShapes;
 		};
+
+		// whether the form's own textures go on this shape (in a dish: its food - the game's stews share one mesh)
+		bool Swapped(const Prop& a_p, int a_index, RE::BSGeometry* a_geo)
+		{
+			for (const auto& sw : a_p.swaps) {
+				const bool named = !sw.shape.empty() && a_geo && a_geo->name.c_str() && _stricmp(sw.shape.c_str(), a_geo->name.c_str()) == 0;
+				if (named || (sw.shape.empty() && sw.index == a_index)) {
+					return true;
+				}
+			}
+			return false;
+		}
 
 		bool LeftOut(const Prop& a_p, RE::BSGeometry* a_geo)
 		{
@@ -237,6 +250,7 @@ namespace Scene
 			{
 				int      index;
 				hc::Vec3 lo, hi;
+				bool     swapped = false;
 			};
 			std::vector<ShapeBox> boxes;
 			RE::BSVisit::TraverseScenegraphGeometries(a_p.node.get(), [&](RE::BSGeometry* a_geo) {
@@ -270,7 +284,7 @@ namespace Scene
 				}
 				float rot[9], pos[3], sc;
 				Relative(a_p.node->world, a_geo->world, rot, pos, sc);
-				ShapeBox sb{ index, { 1e9, 1e9, 1e9 }, { -1e9, -1e9, -1e9 } };
+				ShapeBox sb{ index, { 1e9, 1e9, 1e9 }, { -1e9, -1e9, -1e9 }, Swapped(a_p, index, a_geo) };
 				for (int c = 0; c < 8; ++c) {
 					const float v[3] = { (c & 1) ? mx[0] : mn[0], (c & 2) ? mx[1] : mn[1], (c & 4) ? mx[2] : mn[2] };
 					double      w[3];
@@ -300,7 +314,21 @@ namespace Scene
 				a_p.fmin = lo;
 				a_p.fmax = hi;
 				a_p.bowlIndex = -1;
-				if (boxes.size() > 1) {
+				a_p.foodBySwap = false;
+				for (const auto& b : boxes) {
+					if (b.swapped) {
+						if (!a_p.foodBySwap) {
+							a_p.fmin = b.lo;
+							a_p.fmax = b.hi;
+						} else {
+							a_p.fmin = { (std::min)(a_p.fmin.x, b.lo.x), (std::min)(a_p.fmin.y, b.lo.y), (std::min)(a_p.fmin.z, b.lo.z) };
+							a_p.fmax = { (std::max)(a_p.fmax.x, b.hi.x), (std::max)(a_p.fmax.y, b.hi.y), (std::max)(a_p.fmax.z, b.hi.z) };
+						}
+						a_p.foodBySwap = true;
+						a_p.flatIndex = b.index;
+					}
+				}
+				if (boxes.size() > 1 && !a_p.foodBySwap) {
 					// the bowl: the widest, if it also stands up (height over width) - the food is everything else
 					double widest = 0.0;
 					for (const auto& b : boxes) {
@@ -569,7 +597,7 @@ namespace Scene
 				return RE::BSVisit::BSVisitControl::kContinue;
 			}
 			// measured: its flattest shape's (the food's surface), never its bowl's
-			if (p.measured && (shapeIndex == p.bowlIndex || (p.flatIndex >= 0 && shapeIndex != p.flatIndex))) {
+			if (p.measured && (p.foodBySwap ? !Swapped(p, shapeIndex, a_geo) : (shapeIndex == p.bowlIndex || (p.flatIndex >= 0 && shapeIndex != p.flatIndex)))) {
 				return RE::BSVisit::BSVisitControl::kContinue;
 			}
 			std::string n = a_geo->name.c_str() ? a_geo->name.c_str() : "";
@@ -800,8 +828,11 @@ namespace Scene
 				if (!tri || !Visible(a_geo, p.node.get()) || LeftOut(p, a_geo)) {
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
-				if (p.look.onlyFlat && p.measured && p.bowlIndex >= 0 && shapeIndex == p.bowlIndex) {
-					return RE::BSVisit::BSVisitControl::kContinue;  // (its bowl: all its food is drawn, the bowl isn't)
+				if (p.look.onlyFlat && p.measured) {
+					// a dish's food alone: the shapes its form retextures if it does (the game's stews), else all but its bowl
+					if (p.foodBySwap ? !Swapped(p, shapeIndex, a_geo) : shapeIndex == p.bowlIndex) {
+						return RE::BSVisit::BSVisitControl::kContinue;
+					}
 				}
 				auto& gd = a_geo->GetGeometryRuntimeData();
 				auto* rd = gd.rendererData;
