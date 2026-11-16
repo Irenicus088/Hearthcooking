@@ -1508,8 +1508,8 @@ namespace Cook
 		Vec3 DoorCentre()
 		{
 			const bool   g = P.game[static_cast<int>(Kit::Role::Oven)];
-			const double sc = g ? 0.7 : 1.0, wide = g ? 0.86 : 1.0;
-			return { L::kOvenX - (g ? 2.89 : 4.9) + std::cos(-g_door * 1.75) * 5.0 * sc * wide, L::kOvenMouthY - (g ? 2.2 : 0.35) + std::sin(-g_door * 1.75) * 5.0 * sc * wide, L::kOvenFloorZ + (g ? 1.4 : 0.0) + 3.2 * sc };
+			const double sc = g ? 0.7 : 1.0, wide = g ? 0.95 : 1.0;
+			return { L::kOvenX - (g ? 3.22 : 4.9) + std::cos(-g_door * 1.75) * 5.0 * sc * wide, L::kOvenMouthY - (g ? 2.2 : 0.35) + std::sin(-g_door * 1.75) * 5.0 * sc * wide, L::kOvenFloorZ + (g ? 1.4 : 0.0) + 3.2 * sc * (g ? 0.82 : 1.0) };
 		}
 
 		int UnitAt(float a_mx, float a_my, Unit::At a_where)
@@ -3412,8 +3412,8 @@ namespace Cook
 			if (P.door >= 0) {
 				// smaller, and out in front of the mouth: the game's oven stands further forward than ours did
 				const bool gameOven = Game(Kit::Role::Oven);
-				Scene::Place(P.door, { L::kOvenX - (gameOven ? 2.89 : 4.9), L::kOvenMouthY - (gameOven ? 2.2 : 0.35), L::kOvenFloorZ + (gameOven ? 1.4 : 0.0) }, RotZ(-g_door * 1.75), gameOven ? 0.7f : 1.0f);
-				Scene::Stretch(P.door, gameOven ? 0.86f : 1.0f, 1.0f, 1.0f);  // (narrower: inside the game's arch, not into its stones)
+				Scene::Place(P.door, { L::kOvenX - (gameOven ? 3.22 : 4.9), L::kOvenMouthY - (gameOven ? 2.2 : 0.35), L::kOvenFloorZ + (gameOven ? 1.4 : 0.0) }, RotZ(-g_door * 1.75), gameOven ? 0.7f : 1.0f);
+				Scene::Stretch(P.door, gameOven ? 0.95f : 1.0f, 1.0f, gameOven ? 0.82f : 1.0f);  // (its bottom where it was; shorter, so its top clears the arch's stones)
 			}
 			if (P.peel >= 0) {
 				Vec3   at = PeelRest();
