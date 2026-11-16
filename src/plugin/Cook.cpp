@@ -661,7 +661,8 @@ namespace Cook
 			{
 				std::string n = a_u.name;
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-				a_u.thin = a_u.dims[0] > 2.4 * a_u.dims[1] || n.find("leek") != std::string::npos || n.find("carrot") != std::string::npos ||
+				// (by name only: everything else diced is cut both ways, whatever its shape)
+				a_u.thin = n.find("leek") != std::string::npos || n.find("carrot") != std::string::npos ||
 				           n.find("garlic") != std::string::npos || n.find("root") != std::string::npos || n.find("stalk") != std::string::npos;
 			}
 			a_u.fitted = true;
