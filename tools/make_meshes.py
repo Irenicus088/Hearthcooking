@@ -846,7 +846,7 @@ def kitchen():
     lay = [(-1.55, -0.3, 0.3, 0.4, 0.0), (-0.5, 0.4, -0.6, -0.3, 0.0), (0.6, -0.35, 2.8, 0.5, 0.0), (1.6, 0.35, 2.4, -0.4, 0.0),
            (0.05, -0.05, 1.2, 1.3, 0.55), (-1.0, 0.1, 3.5, -1.1, 0.45), (1.05, 0.05, -0.3, 0.9, 0.5)]
     for k, (x, y, yaw, roll, up) in enumerate(lay):
-        clove(cloves, (x, y, up), yaw, roll, 1.56, 70 + k)
+        clove(cloves, (x * 1.15, y * 1.15, up * 1.15), yaw, roll, 1.56 * 1.15, 70 + k)  # (15% bigger again)
     nif("GarlicCloves", [("Cloves", cloves, "clove", (0.45, 40))])
 
     # the pot's hanger: a bar across the spit's frame (its middle at the origin), and the pot's bail hung from it - an
