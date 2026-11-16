@@ -362,6 +362,17 @@ namespace Cook
 			Scene::Place(a_id, a_at, RotZ(a_rotZ), a_scale);
 		}
 
+		// the rolled-out dough's look: the dough's own (not a plain hull's), pale and soft
+		void DoughLook(Scene::Look& a_lk)
+		{
+			if (auto* sk = P.dough >= 0 ? Scene::Skin(P.dough) : nullptr) {
+				a_lk.skin = sk;
+				a_lk.uv[0] = a_lk.uv[1] = 0.35f;
+			}
+			a_lk.tint[0] = 1.0f, a_lk.tint[1] = 0.96f, a_lk.tint[2] = 0.88f;
+			a_lk.lift[0] = 0.95f, a_lk.lift[1] = 0.88f, a_lk.lift[2] = 0.72f, a_lk.lift[3] = 0.25f;
+		}
+
 		// how far the finished stew shows in the pot over its pieces (0 .. 1), with its doneness
 		double StewFade()
 		{
@@ -3362,10 +3373,10 @@ namespace Cook
 					if (P.slab >= 0) {
 						Scene::Hide(P.slab, !sheet);
 						if (sheet) {
-							Scene::Place(P.slab, at + Vec3{ 0, 0, 0.35 }, RotZ(kPi * 0.25), 1.0f);
-							Scene::Stretch(P.slab, 5.66f, 5.66f, 0.6f);
+							Scene::Place(P.slab, at + Vec3{ 0, 0, 0.14 }, RotZ(kPi * 0.25), 1.0f);
+							Scene::Stretch(P.slab, 5.66f, 5.66f, 0.26f);  // rolled thin
 							auto& sl = Scene::LookOf(P.slab);
-							sl.tint[0] = 1.0f, sl.tint[1] = 0.95f, sl.tint[2] = 0.84f;
+							DoughLook(sl);
 						}
 					}
 					for (int k = 0; k < hc::Oven::kCrimps; ++k) {
@@ -3378,13 +3389,13 @@ namespace Cook
 						const double f = g_fold[k];
 						const double a = kPi * 0.25 + k * kPi * 0.5, th = f * 2.9;
 						const Vec3   dir{ std::cos(a), std::sin(a), 0.0 };
-						const Vec3   hinge = at + dir * 2.83 + Vec3{ 0, 0, 0.35 + 1.1 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };
+						const Vec3   hinge = at + dir * 2.83 + Vec3{ 0, 0, 0.14 + 0.75 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };
 						const Vec3   v = dir * std::cos(th) + Vec3{ 0, 0, std::sin(th) };
 						// a corner square standing on its point at the fold line, its inner half cut away: the triangle
 						Scene::Place(id, hinge, RotZ(a) * RotY(-th) * RotZ(kPi * 0.25), 1.0f);
-						Scene::Stretch(id, 4.0f, 4.0f, 0.6f);
+						Scene::Stretch(id, 4.0f, 4.0f, 0.26f);
 						auto& fl = Scene::LookOf(id);
-						fl.tint[0] = 1.0f, fl.tint[1] = 0.95f, fl.tint[2] = 0.84f;
+						DoughLook(fl);
 						std::memset(fl.clips, 0, sizeof(fl.clips));
 						fl.clips[0][0] = static_cast<float>(-v.x);
 						fl.clips[0][1] = static_cast<float>(-v.y);
