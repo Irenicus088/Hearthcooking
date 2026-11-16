@@ -566,8 +566,6 @@ namespace Cook
 				P.pot = KitAdd(Kit::Role::Pot);
 				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
 				P.broth = Add("Broth");
-				P.dishRef = AddResult();  // never shown: the finished stew, for the look of the pot as it comes together
-				Scene::Hide(P.dishRef, true);
 				P.ladleSoup = Add("Broth");  // a ladleful, carried to the bowl
 				Scene::Hide(P.ladleSoup, true);
 				P.ladle = KitAdd(Kit::Role::Ladle);
@@ -2939,20 +2937,22 @@ namespace Cook
 				const double done = g_pot && body.state == hc::Chunks::State::Pot && g_flow == hc::Flow::Pot ? Clamp(g_pot->Cooked() / 0.95, 0.0, 1.3) : 0.0;
 				const double broken = Clamp(done, 0.0, 1.0);
 				// (a pie's fruit in its bowl or on the dough is heaped smaller, so it all fits)
-				const double shrink = g_flow == hc::Flow::Oven && pc.onDough ? 0.42 : g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot ? 0.7 : 1.0 - 0.5 * broken;
+				const double shrink = g_flow == hc::Flow::Oven && pc.onDough ? 0.42 : g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot ? 0.7 : 1.0 - 0.55 * broken;
 				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
 				// boiled, not browned: softening, a little darker and taking the broth's colour as it cooks (well
 				// on the way by halfway), skin and cut faces alike
+				// cooked, not washed out: darker and warmer, keeping their own colour, only a little of the broth's
 				const double boiled = Clamp(done * 1.1, 0.0, 1.0);
 				lk.cookMode = body.charred ? 1 : 0;
 				lk.cook[0] = body.charred ? 1.7f : 0.0f;
+				static constexpr double kWarm[3] = { 0.62, 0.5, 0.36 };  // the deepest a stewed piece goes, per channel
 				for (int k = 0; k < 3; ++k) {
-					lk.lift[k] = g_broth[k] * 0.85f;
-					lk.tint[k] = static_cast<float>(1.0 - 0.3 * boiled);
+					lk.lift[k] = g_broth[k] * 0.7f;
+					lk.tint[k] = static_cast<float>(1.0 - (1.0 - kWarm[k]) * boiled);
 				}
-				lk.lift[3] = static_cast<float>(0.6 * boiled);
+				lk.lift[3] = static_cast<float>(0.18 * boiled);
 				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut, shrink);
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
@@ -2965,13 +2965,6 @@ namespace Cook
 				lk.lift[1] = any ? g_broth[1] * (1.0f - 0.15f * c) : 0.55f;
 				lk.lift[2] = any ? g_broth[2] * (1.0f - 0.15f * c) : 0.52f;
 				lk.lift[3] = any ? 0.82f : 0.6f;  // plain water until something's in it
-				// as it cooks it comes to look like the finished stew: its own texture showing through more and more
-				if (auto* food = any ? Scene::FoodTexture(P.dishRef) : nullptr) {
-					const float k = static_cast<float>(Clamp(g_pot->Cooked() / 0.9, 0.0, 1.0));
-					lk.skin = food;
-					lk.uv[0] = lk.uv[1] = 0.6f;
-					lk.lift[3] = 0.82f * (1.0f - 0.9f * k);
-				}
 				const double tp = g_pot->Temp();
 				if (tp > 0.42) {
 					const int n = static_cast<int>((tp - 0.42) * 40.0);
