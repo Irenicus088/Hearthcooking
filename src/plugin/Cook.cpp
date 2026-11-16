@@ -367,79 +367,6 @@ namespace Cook
 			Scene::Place(a_id, a_at, RotZ(a_rotZ), a_scale);
 		}
 
-		// An egg cracked over the mixing bowl: tapped on its edge, pulled apart in two halves of shell (the egg's own
-		// mesh, each cut at its middle), the yolk and white dropping in; the shells set down beside the bowl
-		void DrawEgg()
-		{
-			const double T = g_eggT;
-			Lie          lie;
-			const bool   shells = T >= 0.0 && P.eggA >= 0 && P.eggB >= 0 && LieOf(P.eggA, lie);
-			for (int k = 0; k < 2; ++k) {
-				const auto id = k ? P.eggB : P.eggA;
-				if (id < 0) {
-					continue;
-				}
-				Scene::Hide(id, !shells);
-				if (!shells) {
-					continue;
-				}
-				const double s = k ? 1.0 : -1.0;  // which end: -x (k 0) or +x (k 1)
-				const double ks = 2.3 / (std::max)(0.01, lie.d[0]);
-				Quat         q;
-				Vec3         at;
-				if (T < 1.4) {
-					const double tap = T < 0.3 ? -std::sin(T / 0.3 * kPi) * 0.7 : 0.0;  // knocked on the rim
-					const double open = Clamp((T - 0.3) / 0.45, 0.0, 1.0);
-					q = RotY(-s * open * 1.35) * lie.q;  // the cracked ends tip down and apart
-					at = kMixAt + Vec3{ 1.2 + s * open * 0.85, 0.0, 6.0 + tap };
-				} else {
-					// set down by the bowl, hollow up
-					q = RotZ(0.6 + k * 1.9) * RotY(s * kPi * 0.5) * lie.q;
-					at = kMixAt + Vec3{ 5.4 + k * 1.4, -3.6 + k * 1.3, ks * lie.d[0] * 0.5 * 0.95 };  // (standing on its round end)
-				}
-				Scene::Place(id, at - q.Rotate(lie.c) * ks, q, static_cast<float>(ks));
-				// cut at its middle: only its own end shows
-				auto&      lk = Scene::LookOf(id);
-				const Vec3 n = q.Rotate(lie.q.Conjugate().Rotate({ 1, 0, 0 })) * (k ? -1.0 : 1.0);
-				std::memset(lk.clips, 0, sizeof(lk.clips));
-				lk.clips[0][0] = static_cast<float>(n.x), lk.clips[0][1] = static_cast<float>(n.y), lk.clips[0][2] = static_cast<float>(n.z);
-				lk.clips[0][3] = static_cast<float>(n.Dot(at));
-				lk.flesh[3] = 0.0f;
-				lk.shadow = T >= 1.4;
-			}
-			// the yolk and white: dropping from the shell, then lying on what's in the bowl until it's stirred in
-			const bool   inBowl = T >= 0.45 && !g_ball && !g_doughOnBoard && g_mix < 0.3;
-			const double fall = Clamp((T - 0.45) / 0.35, 0.0, 1.0);
-			const double fade = 1.0 - Clamp(g_mix / 0.3, 0.0, 1.0);
-			const double top = kMixAt.z + 1.5 + 0.4 * g_mix + 0.12;
-			const Vec3   rest = kMixAt + RotZ(g_mixA * 0.3).Rotate({ 0.5, 0.3, 0.0 });
-			const Vec3   from = kMixAt + Vec3{ 1.2, 0.0, 5.6 };
-			const Vec3   at = from + (Vec3{ rest.x, rest.y, top } - from) * (fall * fall);
-			if (P.eggWhite >= 0) {
-				Scene::Hide(P.eggWhite, !inBowl);
-				if (inBowl) {
-					const double spread = 0.5 + 1.1 * Clamp((T - 0.75) / 0.4, 0.0, 1.0);  // runs out once it lands
-					Scene::Place(P.eggWhite, at + Vec3{ 0, 0, -0.08 }, RotZ(0.7), static_cast<float>(spread));
-					Scene::Stretch(P.eggWhite, 1.0f, 0.85f, 0.06f);
-					auto& wl = Scene::LookOf(P.eggWhite);
-					wl.lift[0] = 0.97f, wl.lift[1] = 0.95f, wl.lift[2] = 0.86f, wl.lift[3] = 0.85f;
-					wl.alpha = static_cast<float>(0.55 * fade);
-					wl.shadow = false;
-				}
-			}
-			if (P.yolk >= 0) {
-				Scene::Hide(P.yolk, !inBowl);
-				if (inBowl) {
-					Scene::Place(P.yolk, at + Vec3{ 0, 0, 0.12 }, {}, 0.48f);
-					Scene::Stretch(P.yolk, 1.0f, 1.0f, 0.72f);
-					auto& yl = Scene::LookOf(P.yolk);
-					yl.lift[0] = 1.0f, yl.lift[1] = 0.62f, yl.lift[2] = 0.08f, yl.lift[3] = 0.92f;
-					yl.alpha = static_cast<float>((std::max)(0.02, fade));
-					yl.shadow = false;
-				}
-			}
-		}
-
 		// the rolled-out dough's look: the dough's own (not a plain hull's), pale and soft
 		void DoughLook(Scene::Look& a_lk)
 		{
@@ -802,6 +729,79 @@ namespace Cook
 				spdlog::info("Textures: {} wears {} on '{}' ({})", a_form->GetName(), alt.textureSet->textures[0].textureName.c_str(), name ? name : "", alt.index3D);
 				Scene::SwapTextures(a_id, name ? name : "", static_cast<int>(alt.index3D), alt.textureSet->textures[0].textureName.c_str(),
 					alt.textureSet->textures[1].textureName.c_str());
+			}
+		}
+
+		// An egg cracked over the mixing bowl: tapped on its edge, pulled apart in two halves of shell (the egg's own
+		// mesh, each cut at its middle), the yolk and white dropping in; the shells set down beside the bowl
+		void DrawEgg()
+		{
+			const double T = g_eggT;
+			Lie          lie;
+			const bool   shells = T >= 0.0 && P.eggA >= 0 && P.eggB >= 0 && LieOf(P.eggA, lie);
+			for (int k = 0; k < 2; ++k) {
+				const auto id = k ? P.eggB : P.eggA;
+				if (id < 0) {
+					continue;
+				}
+				Scene::Hide(id, !shells);
+				if (!shells) {
+					continue;
+				}
+				const double s = k ? 1.0 : -1.0;  // which end: -x (k 0) or +x (k 1)
+				const double ks = 2.3 / (std::max)(0.01, lie.d[0]);
+				Quat         q;
+				Vec3         at;
+				if (T < 1.4) {
+					const double tap = T < 0.3 ? -std::sin(T / 0.3 * kPi) * 0.7 : 0.0;  // knocked on the rim
+					const double open = Clamp((T - 0.3) / 0.45, 0.0, 1.0);
+					q = RotY(-s * open * 1.35) * lie.q;  // the cracked ends tip down and apart
+					at = kMixAt + Vec3{ 1.2 + s * open * 0.85, 0.0, 6.0 + tap };
+				} else {
+					// set down by the bowl, hollow up
+					q = RotZ(0.6 + k * 1.9) * RotY(s * kPi * 0.5) * lie.q;
+					at = kMixAt + Vec3{ 5.4 + k * 1.4, -3.6 + k * 1.3, ks * lie.d[0] * 0.5 * 0.95 };  // (standing on its round end)
+				}
+				Scene::Place(id, at - q.Rotate(lie.c) * ks, q, static_cast<float>(ks));
+				// cut at its middle: only its own end shows
+				auto&      lk = Scene::LookOf(id);
+				const Vec3 n = q.Rotate(lie.q.Conjugate().Rotate({ 1, 0, 0 })) * (k ? -1.0 : 1.0);
+				std::memset(lk.clips, 0, sizeof(lk.clips));
+				lk.clips[0][0] = static_cast<float>(n.x), lk.clips[0][1] = static_cast<float>(n.y), lk.clips[0][2] = static_cast<float>(n.z);
+				lk.clips[0][3] = static_cast<float>(n.Dot(at));
+				lk.flesh[3] = 0.0f;
+				lk.shadow = T >= 1.4;
+			}
+			// the yolk and white: dropping from the shell, then lying on what's in the bowl until it's stirred in
+			const bool   inBowl = T >= 0.45 && !g_ball && !g_doughOnBoard && g_mix < 0.3;
+			const double fall = Clamp((T - 0.45) / 0.35, 0.0, 1.0);
+			const double fade = 1.0 - Clamp(g_mix / 0.3, 0.0, 1.0);
+			const double top = kMixAt.z + 1.5 + 0.4 * g_mix + 0.12;
+			const Vec3   rest = kMixAt + RotZ(g_mixA * 0.3).Rotate({ 0.5, 0.3, 0.0 });
+			const Vec3   from = kMixAt + Vec3{ 1.2, 0.0, 5.6 };
+			const Vec3   at = from + (Vec3{ rest.x, rest.y, top } - from) * (fall * fall);
+			if (P.eggWhite >= 0) {
+				Scene::Hide(P.eggWhite, !inBowl);
+				if (inBowl) {
+					const double spread = 0.5 + 1.1 * Clamp((T - 0.75) / 0.4, 0.0, 1.0);  // runs out once it lands
+					Scene::Place(P.eggWhite, at + Vec3{ 0, 0, -0.08 }, RotZ(0.7), static_cast<float>(spread));
+					Scene::Stretch(P.eggWhite, 1.0f, 0.85f, 0.06f);
+					auto& wl = Scene::LookOf(P.eggWhite);
+					wl.lift[0] = 0.97f, wl.lift[1] = 0.95f, wl.lift[2] = 0.86f, wl.lift[3] = 0.85f;
+					wl.alpha = static_cast<float>(0.55 * fade);
+					wl.shadow = false;
+				}
+			}
+			if (P.yolk >= 0) {
+				Scene::Hide(P.yolk, !inBowl);
+				if (inBowl) {
+					Scene::Place(P.yolk, at + Vec3{ 0, 0, 0.12 }, {}, 0.48f);
+					Scene::Stretch(P.yolk, 1.0f, 1.0f, 0.72f);
+					auto& yl = Scene::LookOf(P.yolk);
+					yl.lift[0] = 1.0f, yl.lift[1] = 0.62f, yl.lift[2] = 0.08f, yl.lift[3] = 0.92f;
+					yl.alpha = static_cast<float>((std::max)(0.02, fade));
+					yl.shadow = false;
+				}
 			}
 		}
 
