@@ -302,12 +302,12 @@ namespace Cook
 		bool board_kneading();
 		void NextKnife();
 		Scene::Id AddResult();
-		// some bakes a touch bigger than the rest (a braided bread is long and thin, and read small)
+		// some bakes a touch bigger than the rest (a braided bread is long and thin, and read small; a plain loaf too)
 		double BakeSize()
 		{
 			std::string n = g_recipe ? g_recipe->name : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			return n.find("braided") != std::string::npos ? 6.6 : 6.0;
+			return n.find("braided") != std::string::npos || n == "bread" ? 6.6 : 6.0;  // (and a plain loaf)
 		}
 		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled);
 		std::vector<std::pair<Act, int>> g_acts;
