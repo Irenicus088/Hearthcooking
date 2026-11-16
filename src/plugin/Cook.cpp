@@ -1004,7 +1004,7 @@ namespace Cook
 			g_pieces.clear();
 			BuildKitchen(a_r->oven, g_flow);
 			g_fire = hc::Fire(a_r->oven ? 9.0 : 5.0);
-			g_fire.Light(a_r->oven ? 0 : 2);  // the oven starts cold: firewood goes in first
+			g_fire.Light(a_r->flow == hc::Flow::Pot ? 2 : 0);  // the oven and the spit start cold: firewood goes in first
 			g_pot.reset();
 			g_spit.reset();
 			g_oven.reset();
@@ -1935,6 +1935,17 @@ namespace Cook
 						PutBack(ui);
 					} else if (g_flow == hc::Flow::Spit) {
 						if (u.role == Role::Meat && NearScreen(SpitAxis(0.0), mx, my, 11.0, 60.0f)) {
+							// salted first, and a fire laid under the spit, then it goes on
+							if (g_recipe->salted && Mounted() == 0 && g_spit->Seasoning().amount < 0.7) {
+								Toast("Salt the meat first");
+								PutBack(ui);
+								break;
+							}
+							if (g_fire.Logs() == 0) {
+								Toast("Put firewood on the fire first");
+								PutBack(ui);
+								break;
+							}
 							int n = Mounted();
 							u.at = Unit::At::Spit;
 							Fit(u);
@@ -2130,6 +2141,10 @@ namespace Cook
 					if (g_flow == hc::Flow::Pot && OverPot(mx, my, 1.0)) {
 						target = { L::kPotX, L::kPotY, L::kLiquidZ };
 						g_pot->Seasoning().amount += g_pinch;
+						hit = true;
+					} else if (const int mu = g_flow == hc::Flow::Spit ? UnitAt(mx, my, Unit::At::Cloth) : -1; mu >= 0 && g_units[mu].role == Role::Meat) {
+						target = g_units[mu].clothAt + Vec3{ 0, 0, 1.0 };  // rubbed into the meat before it goes on
+						g_spit->Seasoning().amount += g_pinch;
 						hit = true;
 					} else if (g_flow == hc::Flow::Spit && Mounted() > 0 && NearScreen(SpitAxis(0.0), mx, my, 9.0, 50.0f)) {
 						target = SpitAxis(0.0);
@@ -3606,11 +3621,12 @@ namespace Cook
 				s.push_back({ "Keep it at a simmer, and stir", g_pot && g_pot->Cooked() >= 0.92 });
 				s.push_back({ "Ladle it into the bowl", g_served });
 			} else if (g_flow == hc::Flow::Spit) {
+				if (g_recipe->salted) {
+					s.push_back({ "Salt the meat", g_spit && g_spit->Seasoning().amount >= 0.7 });
+				}
+				s.push_back({ "Firewood onto the fire", g_fire.Logs() > 0 || Mounted() > 0 });
 				unitsDone(Role::Meat, { Unit::At::Spit }, "Put the ", " on the spit");
 				unitsDone(Role::Toss, { Unit::At::Gone }, "Rub in the ", "");
-				if (g_recipe->salted) {
-					s.push_back({ "Salt it", g_spit && g_spit->Seasoning().amount >= 0.7 });
-				}
 				s.push_back({ "Turn it over the fire", g_spit && g_spit->Mean() >= 0.9 });
 				s.push_back({ "Take it off onto the plate", g_served });
 			} else {
