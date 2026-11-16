@@ -2944,6 +2944,14 @@ namespace Cook
 					frame = RotZ(pc.turn) * body.q;
 					at = g_doughAt + pc.doughOff + Vec3{ 0, 0, 0.9 };
 				}
+				// in the fruit bowl as it tips to pour: they ride with it, not through its side
+				if (!pc.onDough && g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot && g_bowlTip > 0.001 && (g_hold == Hold::Apples || g_bowlTip > 0.01)) {
+					const Vec3   base = g_hold == Hold::Apples ? g_carry : kFillAt;  // (the bowl turns about this, as it's drawn)
+					const double ang = std::atan2(g_doughAt.y - base.y, g_doughAt.x - base.x);
+					const Quat   T = RotZ(ang) * RotY(g_bowlTip * 1.7) * RotZ(-ang);
+					at = base + T.Rotate(at - base);
+					frame = T * frame;
+				}
 				// in the pot it breaks down as it cooks: smaller and smaller (to about half by the end)
 				// (it goes with the pot's own doneness, the meter's: half done, half broken down)
 				const double done = g_pot && body.state == hc::Chunks::State::Pot && g_flow == hc::Flow::Pot ? Clamp(g_pot->Cooked() / 0.95, 0.0, 1.3) : 0.0;
