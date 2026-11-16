@@ -1295,11 +1295,13 @@ namespace Cook
 		Vec3 PeelRest() { return { -1.0, -17.0, 0.3 }; }
 		Vec3 MouthAt() { return { L::kOvenX, L::kOvenMouthY - 0.6, OvenFloor() + 2.5 }; }
 		Vec3 BreadAt() { return { L::kOvenX, L::kOvenMouthY + 4.2, OvenFloor() }; }
+		// over the oven's mouth or where the bake sits in it (generous: it's a peel, not a pin)
+		bool InMouth(float a_mx, float a_my) { return NearScreen(MouthAt(), a_mx, a_my, 8.0, 70.0f) || NearScreen(BreadAt() + Vec3{ 0, 0, 1.0 }, a_mx, a_my, 7.0, 70.0f); }
 		Vec3 DoorCentre()
 		{
 			const bool   g = P.game[static_cast<int>(Kit::Role::Oven)];
 			const double sc = g ? 0.7 : 1.0;
-			return { L::kOvenX - (g ? 3.4 : 4.9) + std::cos(-g_door * 1.75) * 5.0 * sc, L::kOvenMouthY - (g ? 2.2 : 0.35) + std::sin(-g_door * 1.75) * 5.0 * sc, OvenFloor() + 3.2 * sc };
+			return { L::kOvenX - (g ? 3.4 : 4.9) + std::cos(-g_door * 1.75) * 5.0 * sc, L::kOvenMouthY - (g ? 2.2 : 0.35) + std::sin(-g_door * 1.75) * 5.0 * sc, L::kOvenFloorZ + (g ? 1.4 : 0.0) + 3.2 * sc };
 		}
 
 		int UnitAt(float a_mx, float a_my, Unit::At a_where)
@@ -1771,13 +1773,13 @@ namespace Cook
 					g_peelAt = { x, y, kBoardTop + 1.2 };
 					// into the open oven for what's baking
 					// held in the open oven's mouth a moment, it slides under the bake and takes it (passing by doesn't)
-					const bool inMouth = g_door > 0.6 && (NearScreen(MouthAt(), mx, my, 6.0, 50.0f) || NearScreen(BreadAt(), mx, my, 6.0, 60.0f));
+					const bool inMouth = g_door > 0.6 && InMouth(mx, my);
 					if (!(inMouth && !g_peelBread && g_oven->InOven())) {
 						g_peelDwell = -1.0;
 					} else if (g_peelDwell < 0.0) {
 						g_peelDwell = Audio::Now();  // (when it went in)
 					}
-					if (g_peelDwell >= 0.0 && Audio::Now() - g_peelDwell > 0.6) {
+					if (g_peelDwell >= 0.0 && Audio::Now() - g_peelDwell > 0.3) {
 						g_oven->Unload();
 						g_peelBread = true;
 						g_peelDwell = -1.0;
@@ -2146,17 +2148,23 @@ namespace Cook
 				}
 				break;
 			case Hold::Peel:
+				if (!g_peelBread && !g_peelLoaded && g_oven->InOven() && g_peelT < 0 && g_door > 0.6 && InMouth(mx, my)) {
+					g_oven->Unload();
+					g_peelBread = true;
+					g_peelDwell = -1.0;
+					Audio::Play({ "peel", 0.7f });
+					break;  // it rests on the peel
+				}
 				if (g_peelBread) {
 					if (OverServe(mx, my)) {
 						Serve();  // off the peel onto the plate
 						g_peelBread = false;
-					} else if (g_door > 0.6 && NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
+					} else if (g_door > 0.6 && InMouth(mx, my)) {
 						// back into the oven, to bake on
 						g_peelFrom = g_peelAt;
 						g_peelT = 0.0;
 						g_peelIn = true;
 						g_peelBread = false;
-						g_oven->Load();
 						Audio::Play({ "peel", 0.7f });
 					}
 					break;  // else it rests on the peel
