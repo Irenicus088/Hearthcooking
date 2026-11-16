@@ -850,6 +850,20 @@ def kitchen():
         clove(cloves, (x, y, up), yaw, roll, 1.56, 70 + k)
     nif("GarlicCloves", [("Cloves", cloves, "clove", (0.45, 40))])
 
+    # the pot's hanger: a bar across the spit's frame (its middle at the origin), and the pot's bail hung from it - an
+    # arch from the pot's sides at its rim up to the bar
+    POT_LIFT, POT_BAR_Z = 2.0, 16.5
+    bar, bail = Mesh(), Mesh()
+    bar.cylinder((-SPIT_HALF - 0.6, 0, 0), (SPIT_HALF + 0.6, 0, 0), 0.36, 12, urep=(2 * SPIT_HALF + 1.2) / (2 * math.pi * 0.36))
+    H = POT_BAR_Z - (POT_RIM + POT_LIFT) + 0.4
+    A_ = POT_R + POT_WALL + 0.15
+    pts = [(A_ * math.cos(math.pi * i / 20), 0.0, -H + (H - 0.3) * math.sin(math.pi * i / 20)) for i in range(21)]
+    for i in range(20):
+        bail.cylinder(pts[i], pts[i + 1], 0.13, 8)
+    for s_ in (-1, 1):  # the lugs it hooks into, either side of the pot
+        bail.cylinder((s_ * (A_ - 0.4), 0, -H), (s_ * (A_ + 0.15), 0, -H), 0.2, 8)
+    nif("PotBar", [("Bar", bar, "iron", IRON), ("Bail", bail, "iron", IRON)])
+
     # the rolling pin: along x, its middle at the origin - a long barrel and a handle each end
     pin, pinh = Mesh(), Mesh()
     pin.cylinder((-4.2, 0, 0), (4.2, 0, 0), 0.72, 20, urep=8.4 / (2 * math.pi * 0.72))

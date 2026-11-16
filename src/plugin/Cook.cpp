@@ -574,6 +574,23 @@ namespace Cook
 
 		constexpr double kClothShift = 4.0;  // the cloth, in from the table's left edge
 
+		// The spit's frame over the fire, its rod (or the pot's bar) across its top at a_barZ
+		void SpitFrame(double a_barZ)
+		{
+			P.posts = KitAdd(Kit::Role::Spit);
+			if (Game(Kit::Role::Spit)) {
+				// the game's spit comes dressed: pots, chains, meat on its own turner. Only its frame stays
+				Scene::HideShapes(P.posts, { "pot", "chain", "lid", "beef", "venison", "goat", "meat", "turner", "chicken", "rabbit", "salmon", "food" });
+				// and nothing of it above our rod's middle: its own skewer (part of the frame's mesh) would run
+				// through ours and flicker; the posts' tips end under the rod that rests across them
+				auto& pl = Scene::LookOf(P.posts);
+				pl.clips[0][0] = 0.0f, pl.clips[0][1] = 0.0f, pl.clips[0][2] = 1.0f;
+				pl.clips[0][3] = static_cast<float>(a_barZ - 0.65);  // (under the whole of its skewer, which lies where our rod does)
+			}
+			// (the game's frame stands a little under the rod, which rests across its top as in the game)
+			Settle(P.posts, Kit::Role::Spit, { L::kFireX, L::kFireY, 0.0 }, { 2 * L::kSpitX1 - 2 * L::kFireX + 2.0, 0.0, Game(Kit::Role::Spit) ? a_barZ - 0.45 : a_barZ + 1.4 }, 0.0, true, { L::kFireX, L::kFireY, 0.0 });
+		}
+
 		void BuildKitchen(bool a_oven, hc::Flow a_flow)
 		{
 			Scene::RemoveAll();
@@ -609,7 +626,10 @@ namespace Cook
 				P.knife = KitAdd(Kit::Role::Knife);
 				P.pot = KitAdd(Kit::Role::Pot);
 				Scene::LookOf(P.pot).hideFlat = true;  // (a game pot can come with a stew already in it: only ours shows)
-				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
+				// hung over the fire (room for the logs under it), from a bar across the spit's frame
+				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, L::kPotLift }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim - L::kPotLift }, 0.0, true, { L::kPotX, L::kPotY, L::kPotLift });
+				SpitFrame(L::kPotBarZ);
+				P.rod = Add("PotBar");
 				P.broth = Add("Broth");
 				P.dishRef = AddResult();  // the finished stew's own food (not its bowl), fading in over the broth as it comes together
 				Scene::Hide(P.dishRef, true);
@@ -624,19 +644,7 @@ namespace Cook
 				Settle(P.bowl, Kit::Role::Bowl, { L::kServeX, L::kServeY, 0.0 }, { 7.0, 7.0, 0.0 }, 0.0, false, { L::kServeX, L::kServeY, 0.0 });
 			}
 			if (a_flow == hc::Flow::Spit) {
-				P.posts = KitAdd(Kit::Role::Spit);
-				if (Game(Kit::Role::Spit)) {
-					// the game's spit comes dressed: pots, chains, meat on its own turner. Only its frame stays
-					Scene::HideShapes(P.posts, { "pot", "chain", "lid", "beef", "venison", "goat", "meat", "turner", "chicken", "rabbit", "salmon", "food" });
-					// and nothing of it above our rod's middle: its own skewer (part of the frame's mesh) would run
-					// through ours and flicker; the posts' tips end under the rod that rests across them
-					auto& pl = Scene::LookOf(P.posts);
-					pl.clips[0][0] = 0.0f, pl.clips[0][1] = 0.0f, pl.clips[0][2] = 1.0f;
-					pl.clips[0][3] = static_cast<float>(L::kSpitZ - 0.65);  // (under the whole of its skewer, which lies where our rod does)
-				}
-				// (the game's frame stands a little under the rod, which rests across its top as in the game, rather than
-				// running through its top bar and flickering in and out of it)
-				Settle(P.posts, Kit::Role::Spit, { L::kFireX, L::kFireY, 0.0 }, { 2 * L::kSpitX1 - 2 * L::kFireX + 2.0, 0.0, Game(Kit::Role::Spit) ? L::kSpitZ - 0.45 : L::kSpitZ + 1.4 }, 0.0, true, { L::kFireX, L::kFireY, 0.0 });
+				SpitFrame(L::kSpitZ);
 				P.rod = Add(Game(Kit::Role::Spit) ? "SpitCrank" : "SpitRod");  // the game's frame has its own skewer
 			}
 			if (a_flow != hc::Flow::Pot) {
@@ -1491,6 +1499,9 @@ namespace Cook
 			double x = 0, y = 0;
 			return OnPlane(a_mx, a_my, 1.0, x, y) && std::hypot(x - L::kFireX, y - L::kFireY) <= L::kFireR + 1.5;
 		}
+
+		// where a log goes: the fire, or (in the pot's kitchen) anywhere over the pot hung above it
+		bool UnderPotOrFire(float a_mx, float a_my) { return OverFire(a_mx, a_my) || (g_flow == hc::Flow::Pot && OverPot(a_mx, a_my, 1.5)); }
 
 		bool OverServe(float a_mx, float a_my) { return NearScreen({ L::kServeX, L::kServeY, 1.0 }, a_mx, a_my, 5.0, 40.0f); }
 
@@ -2467,14 +2478,14 @@ namespace Cook
 				}
 				break;
 			case Hold::Log:
-				if (g_flow == hc::Flow::Pot && OverFire(mx, my) && g_fire.Logs() == 0 &&
+				if (g_flow == hc::Flow::Pot && UnderPotOrFire(mx, my) && g_fire.Logs() == 0 &&
 					(!AllInPot() || (g_recipe && g_recipe->salted && g_pot && g_pot->Seasoning().amount < 0.7))) {
 					Toast(!AllInPot() ? "Everything into the pot first, then the firewood under it" : "Salt it first, then the firewood under it");
-				} else if (OverFire(mx, my) && g_fire.AddLog()) {
+				} else if (UnderPotOrFire(mx, my) && g_fire.AddLog()) {
 					Audio::Take("log_", 0.8f);
 					static const float spark[4] = { 1.0f, 0.55f, 0.15f, 1.0f };
 					Spray(FireCenter() + Vec3{ 0, 0, 1.0 }, 18, spark, 4.0, 12.0, 0.12f, false, Render3D::Sprite::Kind::Ember, 1.2);
-				} else if (OverFire(mx, my)) {
+				} else if (UnderPotOrFire(mx, my)) {
 					Toast("The fire can't take another log");
 				}
 				break;
@@ -3621,7 +3632,11 @@ namespace Cook
 			}
 			// ---- the spit's rod and crank
 			if (P.rod >= 0) {
-				Scene::Place(P.rod, { L::kFireX, L::kFireY, L::kSpitZ }, RotX(g_spit ? g_spit->Angle() : 0.0), 1.0f);
+				if (g_flow == hc::Flow::Pot) {
+					Scene::Place(P.rod, { L::kFireX, L::kFireY, L::kPotBarZ }, {}, 1.0f);  // the bar the pot hangs from
+				} else {
+					Scene::Place(P.rod, { L::kFireX, L::kFireY, L::kSpitZ }, RotX(g_spit ? g_spit->Angle() : 0.0), 1.0f);
+				}
 			}
 			// ---- the oven: door, peel, dough, the bake
 			if (P.door >= 0) {
