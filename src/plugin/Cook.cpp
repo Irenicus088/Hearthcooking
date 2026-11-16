@@ -2979,7 +2979,7 @@ namespace Cook
 				Vec3 mn, mx;
 				if (showDish && P.result >= 0 && Scene::Bounds(P.result, mn, mx)) {
 					const double big = (std::max)(mx.x - mn.x, mx.y - mn.y);
-					const double s = BakeSize() / (std::max)(0.1, big) * (0.8 + 0.2 * Clamp(g_oven->Rise(), 0.0, 1.0));  // the same size as it's served
+					const double s = BakeSize() / (std::max)(0.1, big);  // one size: raw on the board, in the oven, on the plate
 					const Vec3   c{ (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, mn.z };
 					Scene::Place(P.result, at - c * s, {}, static_cast<float>(s));
 					auto& lk = Scene::LookOf(P.result);
