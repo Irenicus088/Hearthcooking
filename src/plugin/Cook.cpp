@@ -1427,9 +1427,17 @@ namespace Cook
 			}
 			// the oven: its door, what's in it, the dough
 			if (oven) {
-				if (g_oven->InOven() && g_door > 0.6 && g_peelT < 0 && NearScreen(BreadAt() + Vec3{ 0, 0, 1.5 }, mx, my, 4.0, 30.0f)) {
-					Toast("Too hot for hands: take it out with the peel");
+				if (g_oven->InOven() && g_peelT < 0 && NearScreen(BreadAt() + Vec3{ 0, 0, 1.5 }, mx, my, 4.0, 30.0f)) {
+					Toast(g_door > 0.6 ? "Too hot for hands: take it out with the peel" : "Open the door, then take it out with the peel");
 					return;
+				}
+				if (g_peelBread && g_peelT < 0 && P.peel >= 0) {
+					// the bake resting on the peel: picking it (or the peel) up carries both
+					if (NearScreen(PeelRest() + Vec3{ 0, 0, 1.0 }, mx, my, 6.0, 60.0f)) {
+						g_hold = Hold::Peel;
+						g_peelAt = PeelRest();
+						return;
+					}
 				}
 				// the bowls: a ball of dough to lift out, flour to stir, the cut filling to carry over
 				if (P.mixBowl >= 0 && OverMix(mx, my)) {
@@ -1653,7 +1661,7 @@ namespace Cook
 				if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 					g_peelAt = { x, y, kBoardTop + 1.2 };
 					// into the open oven for what's baking
-					if (!g_peelBread && g_oven->InOven() && g_door > 0.6 && NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
+					if (!g_peelBread && g_oven->InOven() && g_door > 0.6 && (NearScreen(MouthAt(), mx, my, 6.0, 50.0f) || NearScreen(BreadAt(), mx, my, 6.0, 60.0f))) {
 						g_oven->Unload();
 						g_peelBread = true;
 						Audio::Play({ "peel", 0.7f });
