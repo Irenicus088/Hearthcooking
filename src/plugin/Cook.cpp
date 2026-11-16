@@ -3978,7 +3978,25 @@ namespace Cook
 						}
 					}
 				}
-				for (const auto& [name, c] : by) {
+				// in the order they go in (a dough's own order, where it has one), else by name
+				std::vector<std::pair<std::string, std::pair<int, int>>> list(by.begin(), by.end());
+				if (a_role == Role::Dough) {
+					const auto order = DoughOrder();
+					auto rank = [&](const std::string& a_n) {
+						std::string l = a_n;
+						std::transform(l.begin(), l.end(), l.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+						for (int g = 0; g < static_cast<int>(order.size()); ++g) {
+							for (const auto& w : order[g]) {
+								if (l.find(w) != std::string::npos) {
+									return g;
+								}
+							}
+						}
+						return 99;
+					};
+					std::stable_sort(list.begin(), list.end(), [&](const auto& a_a, const auto& a_b) { return rank(a_a.first) < rank(a_b.first); });
+				}
+				for (const auto& [name, c] : list) {
 					s.push_back({ fmt::format("{}{}{}{}", a_pre, name, a_post, c.first > 1 ? fmt::format(" ({})", c.first) : ""), c.second >= c.first });
 				}
 			};
