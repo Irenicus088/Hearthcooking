@@ -1337,8 +1337,8 @@ namespace Cook
 				Toast("Knead the dough first");
 				return;
 			}
-			if (Dumpling() && g_flat < 1.0) {
-				Toast("Roll the dough out square first");
+			if (g_oven->Pie() && g_flat < 1.0) {
+				Toast(Dumpling() ? "Roll the dough out square first" : "Roll the dough out first");
 				return;
 			}
 			g_bowlPoured = true;
@@ -2014,7 +2014,7 @@ namespace Cook
 					const bool board = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::abs(x - L::kBoardX) < L::kBoardW * 0.5 + 1.0 && std::abs(y - L::kBoardY) < L::kBoardD * 0.5 + 1.0;
 					if (NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
 						Toast("Use the peel: drag it under the dough, then into the oven");
-					} else if (board && g_strokeLen > 1.2 && !g_rolled && g_doughParts > 0 && Dumpling() && g_oven->Dough() >= 0.9) {
+					} else if (board && g_strokeLen > 1.2 && !g_rolled && g_doughParts > 0 && g_oven->Pie() && g_oven->Dough() >= 0.9) {
 						// kneaded: now long pushes roll it out square
 						g_flat = (std::min)(1.0, g_flat + g_strokeLen / 30.0);
 						Audio::Take("knead_", 0.5f);
@@ -2964,6 +2964,13 @@ namespace Cook
 						Scene::Stretch(P.slab, static_cast<float>(side), static_cast<float>(side), static_cast<float>(h));
 						auto& sl = Scene::LookOf(P.slab);
 						sl.tint[0] = 1.0f, sl.tint[1] = 0.95f, sl.tint[2] = 0.84f;
+					} else if (dough && !g_rolled && g_oven->Pie() && g_flat > 0.0) {
+						// a pie's dough rolled out from a ball to a round sheet
+						Scene::Hide(P.dough, true);
+						Scene::Hide(P.disk, false);
+						const double f = Clamp(g_flat, 0.0, 1.0), r = 3.0 + 2.0 * f;
+						Scene::Place(P.disk, at + Vec3{ 0, 0, 0.3 }, {}, static_cast<float>(r));
+						Scene::Stretch(P.disk, 1.0f, 1.0f, static_cast<float>(2.0 * 5.0 / r * (1.0 + 2.0 * (1.0 - f))));
 					} else if (dough && !g_rolled) {
 						const double grow = Clamp(static_cast<double>(g_doughParts) / (std::max)(1, g_doughNeeded), 0.3, 1.0);
 						const double r = 3.0 * std::cbrt(grow);
@@ -3073,10 +3080,11 @@ namespace Cook
 						Scene::Hide(id, !show);
 						if (show) {
 							const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
-							// a fold of the edge, lifted up and over toward the middle (the dumpling closing)
-							// the edge lifted right up and over the mound toward the middle: crimped all round it closes
-							Scene::Place(id, at + Vec3{ std::cos(a) * 2.9, std::sin(a) * 2.9, 1.9 }, RotZ(a) * RotY(-1.05), 1.0f);
-							Scene::Stretch(id, 2.3f, 1.05f, 0.38f);
+							// a pinch of the rim: a small raised scallop, side by side all round the edge (a crimped pie)
+							Scene::Place(id, at + Vec3{ std::cos(a) * 4.55, std::sin(a) * 4.55, 0.75 }, RotZ(a), 1.0f);
+							Scene::Stretch(id, 0.55f, 0.62f, 0.42f);
+							auto& cl = Scene::LookOf(id);
+							cl.tint[0] = 1.0f, cl.tint[1] = 0.95f, cl.tint[2] = 0.84f;
 						}
 					}
 				}
@@ -3344,8 +3352,8 @@ namespace Cook
 					s.push_back({ "Stir it into a dough", g_ball });
 					s.push_back({ "Onto the board", g_doughOnBoard });
 					s.push_back({ "Knead the dough", g_oven && g_oven->Dough() >= 0.9 });
-					if (Dumpling()) {
-						s.push_back({ "Roll it out square", g_flat >= 1.0 });
+					if (g_recipe->pie) {
+						s.push_back({ Dumpling() ? "Roll it out square" : "Roll it out round", g_flat >= 1.0 });
 					}
 				}
 				if (g_recipe->pie) {
@@ -3406,7 +3414,7 @@ namespace Cook
 			case Hold::Meat:
 				return "Onto the plate to serve, or back on the spit";
 			case Hold::Dough:
-				return Dumpling() && g_oven && g_oven->Dough() >= 0.9 ? "Long pushes to roll it out square" : "A long push to knead";
+				return g_oven && g_oven->Pie() && g_oven->Dough() >= 0.9 ? (Dumpling() ? "Long pushes to roll it out square" : "Long pushes to roll it out round") : "A long push to knead";
 			case Hold::Mix:
 				return "Round and round until it comes together";
 			case Hold::Ball:
