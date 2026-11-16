@@ -147,7 +147,7 @@ namespace Recipes
 			solid = solid || Has(low, { "leek", "potato", "cabbage", "carrot", "tomato", "gourd", "apple", "pear", "garlic", "onion", "yam",
 										 "cheese", "beef", "venison", "horker", "mammoth", "goat", "horse", "chicken", "pheasant", "rabbit",
 										 "dog", "mudcrab", "salmon", "fish", "clam", "meat", "leg", "haunch", "breast", "steak", "boar",
-										 "slaughterfish", "eggplant", "pumpkin", "turnip", "radish", "corn" });
+										 "slaughterfish", "eggplant", "pumpkin", "turnip", "radish", "corn", "larva" });
 			if (a_r.flow == hc::Flow::Spit) {
 				return solid ? Role::Meat : Role::Toss;
 			}
@@ -221,7 +221,7 @@ namespace Recipes
 					r->flow = hc::Flow::Oven;
 					r->pie = Has(low, { "pie", "crostata", "tart", "pastry", "dumpling" });
 				} else {
-					r->flow = Has(low, { "grilled", "cooked", "roast", "steak", "haunch", "chop", "seared", "skewer", "leg of", "charred", "baked", "spit" }) &&
+					r->flow = Has(low, { "grilled", "cooked", "roast", "steak", "haunch", "chop", "seared", "skewer", "leg of", "charred", "baked", "spit", "larva" }) &&
 					                  !Has(low, { "stew", "soup", "chowder", "fondue" })
 					              ? hc::Flow::Spit
 					              : hc::Flow::Pot;
