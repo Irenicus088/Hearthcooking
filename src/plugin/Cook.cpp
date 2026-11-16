@@ -595,7 +595,7 @@ namespace Cook
 					Put(P.ovenBase, { L::kOvenX, L::kOvenY, 0.0 });
 					Put(P.ovenDome, { L::kOvenX, L::kOvenY, 0.0 });
 				}
-				P.door = Add("OvenDoor");
+				P.door = Add(Game(Kit::Role::Oven) ? "OvenDoorArch" : "OvenDoor");  // (the game's mouth is a round arch)
 				P.peel = KitAdd(Kit::Role::Peel);
 				// the mixing bowl (water, then dough) and the bowl the cut filling waits in
 				P.mixBowl = KitAdd(Kit::Role::Bowl);

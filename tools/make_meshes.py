@@ -711,6 +711,29 @@ def kitchen():
     straps.cylinder((w - 1.4, -t / 2 - 0.5, mouth_h * 0.45 - 0.6), (w - 1.4, -t / 2 - 0.5, mouth_h * 0.45 + 0.6), 0.12, 8)
     nif("OvenDoor", [("Planks", door, "planks", WOOD), ("Straps", straps, "iron", IRON)])
 
+    # the door for the game's oven: its mouth is a round arch, so a round-topped door (short straight sides,
+    # a half circle over them), the same width and height as ours; it stands in front of the arch
+    door, straps = Mesh(), Mesh()
+    rr = w * 0.5
+    side_h = mouth_h + 0.3 - rr
+    outline = [(0.0, 0.0), (w, 0.0)] + [(rr + rr * math.cos(math.pi * k / 24), side_h + rr * math.sin(math.pi * k / 24)) for k in range(0, 25)]
+    top = side_h + rr
+    for side, yy in ((-1, -t / 2), (1, t / 2)):
+        cidx = door.v((w / 2, yy, top * 0.45), (0.5, 0.5), (0, side, 0), (1, 0, 0))
+        ring = [door.v((x, yy, z), (x / w, 1 - z / (top + 0.2)), (0, side, 0), (1, 0, 0)) for x, z in outline]
+        ring.append(ring[0])
+        for k in range(len(ring) - 1):
+            door.I += [cidx, ring[k + 1], ring[k]] if side < 0 else [cidx, ring[k], ring[k + 1]]
+    for k in range(len(outline)):
+        (xa, za), (xb, zb) = outline[k], outline[(k + 1) % len(outline)]
+        door.quad([(xa, -t / 2, za), (xb, -t / 2, zb), (xb, t / 2, zb), (xa, t / 2, za)], [(0, 0), (0.1, 0), (0.1, 0.05), (0, 0.05)])
+    for z in (1.0, top - 2.6):
+        zz = z + 0.7
+        half = rr if zz <= side_h else math.sqrt(max(rr * rr - (zz - side_h) ** 2, 0.0))
+        straps.box(rr - half + 0.25, rr + half - 0.25, -t / 2 - 0.12, -t / 2, z, z + 0.7)
+    straps.cylinder((w - 1.6, -t / 2 - 0.5, top * 0.4 - 0.6), (w - 1.6, -t / 2 - 0.5, top * 0.4 + 0.6), 0.12, 8)
+    nif("OvenDoorArch", [("Planks", door, "planks", WOOD), ("Straps", straps, "iron", IRON)])
+
     peel, ph = Mesh(), Mesh()
     peel.rounded_box(7.0, 7.0, 0.25, 0.12, 6)
     ph.cylinder((0, -3.4, 0.0), (0, -17.5, 0.0), 0.42, 12, urep=14.1 / (2 * math.pi * 0.42))  # the grain evenly along it, not squeezed round it
