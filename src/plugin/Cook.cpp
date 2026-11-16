@@ -1120,7 +1120,7 @@ namespace Cook
 			       (!g_oven->Pie() || (g_rolled && g_oven->Crimped() >= 0.9)) && !g_oven->Out();
 		}
 		bool OverMix(float mx, float my) { return NearScreen(kMixAt + Vec3{ 0, 0, 1.6 }, mx, my, 4.2, 40.0f); }
-		bool OverFill(float mx, float my) { return NearScreen(kFillAt + Vec3{ 0, 0, 1.4 }, mx, my, 3.8, 36.0f); }
+		bool OverFill(float mx, float my) { return NearScreen(kFillAt + Vec3{ 0, 0, 1.4 }, mx, my, 6.0, 70.0f); }
 		bool AnyOnBoard()
 		{
 			for (const auto& u : g_units) {
@@ -1868,7 +1868,7 @@ namespace Cook
 			Overlay::MousePos(mx, my);
 			for (const auto& p : Overlay::TakePresses()) {
 				if (p.button == 1 && p.down) {
-					if (g_hold == Hold::None && g_flow == hc::Flow::Pot && g_phase == Phase::Cooking) {
+					if (g_hold == Hold::None && (g_flow == hc::Flow::Pot || g_flow == hc::Flow::Oven) && g_phase == Phase::Cooking) {
 						g_knifeAlong = !g_knifeAlong;  // the knife turns: across, along
 					}
 					Cancel();
@@ -2899,7 +2899,7 @@ namespace Cook
 					} else if (g_phase == Phase::Book) {
 						Post(Act::Leave);
 					}
-				} else if (key == 0x13 && g_phase == Phase::Cooking && g_flow == hc::Flow::Pot) {  // R
+				} else if (key == 0x13 && g_phase == Phase::Cooking && (g_flow == hc::Flow::Pot || g_flow == hc::Flow::Oven)) {  // R
 					g_knifeAlong = !g_knifeAlong;
 				} else if (key == 0x23) {  // H
 					g_help = !g_help;
@@ -3088,6 +3088,19 @@ namespace Cook
 			}
 			if (g_flow == hc::Flow::Pot && g_pot && !g_served && g_hold == Hold::None && g_pot->Cooked() >= 0.92) {
 				return "It's ready: drag the ladle out of the pot and let go over the bowl";
+			}
+			if (g_flow == hc::Flow::Oven && g_hold == Hold::None && AnyOnBoard()) {
+				bool cut = true;
+				for (const auto& u : g_units) {
+					cut &= u.at != Unit::At::Board || u.cut.cutCount + u.cut.alongCount > 0;
+				}
+				if (cut && !g_knifeOn) {
+					return "Grab the board by its left end and drag it over the bowl behind it";
+				}
+				if (cut) {
+					return g_knifeAlong ? "Cut more, or grab the board's left end and drag it over the bowl behind"
+					                    : "Cut more, or grab the board's left end and drag it over the bowl behind";
+				}
 			}
 			if (g_knifeOn) {
 				return g_knifeAlong ? "Click to cut along it. Right-click (or R) turns the knife back across"
