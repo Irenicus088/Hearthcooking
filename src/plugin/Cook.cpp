@@ -169,11 +169,12 @@ namespace Cook
 
 		struct Props
 		{
-			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, ladleStew = -1, pin = -1, eggA = -1, eggB = -1, yolk = -1, eggWhite = -1, bowl = -1, posts = -1, rod = -1,
+			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, ladleStew = -1, pin = -1, eggA = -1, eggB = -1, yolk = -1, eggWhite = -1, flourHeap = -1, spoon = -1, bowl = -1, posts = -1, rod = -1,
 					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1,
 					  mixBowl = -1, mixWater = -1, mixBall = -1, fillBowl = -1, slab = -1, dishRef = -1;
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
 			Scene::Id pile[3]{ -1, -1, -1 };
+			std::vector<Scene::Id> butter;  // butter cut into the flour
 			std::vector<Scene::Id> crimps;
 			std::vector<std::pair<Scene::Id, Vec3>> fill;  // the filling on the pie (disk-local, units)
 			std::array<bool, static_cast<int>(Kit::Role::Count)> game{};  // this one is the game's own mesh (fitted), not ours
@@ -633,6 +634,11 @@ namespace Cook
 				P.eggWhite = Add("DoughDisk");
 				Scene::Hide(P.yolk, true);
 				Scene::Hide(P.eggWhite, true);
+				P.flourHeap = Add("Dough");  // the flour heaped in the mixing bowl
+				P.spoon = Add("Spoon");      // and the spoon it's stirred with
+				Scene::Hide(P.flourHeap, true);
+				Scene::Hide(P.spoon, true);
+				P.butter.clear();
 				if (Game(Kit::Role::Oven)) {
 					// the game's oven, in the space ours takes (its mouth toward you; OvenTurn in the INI if it isn't)
 					Settle(P.ovenDome, Kit::Role::Oven, { L::kOvenX, L::kOvenY - 0.5, 0.0 }, { 25.0, 23.0, L::kOvenFloorZ + 9.5 }, 0.0, true, {});
@@ -801,6 +807,86 @@ namespace Cook
 					yl.lift[0] = 1.0f, yl.lift[1] = 0.62f, yl.lift[2] = 0.08f, yl.lift[3] = 0.92f;
 					yl.alpha = static_cast<float>((std::max)(0.02, fade));
 					yl.shadow = false;
+				}
+			}
+		}
+
+		// The flour heaped in the mixing bowl, a dusting of it, the butter cut in over it, and the wooden spoon: stirred, the
+		// heap sinks and smooths into the dough, the butter going into it
+		void DrawFlour(std::vector<Render3D::Sprite>& a_sp)
+		{
+			bool flour = false, butter = false;
+			for (const auto& u : g_units) {
+				std::string n = u.name;
+				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				flour |= u.at == Unit::At::Dough && n.find("flour") != std::string::npos;
+				butter |= u.at == Unit::At::Dough && n.find("butter") != std::string::npos;
+			}
+			const bool   mixing = g_flow == hc::Flow::Oven && !g_topping && g_doughParts > 0 && !g_ball && !g_doughOnBoard;
+			const double m = Clamp(g_mix, 0.0, 1.0);
+			const double top = kMixAt.z + 1.5 + 0.4 * g_mix;
+			const bool   heap = mixing && flour && m < 0.85;
+			if (P.flourHeap >= 0) {
+				Scene::Hide(P.flourHeap, !heap);
+				if (heap) {
+					const double r = 2.7 * (1.0 - 0.35 * m);
+					Scene::Place(P.flourHeap, Vec3{ kMixAt.x, kMixAt.y, top + 0.1 }, RotZ(g_mixA * 0.3), static_cast<float>(r));
+					Scene::Stretch(P.flourHeap, 1.0f, 1.0f, static_cast<float>(0.34 * (1.0 - 0.7 * m)));
+					auto& fl = Scene::LookOf(P.flourHeap);
+					const double wet = g_milkIn ? 0.35 : 0.0;
+					fl.lift[0] = static_cast<float>(0.95 - 0.03 * wet), fl.lift[1] = static_cast<float>(0.92 - 0.04 * wet), fl.lift[2] = static_cast<float>(0.85 - 0.06 * wet);
+					fl.lift[3] = 0.9f;
+					fl.shadow = false;
+				}
+			}
+			// powdery: specks over the heap, and a little on the rim
+			if (heap) {
+				const double r = 2.5 * (1.0 - 0.35 * m);
+				for (int k = 0; k < 70; ++k) {
+					const double a = Hash(k, 51) * 6.283 + g_mixA * 0.3, rr = std::sqrt(Hash(k, 52)) * r;
+					Render3D::Sprite g;
+					g.pos[0] = static_cast<float>(kMixAt.x + std::cos(a) * rr);
+					g.pos[1] = static_cast<float>(kMixAt.y + std::sin(a) * rr);
+					g.pos[2] = static_cast<float>(top + 0.1 + 0.34 * (1.0 - 0.7 * m) * r * std::sqrt((std::max)(0.0, 1.0 - (rr / r) * (rr / r))) + 0.04);
+					g.size = static_cast<float>(0.05 + 0.06 * Hash(k, 53));
+					g.color[0] = 0.97f, g.color[1] = 0.95f, g.color[2] = 0.9f;
+					g.color[3] = static_cast<float>(0.8 * (1.0 - m));
+					g.kind = Render3D::Sprite::Kind::Grain;
+					a_sp.push_back(g);
+				}
+			}
+			// the butter: cubes cut in over the flour, sinking in as it's stirred
+			const int  nb = butter && heap ? 7 : 0;
+			while (static_cast<int>(P.butter.size()) < nb) {
+				P.butter.push_back(Add("Hull"));
+			}
+			for (int k = 0; k < static_cast<int>(P.butter.size()); ++k) {
+				const auto id = P.butter[k];
+				const double sink = Clamp(m / 0.45, 0.0, 1.0);
+				const bool   show = k < nb && sink < 1.0;
+				Scene::Hide(id, !show);
+				if (!show) {
+					continue;
+				}
+				const double a = Hash(k, 54) * 6.283 + g_mixA * 0.3, rr = 0.4 + std::sqrt(Hash(k, 55)) * 1.4;
+				const double sz = 0.62 + 0.18 * Hash(k, 56);
+				const double hh = 0.34 * 2.7 * std::sqrt((std::max)(0.0, 1.0 - (rr / 2.7) * (rr / 2.7)));
+				Scene::Place(id, Vec3{ kMixAt.x + std::cos(a) * rr, kMixAt.y + std::sin(a) * rr, top + 0.1 + hh * (1.0 - sink) }, RotZ(Hash(k, 57) * 3.0) * RotY((Hash(k, 58) - 0.5) * 0.5), 1.0f);
+				Scene::Stretch(id, static_cast<float>(sz * (1.0 - 0.6 * sink)), static_cast<float>(sz * 0.8 * (1.0 - 0.6 * sink)), static_cast<float>(sz * 0.55 * (1.0 - 0.6 * sink)));
+				auto& bl = Scene::LookOf(id);
+				bl.lift[0] = 0.99f, bl.lift[1] = 0.9f, bl.lift[2] = 0.55f, bl.lift[3] = 0.92f;
+				bl.shadow = false;
+			}
+			// the spoon: in the bowl while there's something to stir, going round with the stirring
+			if (P.spoon >= 0) {
+				Scene::Hide(P.spoon, !mixing);
+				if (mixing) {
+					const double a = g_mixA;
+					const double rr = g_hold == Hold::Mix ? 1.3 : 1.6;
+					const Vec3   bowl{ kMixAt.x + std::cos(a) * rr, kMixAt.y + std::sin(a) * rr, top + 0.15 };
+					// its handle out over the rim, leaning up away from the middle
+					const Quat q = RotZ(a) * RotY(-0.55);
+					Scene::Place(P.spoon, bowl, q, 1.0f);
 				}
 			}
 		}
@@ -3413,6 +3499,7 @@ namespace Cook
 					Scene::Hide(P.disk, !dough || !g_rolled || square || Dumpling());  // (a dumpling's sheet is drawn in its parts)
 					Scene::Hide(P.slab, !dough || !square);
 					DrawEgg();
+					DrawFlour(sp);
 					// the rolling pin: out beside the dough while it's to be rolled; held, it rolls across under the pointer
 					if (P.pin >= 0) {
 						const bool rolling = dough && !g_rolled && g_oven->Pie() && g_oven->Dough() >= 0.9 && g_flat < 1.0;

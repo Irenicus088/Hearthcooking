@@ -787,6 +787,12 @@ def kitchen():
     peel.quad([(w0, 3.5, -t0), (-w0, 3.5, -t0), (-w0, 3.5, t0), (w0, 3.5, t0)], [(0, 0), (0.6, 0), (0.6, 0.02), (0, 0.02)], (0, 1, 0), (-1, 0, 0))
     nif("Peel", [("Paddle", peel, "board", WOOD)])
 
+    # a wooden spoon: its bowl at the origin, the handle along +x rising a little
+    spoon = Mesh()
+    spoon.ellipsoid((0, 0, 0), 0.95, 0.62, 0.22, segs=18, rings=10)
+    spoon.cylinder((0.75, 0, 0.05), (8.6, 0, 0.75), 0.21, 10, urep=7.9 / (2 * math.pi * 0.21))
+    nif("Spoon", [("Spoon", spoon, "handle", WOOD)])
+
     # the rolling pin: along x, its middle at the origin - a long barrel and a handle each end
     pin, pinh = Mesh(), Mesh()
     pin.cylinder((-4.2, 0, 0), (4.2, 0, 0), 0.72, 20, urep=8.4 / (2 * math.pi * 0.72))
