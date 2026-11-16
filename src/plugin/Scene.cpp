@@ -756,6 +756,10 @@ namespace Scene
 					if (named || (sw.shape.empty() && sw.index == shapeIndex)) {
 						if (auto* d = SrvOfPath(sw.diffuse.c_str())) {
 							it.diffuse = d;
+							// a swapped texture's alpha needn't be what the shape's own material cuts by (the game's
+							// cabbage wore one and vanished): no cut-out on it
+							it.test = false;
+							it.blend = false;
 						}
 						if (auto* n = SrvOfPath(sw.normal.c_str())) {
 							it.normal = n;

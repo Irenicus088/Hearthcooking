@@ -659,6 +659,7 @@ namespace Cook
 					continue;
 				}
 				const char* name = alt.name3D.c_str();
+				spdlog::info("Textures: {} wears {} on '{}' ({})", a_form->GetName(), alt.textureSet->textures[0].textureName.c_str(), name ? name : "", alt.index3D);
 				Scene::SwapTextures(a_id, name ? name : "", static_cast<int>(alt.index3D), alt.textureSet->textures[0].textureName.c_str(),
 					alt.textureSet->textures[1].textureName.c_str());
 			}
