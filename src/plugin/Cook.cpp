@@ -2792,30 +2792,6 @@ namespace Cook
 			if (g_flow == hc::Flow::Oven) {
 				sp.resize(fireFrom);  // the oven's fire is shut in its dome: its glow lights the kitchen, its flames aren't seen
 			}
-			if (g_flow == hc::Flow::Pot) {
-				// under the pot: nothing of the fire may show up through it into the stew (flames, sparks, the glow)
-				std::vector<Render3D::Sprite> keep(sp.begin(), sp.begin() + static_cast<std::ptrdiff_t>(fireFrom));
-				for (size_t k = fireFrom; k < sp.size(); ++k) {
-					const auto&  s = sp[k];
-					const double d = std::hypot(s.pos[0] - L::kPotX, s.pos[1] - L::kPotY);
-					const double top = s.pos[2] + s.size * (std::max)(1.0f, s.stretch);
-					if (d < L::kPotR + 1.5 && top > L::kPotFloor) {
-						// (camera-facing sprites draw over what's in front: under the pot they're kept below its floor)
-						if (s.kind != Render3D::Sprite::Kind::Flame) {
-							continue;  // the glow and the sparks
-						}
-						auto f = s;
-						f.size = static_cast<float>((L::kPotFloor - s.pos[2]) / (std::max)(1.0f, s.stretch));
-						if (f.size < 0.15f) {
-							continue;
-						}
-						keep.push_back(f);
-						continue;
-					}
-					keep.push_back(s);
-				}
-				sp.swap(keep);
-			}
 			for (int k = 0; k < 6 && g_flow != hc::Flow::Pot; ++k) {
 				const double p = std::fmod(t * 0.12 + k / 6.0, 1.0);
 				Render3D::Sprite s;
