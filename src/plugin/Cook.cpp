@@ -272,9 +272,6 @@ namespace Cook
 		bool BreadCuts() { return g_recipe && g_recipe->oven && !g_recipe->pie && !g_topping; }
 		Vec3 CutBowl() { return g_recipe && (g_recipe->pie || g_topping || !g_cutInMix) ? kFillAt : kMixAt; }
 		Vec3 PourAt() { return BreadCuts() ? kMixAt : g_doughAt; }  // where the right bowl tips toward
-		double g_pourAng = -kPi * 0.5;  // which way it tips: toward that, steadily (not flipping when it's right over it)
-		double g_pourT = -1.0;          // since it poured (the pieces falling out of it onto the dough)
-		Vec3   g_pourFrom{};
 		bool CutsWaiting();  // a bread's cut things still in the right bowl
 		void DoughPush(double a_len);  // a push of the dough: kneaded, or rolled out
 		bool   g_ball = false;             // a ball of dough in the bowl
@@ -1221,7 +1218,6 @@ namespace Cook
 			g_eggT = -1.0;
 			g_cutInMix = false;
 			g_pinHeld = false;
-			g_pourT = -1.0;
 			g_ball = false;
 			g_milkIn = false;
 			for (int k = 0; k < 4; ++k) {
@@ -2875,18 +2871,8 @@ namespace Cook
 				// the fruit bowl: lifted, its fruit riding in it; over the dough it tips and pours
 				{
 					const bool held = g_hold == Hold::Apples;
-					if (held && g_bowlTip < 0.05) {
-						// tipped toward where it's pouring from where it's held - kept once it's near, so it doesn't swing about
-						const double dx = PourAt().x - g_carry.x, dy = PourAt().y - g_carry.y;
-						if (std::hypot(dx, dy) > 2.5) {
-							g_pourAng = std::atan2(dy, dx);
-						}
-					}
-					if (g_pourT >= 0.0) {
-						g_pourT += dt;
-					}
-					const bool over = held && (BreadCuts() ? std::hypot(g_carry.x - kMixAt.x, g_carry.y - kMixAt.y) < 6.0 && !g_cutInMix
-					                                       : std::hypot(g_carry.x - g_doughAt.x, g_carry.y - g_doughAt.y) < 6.0 && (g_doughOnBoard || BreadOnBoard()));
+					const bool over = held && (BreadCuts() ? std::hypot(g_carry.x - kMixAt.x, g_carry.y - kMixAt.y) < 4.5 && !g_cutInMix
+					                                       : std::hypot(g_carry.x - g_doughAt.x, g_carry.y - g_doughAt.y) < 4.5 && (g_doughOnBoard || BreadOnBoard()));
 					g_bowlTip += Clamp((over && !g_bowlPoured ? 1.0 : 0.0) - g_bowlTip, -dt * 3.0, dt * 2.0);
 					if (g_bowlTip > 0.6 && !g_bowlPoured && BreadCuts() && g_doughParts < (std::max)(1, g_doughNeeded)) {
 						Toast("The milk, egg and flour go in first, then this");
@@ -2896,11 +2882,7 @@ namespace Cook
 						g_bowlPoured = true;
 						Audio::Take("thunk_", 0.4f);
 					} else if (g_bowlTip > 0.6 && !g_bowlPoured) {
-						g_pourFrom = g_carry + Vec3{ std::cos(g_pourAng) * 3.0, std::sin(g_pourAng) * 3.0, 0.4 };  // its lip
 						PourOnDough();
-						if (g_bowlPoured) {
-							g_pourT = 0.0;
-						}
 						if (!g_bowlPoured) {
 							g_hold = Hold::None;  // not ready for it: the bowl goes back
 						}
@@ -3129,7 +3111,7 @@ namespace Cook
 				const bool fitted = !Game(Kit::Role::Bowl) || FitBox(P.fillBowl, Kit::Get(Kit::Role::Bowl), kFillAt, { 8.5, 8.5, 0.0 }, 0.0, false, p);
 				if (fitted) {
 					const Vec3   base = g_hold == Hold::Apples ? g_carry : kFillAt;
-					const double ang = g_pourAng;
+					const double ang = std::atan2(PourAt().y - base.y, PourAt().x - base.x);
 					const Quat   T = RotZ(ang) * RotY(g_bowlTip * 1.7) * RotZ(-ang);  // its far side dips toward the dough (or the mixing bowl)
 					p.pos = base + T.Rotate(p.pos - kFillAt);
 					p.q = T * p.q;
@@ -3453,20 +3435,12 @@ namespace Cook
 					}
 					frame = RotZ(pc.turn) * body.q;
 					at = g_doughAt + pc.doughOff + Vec3{ 0, 0, 0.9 };
-					// just poured: tumbling out of the bowl's lip onto the dough, one after another
-					if (g_pourT >= 0.0 && g_pourT < 1.2) {
-						const double k = Clamp((g_pourT - Hash(b, 61) * 0.35) / 0.4, 0.0, 1.0);
-						const Vec3   from = g_pourFrom + Vec3{ (Hash(b, 62) - 0.5) * 1.2, (Hash(b, 63) - 0.5) * 1.2, 0.0 };
-						at = from + (at - from) * k;
-						at.z += std::sin(k * kPi) * 1.2 * (1.0 - k);
-						frame = RotZ(pc.turn + (1.0 - k) * 3.0 * Hash(b, 64)) * body.q;
-					}
 				}
 				// in the fruit bowl as it tips to pour: they ride with it, not through its side
 				if (!pc.onDough && g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot && g_bowlTip > 0.001 && (g_hold == Hold::Apples || g_bowlTip > 0.01) &&
 					!(BreadCuts() && g_cutInMix)) {
 					const Vec3   base = g_hold == Hold::Apples ? g_carry : kFillAt;  // (the bowl turns about this, as it's drawn)
-					const double ang = g_pourAng;
+					const double ang = std::atan2(PourAt().y - base.y, PourAt().x - base.x);
 					const Quat   T = RotZ(ang) * RotY(g_bowlTip * 1.7) * RotZ(-ang);
 					at = base + T.Rotate(at - base);
 					frame = T * frame;
