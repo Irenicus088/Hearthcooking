@@ -1546,6 +1546,13 @@ namespace Cook
 					for (const auto& u : g_units) {
 						any |= u.at == Unit::At::Board;
 					}
+					// diced, not sliced: whatever isn't long and thin is cut both ways before the board lifts
+					for (const auto& u : g_units) {
+						if (any && u.at == Unit::At::Board && !u.thin && (u.cut.cutCount == 0 || u.cut.alongCount == 0)) {
+							Toast(u.cut.cutCount == 0 ? "Cut it, then right-click to turn the knife and cut it the other way" : "Now right-click to turn the knife and cut it the other way");
+							return;
+						}
+					}
 					if (any) {
 						g_hold = Hold::Board;
 						g_boardCarry = g_boardPose.c;
