@@ -3917,10 +3917,13 @@ namespace Cook
 								Scene::Stretch(id, 1.05f, 0.88f, 0.3f);
 								DoughLook(cl);
 							} else {
-								// a pinch of the rim: a small raised scallop, side by side all round the edge (a crimped pie)
-								Scene::Place(id, at + Vec3{ std::cos(a) * 4.55, std::sin(a) * 4.55, 0.75 }, RotZ(a), 1.0f);
-								Scene::Stretch(id, 0.55f, 0.62f, 0.42f);
-								cl.tint[0] = 1.0f, cl.tint[1] = 0.95f, cl.tint[2] = 0.84f;
+								// a fluted edge: the rim stood up as a thin wall, pinched into a zigzag - each pinch a short slanted
+								// length of it, turned one way then the other, so the wall runs in and out in V's all round
+								const double zig = (k % 2) ? 0.42 : -0.42;
+								const double r = 4.55;
+								Scene::Place(id, at + Vec3{ std::cos(a) * r, std::sin(a) * r, 0.95 }, RotZ(a + zig), 1.0f);
+								Scene::Stretch(id, 0.26f, 0.72f, 0.55f);
+								DoughLook(cl);
 							}
 						}
 					}
