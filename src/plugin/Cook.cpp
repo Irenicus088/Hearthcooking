@@ -171,7 +171,7 @@ namespace Cook
 		{
 			Scene::Id kitchen = -1, room = -1, cloth = -1, saltPile = -1, board = -1, knife = -1, salt = -1, firepit = -1, pot = -1, broth = -1, ladle = -1, ladleSoup = -1, bowl = -1, posts = -1, rod = -1,
 					  plate = -1, ovenBase = -1, ovenDome = -1, door = -1, peel = -1, dough = -1, disk = -1, result = -1, heldLog = -1,
-					  mixBowl = -1, mixWater = -1, mixBall = -1, fillBowl = -1, slab = -1;
+					  mixBowl = -1, mixWater = -1, mixBall = -1, fillBowl = -1, slab = -1, dishRef = -1;
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
 			Scene::Id pile[3]{ -1, -1, -1 };
 			std::vector<Scene::Id> crimps;
@@ -301,6 +301,7 @@ namespace Cook
 		};
 		bool board_kneading();
 		void NextKnife();
+		Scene::Id AddResult();
 		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled);
 		std::vector<std::pair<Act, int>> g_acts;
 		std::mutex                       g_actMtx;
@@ -548,6 +549,8 @@ namespace Cook
 				P.pot = KitAdd(Kit::Role::Pot);
 				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
 				P.broth = Add("Broth");
+				P.dishRef = AddResult();  // never shown: the finished stew, for the look of the pot as it comes together
+				Scene::Hide(P.dishRef, true);
 				P.ladleSoup = Add("Broth");  // a ladleful, carried to the bowl
 				Scene::Hide(P.ladleSoup, true);
 				P.ladle = KitAdd(Kit::Role::Ladle);
@@ -2783,6 +2786,13 @@ namespace Cook
 				lk.lift[1] = any ? g_broth[1] * (1.0f - 0.15f * c) : 0.55f;
 				lk.lift[2] = any ? g_broth[2] * (1.0f - 0.15f * c) : 0.52f;
 				lk.lift[3] = any ? 0.82f : 0.6f;  // plain water until something's in it
+				// as it cooks it comes to look like the finished stew: its own texture showing through more and more
+				if (auto* food = any ? Scene::FoodTexture(P.dishRef) : nullptr) {
+					const float k = static_cast<float>(Clamp(g_pot->Cooked() / 0.9, 0.0, 1.0));
+					lk.skin = food;
+					lk.uv[0] = lk.uv[1] = 0.6f;
+					lk.lift[3] = 0.82f * (1.0f - 0.9f * k);
+				}
 				const double tp = g_pot->Temp();
 				if (tp > 0.42) {
 					const int n = static_cast<int>((tp - 0.42) * 40.0);

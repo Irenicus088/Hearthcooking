@@ -513,6 +513,48 @@ namespace Scene
 		p.placed = true;
 	}
 
+	::ID3D11ShaderResourceView* FoodTexture(Id a_id)
+	{
+		if (!Valid(a_id) || !g_props[a_id].node) {
+			return nullptr;
+		}
+		auto&                       p = g_props[a_id];
+		::ID3D11ShaderResourceView* found = nullptr;
+		int                         shapeIndex = -1;
+		RE::BSVisit::TraverseScenegraphGeometries(p.node.get(), [&](RE::BSGeometry* a_geo) {
+			++shapeIndex;
+			if (!a_geo || found) {
+				return RE::BSVisit::BSVisitControl::kContinue;
+			}
+			std::string n = a_geo->name.c_str() ? a_geo->name.c_str() : "";
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			if (n.find("bowl") != std::string::npos || n.find("plate") != std::string::npos || n.find("spoon") != std::string::npos) {
+				return RE::BSVisit::BSVisitControl::kContinue;
+			}
+			::ID3D11ShaderResourceView* d = nullptr;
+			for (const auto& sw : p.swaps) {
+				const bool named = !sw.shape.empty() && _stricmp(sw.shape.c_str(), a_geo->name.c_str()) == 0;
+				if (named || (sw.shape.empty() && sw.index == shapeIndex)) {
+					d = SrvOfPath(sw.diffuse.c_str());
+				}
+			}
+			if (!d) {
+				auto* prop = a_geo->GetGeometryRuntimeData().shaderProperty.get();
+				auto* lit = prop ? netimmerse_cast<RE::BSLightingShaderProperty*>(prop) : nullptr;
+				auto* mat = lit ? static_cast<RE::BSLightingShaderMaterialBase*>(lit->material) : nullptr;
+				if (mat) {
+					d = SrvOf(mat->diffuseTexture.get());
+					if (!d && mat->textureSet) {
+						d = SrvOfPath(mat->textureSet->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse));
+					}
+				}
+			}
+			found = d;
+			return RE::BSVisit::BSVisitControl::kContinue;
+		});
+		return found;
+	}
+
 	void HideShapes(Id a_id, std::vector<std::string> a_words)
 	{
 		if (Valid(a_id)) {
