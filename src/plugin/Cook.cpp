@@ -268,7 +268,7 @@ namespace Cook
 		Vec3   g_lastSpread;
 		double g_peelT = -1;        // the peel's trip into or out of the oven
 		// how many times faster than real each cooks
-		constexpr double kPotSpeed = 2.0, kSpitSpeed = 1.5, kOvenSpeed = 6.0;
+		constexpr double kPotSpeed = 2.0, kSpitSpeed = 1.5, kOvenSpeed = 1.0;
 		Vec3   g_peelAt;            // the peel in the hand
 		Vec3   g_peelFrom;          // where its trip into the oven starts
 		bool   g_peelLoaded = false;  // the dough on it
@@ -803,7 +803,7 @@ namespace Cook
 		}
 
 		// How far apart the pieces of one thing sit on the board, so the cuts show
-		double Spread(int a_k, int a_n) { return (a_k - (a_n - 1) * 0.5) * 0.06; }  // a hair: the cuts show, the skin reads whole
+		double Spread(int a_k, int a_n) { return (a_k - (a_n - 1) * 0.0) * 0.0; }  // none: on the board the skin stays whole; the pieces part as they fall
 
 		void HideBoardBits(Unit& u)
 		{
