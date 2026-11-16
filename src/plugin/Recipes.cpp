@@ -181,6 +181,32 @@ namespace Recipes
 				if (!result || !result->GetName() || !*result->GetName()) {
 					continue;
 				}
+				// recipes left out (Hearthcooking.ini [Recipes] Skip, names separated by commas): they cook the game's way
+				{
+					char buf[1024]{};
+					::GetPrivateProfileStringA("Recipes", "Skip", "Cookie,Muffin", buf, sizeof(buf), "Data\\SKSE\\Plugins\\Hearthcooking.ini");
+					const std::string skip = Lower(buf), name = Lower(result->GetName());
+					bool skipped = false;
+					std::size_t from = 0;
+					while (from <= skip.size()) {
+						auto to = skip.find(',', from);
+						if (to == std::string::npos) {
+							to = skip.size();
+						}
+						std::string w = skip.substr(from, to - from);
+						while (!w.empty() && w.front() == ' ') {
+							w.erase(w.begin());
+						}
+						while (!w.empty() && (w.back() == ' ' || w.back() == ';')) {
+							w.pop_back();
+						}
+						skipped |= !w.empty() && name == w;
+						from = to + 1;
+					}
+					if (skipped) {
+						continue;
+					}
+				}
 				auto r = std::make_unique<Recipe>();
 				r->cobj = cobj;
 				r->result = result;
