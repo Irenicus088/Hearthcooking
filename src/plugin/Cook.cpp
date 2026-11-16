@@ -296,7 +296,8 @@ namespace Cook
 			Again,
 			Done,
 			Help,
-			Mute
+			Mute,
+			Knife
 		};
 		bool board_kneading();
 		bool MenuBtnInk(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_enabled);
@@ -3217,8 +3218,35 @@ namespace Cook
 				case Act::Mute:
 					Audio::SetMuted(!Audio::Muted());
 					break;
+				case Act::Knife:
+					NextKnife();
+					break;
 				}
 			}
+		}
+
+		// The next knife the game has (then Hearthcooking's own, then the one found by itself), kept in the INI
+		void NextKnife()
+		{
+			if (P.knife < 0) {
+				return;
+			}
+			std::vector<std::string> list = Kit::Knives();
+			list.push_back("ours");
+			const auto& now = Kit::Get(Kit::Role::Knife);
+			const std::string cur = now.vanilla ? now.path : std::string("ours");
+			int at = -1;
+			for (int k = 0; k < static_cast<int>(list.size()); ++k) {
+				if (_stricmp(list[k].c_str(), cur.c_str()) == 0) {
+					at = k;
+				}
+			}
+			const std::string next = list[(at + 1) % list.size()];
+			Kit::SetMesh(Kit::Role::Knife, next);
+			Scene::Remove(P.knife);
+			P.knife = KitAdd(Kit::Role::Knife);
+			std::string shown = next == "ours" ? std::string("Hearthcooking's own") : next.substr(next.find_last_of("\\/") + 1);
+			Toast(fmt::format("Knife: {}", shown));
 		}
 
 		void HandleKeys()
@@ -3244,6 +3272,8 @@ namespace Cook
 					}
 				} else if (key == 0x13 && g_phase == Phase::Cooking && (g_flow == hc::Flow::Pot || g_flow == hc::Flow::Oven)) {  // R
 					g_knifeAlong = !g_knifeAlong;
+				} else if (key == 0x31 && g_phase == Phase::Cooking) {  // N
+					NextKnife();
 				} else if (key == 0x23) {  // H
 					g_help = !g_help;
 				} else if (key == 0x32 || key == Overlay::kPadSoundKey) {  // M
@@ -3633,14 +3663,17 @@ namespace Cook
 				Act         act;
 			};
 			const bool pad = Overlay::UsingPad();
-			const Key  keys[3] = { { pad ? "X" : "H", "How to cook", Act::Help }, { pad ? "Back" : "M", Audio::Muted() ? "Muted" : "Sound", Act::Mute },
+			// the knife can be swapped from here while there's one in the kitchen
+			const bool knife = g_phase == Phase::Cooking && P.knife >= 0;
+			const Key  keys[4] = { { "N", "Knife", Act::Knife }, { pad ? "X" : "H", "How to cook", Act::Help }, { pad ? "Back" : "M", Audio::Muted() ? "Muted" : "Sound", Act::Mute },
 				 { pad ? "Y" : "Tab", g_phase == Phase::Cooking ? "Put it aside" : "Leave", g_phase == Phase::Cooking ? Act::Abandon : Act::Leave } };
-			float widths[3], total = 0;
-			for (int k = 0; k < 3; ++k) {
+			const int first = knife ? 0 : 1, count = 4;
+			float     widths[4]{}, total = 0;
+			for (int k = first; k < count; ++k) {
 				widths[k] = (std::max)(S(26), Measure(F.sansSemi, keys[k].key, 0.04f) + S(10)) + S(9) + Measure(F.sans, Upper(keys[k].label), 0.14f);
 				total += widths[k];
 			}
-			total += S(26) * 2;
+			total += S(26) * (count - first - 1);
 			const float  right = W - S(30), bottom = H - S(22), h = S(24);
 			const ImVec2 area(right - total - S(120), bottom - h - S(26));
 			BeginArea("##keys", area, ImVec2(W - area.x, H - area.y));
@@ -3648,7 +3681,7 @@ namespace Cook
 			dl->AddRectFilledMultiColor(area, ImVec2(area.x + (W - area.x) * 0.3f, H), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 158), IM_COL32(0, 0, 0, 158), IM_COL32(0, 0, 0, 0));
 			dl->AddRectFilled(ImVec2(area.x + (W - area.x) * 0.3f, area.y), ImVec2(W, H), IM_COL32(0, 0, 0, 158));
 			float x = right - total;
-			for (int k = 0; k < 3; ++k) {
+			for (int k = first; k < count; ++k) {
 				bool hov = false;
 				ImGui::PushID(k);
 				if (Clicked("key", ImVec2(x, bottom - h - S(2)), ImVec2(x + widths[k], bottom + S(2)), &hov)) {
