@@ -3892,7 +3892,7 @@ namespace Cook
 						const double f = g_fold[k];
 						const double a = kPi * 0.25 + k * kPi * 0.5, th = f * 2.9;
 						const Vec3   dir{ std::cos(a), std::sin(a), 0.0 };
-						const Vec3   hinge = at + dir * 2.41 + Vec3{ 0, 0, 0.14 + 1.05 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };  // (up over the filling)
+						const Vec3   hinge = at + dir * 2.41 + Vec3{ 0, 0, 0.09 + 0.18 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };  // (from the sheet's own edge: one piece of dough, folded)
 						const Vec3   v = dir * std::cos(th) + Vec3{ 0, 0, std::sin(th) };
 						// a corner square standing on its point at the fold line, its inner half cut away: the triangle
 						Scene::Place(id, hinge, RotZ(a) * RotY(-th) * RotZ(kPi * 0.25), 1.0f);
