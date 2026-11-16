@@ -2942,6 +2942,7 @@ namespace Cook
 					Scene::Hide(P.result, false);
 					Scene::Hide(P.dough, true);
 					Scene::Hide(P.disk, true);
+					Scene::Hide(P.slab, true);  // (the rolled-out sheet is the dumpling now)
 				} else {
 					if (P.result >= 0 && !showDish) {
 						Scene::Hide(P.result, true);
