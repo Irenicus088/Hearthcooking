@@ -245,6 +245,9 @@ namespace Cook
 		Vec3   g_doughAt{ L::kBoardX, L::kBoardY, kBoardTop };
 		// the oven's bowls, behind the board: water and flour stirred to a dough; the cut filling waiting
 		const Vec3 kMixAt{ -11.0, 11.5, 0.0 }, kFillAt{ -1.0, 11.5, 0.0 };
+		double g_pushAcc = 0.0;          // kneading or rolling in one hold: how far it's moved since the last push counted
+		Vec3   g_doughLast{};
+		bool   g_doughLastOk = false;
 		double g_eggT = -1.0;  // an egg cracked over the mixing bowl: time since (-1: none yet)
 		double g_spin = 0.0;  // how far the pot's stew has turned with the stirring (keeps going one way, never jumps back)
 		double g_mix = 0.0, g_mixA = 0.0;  // how far the flour is stirred in (1: a ball), the spoon's angle
@@ -1825,6 +1828,8 @@ namespace Cook
 							g_grabX = x;
 							g_grabY = y;
 							g_strokeLen = 0;
+							g_pushAcc = 0.0;
+							g_doughLastOk = false;
 							return;
 						}
 					}
@@ -1839,6 +1844,8 @@ namespace Cook
 				g_grabX = Clamp(x, L::kBoardX - L::kBoardW * 0.5 + 3.0, L::kBoardX + L::kBoardW * 0.5 - 3.0);  // (where it'd be on the board)
 				g_grabY = Clamp(y, L::kBoardY - L::kBoardD * 0.5 + 3.0, L::kBoardY + L::kBoardD * 0.5 - 3.0);
 				g_strokeLen = 0;
+				g_pushAcc = 0.0;
+				g_doughLastOk = false;
 				return;
 			}
 			// salt
@@ -2043,10 +2050,22 @@ namespace Cook
 					// kneading stays on the board: the dough never leaves it (the peel carries it to the oven)
 					x = Clamp(x, L::kBoardX - L::kBoardW * 0.5 + 3.0, L::kBoardX + L::kBoardW * 0.5 - 3.0);
 					y = Clamp(y, L::kBoardY - L::kBoardD * 0.5 + 3.0, L::kBoardY + L::kBoardD * 0.5 - 3.0);
-					const double dx = x - g_grabX, dy = y - g_grabY;
-					g_strokeLen = std::hypot(dx, dy);
-					g_squash = Clamp(g_strokeLen / 6.0, 0.0, 1.0);
-					g_squashA = std::atan2(dy, dx);
+					// held and moved about, every bit of the way counts: each few units of it a push (kneaded or rolled)
+					if (g_doughLastOk) {
+						const double ddx = x - g_doughLast.x, ddy = y - g_doughLast.y, d = std::hypot(ddx, ddy);
+						g_strokeLen += d;
+						g_pushAcc += d;
+						if (d > 0.03) {
+							g_squashA = std::atan2(ddy, ddx);
+						}
+					}
+					g_doughLast = { x, y, 0.0 };
+					g_doughLastOk = true;
+					if (g_pushAcc >= 4.0) {
+						DoughPush(g_pushAcc);
+						g_pushAcc = 0.0;
+					}
+					g_squash = Clamp(g_pushAcc / 4.0, 0.0, 1.0);
 					g_carry = { x, y, kCarryZ };
 				}
 				break;
@@ -2463,19 +2482,11 @@ namespace Cook
 					const bool board = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::abs(x - L::kBoardX) < L::kBoardW * 0.5 + 1.0 && std::abs(y - L::kBoardY) < L::kBoardD * 0.5 + 1.0;
 					if (NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
 						Toast("Use the peel: drag it under the dough, then into the oven");
-					} else if (board && g_strokeLen > 1.2 && !g_rolled && g_doughParts > 0 && g_oven->Pie() && g_oven->Dough() >= 0.9) {
-						// kneaded: now long pushes roll it out square
-						g_flat = (std::min)(1.0, g_flat + g_strokeLen / 30.0);
-						Audio::Take("knead_", 0.5f);
-						if (g_flat >= 1.0) {
-							Toast("Rolled out: now the filling");
-						}
-					} else if (board && g_strokeLen > 1.2 && !g_rolled && g_doughParts > 0) {
-						g_oven->Knead(g_strokeLen, g_clock);
-						Audio::Take("knead_", 0.7f);
-						static const float dust[4] = { 0.92f, 0.9f, 0.86f, 0.18f };
-						Spray(g_doughAt + Vec3{ 0, 0, 1.0 }, 3, dust, 2.0, 1.0, 1.2f, false, Render3D::Sprite::Kind::Smoke, 1.0);
+					} else if (board && g_pushAcc > 1.2) {
+						DoughPush(g_pushAcc);  // (what was left of the last push)
 					}
+					g_pushAcc = 0.0;
+					g_doughLastOk = false;
 					g_squash = 0;
 				}
 				break;
@@ -2490,6 +2501,29 @@ namespace Cook
 				break;
 			default:
 				break;
+			}
+		}
+
+		// A push of the dough a_len long: kneading it, or once kneaded (a pie's, a dumpling's) rolling it out
+		void DoughPush(double a_len)
+		{
+			if (!g_oven || g_rolled || g_doughParts <= 0) {
+				return;
+			}
+			if (g_oven->Pie() && g_oven->Dough() >= 0.9) {
+				if (g_flat >= 1.0) {
+					return;
+				}
+				g_flat = (std::min)(1.0, g_flat + a_len / 30.0);
+				Audio::Take("knead_", 0.5f);
+				if (g_flat >= 1.0) {
+					Toast("Rolled out: now the filling");
+				}
+			} else {
+				g_oven->Knead(a_len, g_clock);
+				Audio::Take("knead_", 0.7f);
+				static const float dust[4] = { 0.92f, 0.9f, 0.86f, 0.18f };
+				Spray(g_doughAt + Vec3{ 0, 0, 1.0 }, 3, dust, 2.0, 1.0, 1.2f, false, Render3D::Sprite::Kind::Smoke, 1.0);
 			}
 		}
 
@@ -3509,10 +3543,11 @@ namespace Cook
 					// the rolling pin: out beside the dough while it's to be rolled; held, it rolls across under the pointer
 					if (P.pin >= 0) {
 						const bool rolling = dough && !g_rolled && g_oven->Pie() && g_oven->Dough() >= 0.9 && g_flat < 1.0;
-						Scene::Hide(P.pin, !rolling);
-						if (rolling) {
+						const bool shown = g_oven->Pie();  // (on the table from the start)
+						Scene::Hide(P.pin, !shown);
+						if (shown) {
 							const double f = Clamp(g_flat, 0.0, 1.0);
-							if (g_hold == Hold::Dough) {
+							if (g_hold == Hold::Dough && rolling) {
 								const double h = (Dumpling() ? 2.6 - 2.34 * f : 1.0 + 1.0 * (1.0 - f)) + 0.05;
 								const double ang = g_strokeLen > 0.2 ? g_squashA + kPi * 0.5 : 0.0;  // across the push
 								Scene::Place(P.pin, { g_carry.x, g_carry.y, kBoardTop + h + 0.72 }, RotZ(ang) * RotX(g_strokeLen / 0.72), 1.0f);
@@ -3613,14 +3648,24 @@ namespace Cook
 						const float br = static_cast<float>(0.32 + 0.1 * Hash(id, 24));
 						Scene::Place(id, at + Vec3{ off.x, off.y, 0.75 + br }, RotZ(Hash(id, 21) * 6.28), br);
 						auto& lk = Scene::LookOf(id);
+						std::string bn;
 						for (const auto& u : g_units) {
 							if (&u - g_units.data() == ui) {
 								lk.skin = Scene::Skin(u.prop);
+								bn = u.name;
 							}
 						}
 						lk.uv[0] = lk.uv[1] = 0.12f;
 						lk.uv[2] = 0.45f + Hash(id, 22) * 0.1f;
 						lk.uv[3] = 0.45f + Hash(id, 23) * 0.1f;
+						// the berries' own colour (their mesh's texture is as much leaf and stalk as berry)
+						std::transform(bn.begin(), bn.end(), bn.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						const float* col = nullptr;
+						static const float kSnow[3] = { 0.36f, 0.035f, 0.05f }, kJuniper[3] = { 0.16f, 0.19f, 0.34f }, kJazbay[3] = { 0.2f, 0.06f, 0.24f };
+						col = bn.find("snowberr") != std::string::npos ? kSnow : bn.find("juniper") != std::string::npos ? kJuniper : bn.find("jazbay") != std::string::npos ? kJazbay : nullptr;
+						if (col) {
+							lk.lift[0] = col[0], lk.lift[1] = col[1], lk.lift[2] = col[2], lk.lift[3] = 0.9f;
+						}
 					}
 				}
 				if (g_rolled && Dumpling()) {
