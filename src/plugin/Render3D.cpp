@@ -324,10 +324,6 @@ bool CapPoint(float3 wpos, out float3 q, out float3 n, out float tin)
 	}
 	if (tin >= tout || tin <= 0) return false;
 	q = e + d * tin;
-	// and within the rounded shape in that box: near its corners a mesh open underneath (an apple's base, a
-	// cabbage's leaves) miscounts, and would show a face where there's none
-	float3 l = o + v * tin;
-	if (dot(l, l) > 1.08) return false;
 	return true;
 }
 
@@ -339,6 +335,17 @@ float4 PSParity(VSOut i) : SV_Target
 	float  tin;
 	if (!CapPoint(i.wpos, q, n, tin)) discard;
 	if (length(i.wpos - camPos.xyz) >= tin - 1e-4) discard;
+	return 0;
+}
+
+// ... and the surfaces beyond it (into the second bit): a point truly inside has an odd count both ways. Where the
+// mesh is open (an apple's base, a cabbage's leaves) one count is odd and the other even, and no face is drawn.
+float4 PSParityBack(VSOut i) : SV_Target
+{
+	float3 q, n;
+	float  tin;
+	if (!CapPoint(i.wpos, q, n, tin)) discard;
+	if (length(i.wpos - camPos.xyz) < tin + 1e-4) discard;
 	return 0;
 }
 
@@ -568,7 +575,9 @@ float4 PSComposite(FSOut i) : SV_Target
 		ID3D11PixelShader*  g_psCut = nullptr;
 		ID3D11PixelShader*  g_psSolid = nullptr;
 		ID3D11PixelShader*  g_psParity = nullptr;
+		ID3D11PixelShader*  g_psParityBack = nullptr;
 		ID3D11DepthStencilState* g_dsParity = nullptr;
+		ID3D11DepthStencilState* g_dsParityBack = nullptr;
 		ID3D11DepthStencilState* g_dsCap = nullptr;
 		ID3D11BlendState*        g_bsNoColor = nullptr;
 		ID3D11VertexShader* g_vsShadowCut = nullptr;
@@ -676,7 +685,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				return ok;
 			};
 			if (!vs("VSMain", &g_vs, true) || !vs("VSShadow", &g_vsShadow, false) || !vs("VSShadowCut", &g_vsShadowCut, false) || !vs("VSFull", &g_vsFull, false) || !vs("VSSprite", &g_vsSprite, false) ||
-				!ps("PSMain", &g_ps) || !ps("PSCut", &g_psCut) || !ps("PSSolid", &g_psSolid) || !ps("PSParity", &g_psParity) || !ps("PSShadowCut", &g_psShadowCut) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
+				!ps("PSMain", &g_ps) || !ps("PSCut", &g_psCut) || !ps("PSSolid", &g_psSolid) || !ps("PSParity", &g_psParity) || !ps("PSParityBack", &g_psParityBack) || !ps("PSShadowCut", &g_psShadowCut) || !ps("PSSprite", &g_psSprite) || !ps("PSDown", &g_psDown) || !ps("PSBlur", &g_psBlur) || !ps("PSBack", &g_psBack) ||
 				!ps("PSComposite", &g_psComposite)) {
 				return false;
 			}
@@ -751,10 +760,16 @@ float4 PSComposite(FSOut i) : SV_Target
 				sd.FrontFace = { D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_INVERT, D3D11_COMPARISON_ALWAYS };
 				sd.BackFace = sd.FrontFace;
 				a_dev->CreateDepthStencilState(&sd, &g_dsParity);
+				sd.StencilReadMask = 2;
+				sd.StencilWriteMask = 2;
+				a_dev->CreateDepthStencilState(&sd, &g_dsParityBack);
+				sd.StencilReadMask = 3;
+				sd.StencilWriteMask = 3;
 				sd.DepthEnable = TRUE;
 				sd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
 				sd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
-				sd.FrontFace = { D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_ZERO, D3D11_STENCIL_OP_ZERO, D3D11_COMPARISON_EQUAL };
+				// drawn where both counts are odd; everything it covers is cleared, drawn or not
+				sd.FrontFace = { D3D11_STENCIL_OP_ZERO, D3D11_STENCIL_OP_ZERO, D3D11_STENCIL_OP_ZERO, D3D11_COMPARISON_EQUAL };
 				sd.BackFace = sd.FrontFace;
 				a_dev->CreateDepthStencilState(&sd, &g_dsCap);
 			}
@@ -1446,15 +1461,17 @@ float4 PSComposite(FSOut i) : SV_Target
 					continue;
 				}
 				c->OMSetBlendState(g_bsNoColor, nullptr, 0xFFFFFFFF);
-				c->OMSetDepthStencilState(g_dsParity, 1);
-				c->PSSetShader(g_psParity, nullptr, 0);
 				bool any = false;
-				for (const auto& sk : g_frame.items) {
-					if (sk.flesh[3] < 2.5f || sk.flesh[3] > 3.5f || std::memcmp(sk.clips, h.clips, sizeof(h.clips)) != 0 || !bindMesh(sk)) {
-						continue;
+				for (int side = 0; side < 2; ++side) {
+					c->OMSetDepthStencilState(side ? g_dsParityBack : g_dsParity, side ? 2 : 1);
+					c->PSSetShader(side ? g_psParityBack : g_psParity, nullptr, 0);
+					for (const auto& sk : g_frame.items) {
+						if (sk.flesh[3] < 2.5f || sk.flesh[3] > 3.5f || std::memcmp(sk.clips, h.clips, sizeof(h.clips)) != 0 || !bindMesh(sk)) {
+							continue;
+						}
+						c->DrawIndexed(sk.indexCount, 0, 0);
+						any = true;
 					}
-					c->DrawIndexed(sk.indexCount, 0, 0);
-					any = true;
 				}
 				if (!any || !bindMesh(h)) {
 					continue;
@@ -1462,7 +1479,7 @@ float4 PSComposite(FSOut i) : SV_Target
 				ID3D11ShaderResourceView* t[4] = { h.diffuse, nullptr, nullptr, nullptr };
 				c->PSSetShaderResources(0, 4, t);
 				c->OMSetBlendState(g_bsOpaque, nullptr, 0xFFFFFFFF);
-				c->OMSetDepthStencilState(g_dsCap, 1);
+				c->OMSetDepthStencilState(g_dsCap, 3);
 				c->PSSetShader(g_psSolid, nullptr, 0);
 				c->DrawIndexed(h.indexCount, 0, 0);
 			}
