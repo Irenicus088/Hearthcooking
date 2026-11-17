@@ -153,16 +153,11 @@ float3 Lin(float3 c) { return pow(saturate(c), 2.2); }
 
 )"
 R"(
-float Hash3(float3 p)
-{
-	p = frac(p * 0.3183099 + 0.1);
-	p *= 17.0;
-	return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
+float Hash3(float3 p) { return frac(sin(dot(p, float3(127.1, 311.7, 74.7))) * 43758.5453); }
 float Noise3(float3 x)
 {
 	float3 i = floor(x), f = frac(x);
-	f = f * f * (3 - 2 * f);
+	f = f * f * f * (f * (f * 6 - 15) + 10);  // (smooth: no grid showing)
 	return lerp(lerp(lerp(Hash3(i), Hash3(i + float3(1, 0, 0)), f.x), lerp(Hash3(i + float3(0, 1, 0)), Hash3(i + float3(1, 1, 0)), f.x), f.y),
 	            lerp(lerp(Hash3(i + float3(0, 0, 1)), Hash3(i + float3(1, 0, 1)), f.x), lerp(Hash3(i + float3(0, 1, 1)), Hash3(i + float3(1, 1, 1)), f.x), f.y), f.z);
 }
@@ -346,7 +341,10 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	// flour dusted on: speckled and patchy, on what faces up (round a spot, if it has one: the board round the dough)
 	if (fx.y > 0.01) {
 		float up = saturate(N0.z * 1.5 - 0.2);
-		float speck = smoothstep(0.55, 0.78, Noise3(i.opos * 6.0)) * 0.6 + smoothstep(0.45, 0.9, Fbm3(i.opos * 1.3)) * 0.55;
+		// soft drifts of it, finer grain through them (no hard specks)
+		float cloud = smoothstep(0.32, 0.78, Fbm3(i.opos * 0.45));
+		float grain = smoothstep(0.35, 0.75, Noise3(i.opos * 4.0));
+		float speck = (cloud * 0.75 + grain * 0.3 * cloud + grain * 0.1) * 0.9;
 		float sp = 1;
 		if (spot.w > 0) {
 			sp = saturate(1 - length(i.wpos.xy - spot.xy) / spot.w);
@@ -374,13 +372,24 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 		g += float2(Noise3(q2 + float3(e, 0, 0)) - m0, Noise3(q2 + float3(0, e, 0)) - m0) / e * 0.35;
 		N = normalize(N - float3(g, 0) * 0.22 * fx2.x);
 	}
-	// lumps: dough not yet kneaded smooth
+	// lumps: dough not yet kneaded smooth - soft swells and hollows (a few waves crossing, no grid), kneaded away
+	float lumpH = 0;
 	if (fx.x > 0.01) {
-		float3 q = i.opos * 1.6;
-		float  e = 0.15, n0 = Fbm3(q);
-		float3 g = float3(Fbm3(q + float3(e, 0, 0)) - n0, Fbm3(q + float3(0, e, 0)) - n0, Fbm3(q + float3(0, 0, e)) - n0) / e;
+		const float3 dir[8] = { float3(0.83, 0.41, 0.38), float3(-0.35, 0.88, 0.31), float3(0.22, -0.47, 0.85), float3(-0.71, -0.52, 0.47),
+		                        float3(0.56, -0.79, -0.24), float3(-0.12, 0.21, -0.97), float3(0.94, -0.08, 0.33), float3(-0.48, 0.67, -0.56) };
+		const float  fr[8] = { 2.3, 2.6, 2.9, 3.3, 4.6, 5.2, 6.1, 7.4 };
+		const float  ph[8] = { 0.3, 1.9, 4.2, 2.7, 5.1, 0.8, 3.6, 2.2 };
+		float3 g = 0;
+		[unroll] for (int k = 0; k < 8; k++) {
+			float a = dot(i.opos, dir[k]) * fr[k] + ph[k];
+			lumpH += sin(a) / fr[k] * 0.5;
+			g += cos(a) * dir[k] * 0.5;
+		}
 		g = ToWorldDir(g);
-		N = normalize(N - (g - N * dot(g, N)) * 0.55 * fx.x);
+		N = normalize(N - (g - N * dot(g, N)) * 0.6 * fx.x);
+		// the hollows a shade darker, flour caught on the swells
+		albedo *= 1 - 0.12 * fx.x * saturate(-lumpH);
+		albedo = lerp(albedo, Lin(float3(0.97, 0.96, 0.92)), saturate((lumpH - 0.2) * 2.5) * saturate(N0.z) * 0.55 * (0.4 + 0.6 * fx.x));
 	}
 	float3 V = normalize(camPos.xyz - i.wpos);
 	if (dot(N, V) < -0.2) N = -N;  // an inside face seen from inside (the pot, the bowl)
@@ -398,7 +407,7 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	Lf = normalize(Lf + float3(sin(params.x * 3.1), cos(params.x * 2.3), 0) * 0.08 * fa);
 	float3 fire = fireColor.rgb * att * flick;
 	float  nlf = saturate(dot(N, Lf) * 0.85 + 0.15);
-	float  ao = AO(i.wpos, N);
+	const float ao = 1;  // (the soft contact shading was taken out)
 	float3 light = hemi * ao + keyColor.rgb * nl * sh * lerp(1, ao, 0.6) + fire * nlf * lerp(1, ao, 0.7);
 	float3 H = normalize(L + V), Hf = normalize(Lf + V);
 	float  g = max(spec.w, 1);
