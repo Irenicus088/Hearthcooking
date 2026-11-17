@@ -880,26 +880,6 @@ def kitchen():
     hull = Mesh()
     hull.box(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5, uscale=1.0)
     nif("Hull", [("Hull", hull, "flesh", (0.4, 30))])
-    # a slice of leek: a short round along x (-0.5..0.5, radius 1), its ends the rings across it, its side the outer sheath
-    # (the leek's own cut-face atlas: rings on the left half, the sheath's edge at the right half's top)
-    ring = Mesh()
-    nseg = 28
-    for side, x, nx in ((0, -0.5, -1.0), (1, 0.5, 1.0)):
-        c = ring.v((x, 0, 0), (0.25, 0.5), (nx, 0, 0), (0, 1, 0))
-        rim = []
-        for i in range(nseg + 1):
-            a = 2 * math.pi * i / nseg
-            y, z = math.cos(a), math.sin(a)
-            rim.append(ring.v((x, y, z), (0.25 + 0.245 * y, 0.5 + 0.49 * z), (nx, 0, 0), (0, 1, 0)))
-        for i in range(nseg):
-            ring.I += [c, rim[i + 1], rim[i]] if nx < 0 else [c, rim[i], rim[i + 1]]
-    for i in range(nseg):
-        a0, a1 = 2 * math.pi * i / nseg, 2 * math.pi * (i + 1) / nseg
-        ps = [(-0.5, math.cos(a0), math.sin(a0)), (0.5, math.cos(a0), math.sin(a0)), (0.5, math.cos(a1), math.sin(a1)), (-0.5, math.cos(a1), math.sin(a1))]
-        uvs = [(0.55, 0.002), (0.95, 0.002), (0.95, 0.006), (0.55, 0.006)]  # (the green sheath at the very edge)
-        k = [ring.v(pp, uv, (0, pp[1], pp[2]), (1, 0, 0)) for pp, uv in zip(ps, uvs)]
-        ring.I += [k[0], k[1], k[2], k[0], k[2], k[3]]
-    nif("LeekRing", [("Ring", ring, "flesh_leek", (0.5, 40))])
     cap = Mesh()
     c = cap.v((0, 0, 0), (0.5, 0.5), (1, 0, 0), (0, 1, 0))
     ring = [cap.v((0, 0.5 * math.cos(2 * math.pi * i / 24), 0.5 * math.sin(2 * math.pi * i / 24)), (0.5 + 0.5 * math.cos(2 * math.pi * i / 24), 0.5 + 0.5 * math.sin(2 * math.pi * i / 24)), (1, 0, 0), (0, 1, 0)) for i in range(25)]
