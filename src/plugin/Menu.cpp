@@ -74,6 +74,23 @@ namespace Menu
 				}
 			}
 			Changed(UI::Checkbox("Show what to do next", &v.hints));
+			Changed(UI::Checkbox("A tip the first time each step comes up", &v.tips));
+			UI::SameLine();
+			if (UI::Button("Show the tips again")) {
+				Config::ResetTips();
+			}
+			{
+				const char* styles[] = { "Xbox", "PlayStation" };
+				if (UI::BeginCombo("Controller buttons", styles[v.padStyle == 1 ? 1 : 0])) {
+					for (int k = 0; k < 2; ++k) {
+						if (UI::Selectable(styles[k], v.padStyle == k)) {
+							v.padStyle = k;
+							g_dirty = true;
+						}
+					}
+					UI::EndCombo();
+				}
+			}
 			Changed(UI::Checkbox("Debug: mark what the mouse can grab", &v.debugOverlay));
 			UI::Spacing();
 			UI::Separator();

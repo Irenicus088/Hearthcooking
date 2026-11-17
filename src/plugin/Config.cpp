@@ -7,6 +7,7 @@ namespace Config
 	namespace
 	{
 		Values      g_values;
+		std::set<std::string> g_tipsSeen;
 		const char* kPath = "Data\\SKSE\\Plugins\\Hearthcooking.ini";
 
 		std::string Str(const char* a_section, const char* a_key, const char* a_def)
@@ -45,6 +46,19 @@ namespace Config
 	}
 
 	const Values& Get() { return g_values; }
+
+	bool TipSeen(const char* a_name) { return g_tipsSeen.count(a_name) > 0; }
+	void MarkTipSeen(const char* a_name)
+	{
+		if (g_tipsSeen.insert(a_name).second) {
+			::WritePrivateProfileStringA("Tips", a_name, "1", kPath);
+		}
+	}
+	void ResetTips()
+	{
+		g_tipsSeen.clear();
+		::WritePrivateProfileStringA("Tips", nullptr, nullptr, kPath);  // (the whole section)
+	}
 	Values&       Edit() { return g_values; }
 
 	void Save()
@@ -67,6 +81,8 @@ namespace Config
 			put("Sounds", name.c_str(), f(lv));
 		}
 		put("Play", "Hints", v.hints ? "1" : "0");
+		put("Play", "Tips", v.tips ? "1" : "0");
+		put("Play", "ControllerButtons", v.padStyle == 1 ? "PlayStation" : "Xbox");
 		put("Debug", "Overlay", v.debugOverlay ? "1" : "0");
 		spdlog::info("Settings saved");
 	}
@@ -91,6 +107,23 @@ namespace Config
 			}
 		}
 		v.hints = Bool("Play", "Hints", v.hints);
+		v.tips = Bool("Play", "Tips", v.tips);
+		{
+			const auto pad = Str("Play", "ControllerButtons", "Xbox");
+			v.padStyle = _stricmp(pad.c_str(), "PlayStation") == 0 || _stricmp(pad.c_str(), "PS") == 0 ? 1 : 0;
+		}
+		{
+			// the tips already shown
+			g_tipsSeen.clear();
+			char buf[4096]{};
+			::GetPrivateProfileSectionA("Tips", buf, sizeof(buf), kPath);
+			for (const char* q = buf; *q; q += std::strlen(q) + 1) {
+				std::string kv = q;
+				if (const auto eq = kv.find('='); eq != std::string::npos && kv.substr(eq + 1) != "0") {
+					g_tipsSeen.insert(kv.substr(0, eq));
+				}
+			}
+		}
 		v.debugOverlay = Bool("Debug", "Overlay", v.debugOverlay);
 		v.logInput = Bool("Debug", "LogInput", v.logInput);
 		g_values = v;

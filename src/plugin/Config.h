@@ -3,6 +3,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <string>
 
 // Data\SKSE\Plugins\Hearthcooking.ini
@@ -34,6 +35,8 @@ namespace Config
 		// each sound on its own (by its file's name, without the take number): 1 as it is, 0 off, up to 2
 		std::map<std::string, float> soundLevels;
 		bool  hints = true;         // the line at the bottom saying what to do next
+		bool  tips = true;          // a short tip the first time each step comes up
+		int   padStyle = 0;         // the controller's button names: 0 Xbox, 1 PlayStation
 
 		// Diagnostics
 		bool debugOverlay = false;  // draws where the mouse can grab things
@@ -44,4 +47,8 @@ namespace Config
 	Values&       Edit();  // the in-game settings page changes these live
 	void          Load();
 	void          Save();  // writes them back to the INI
+	// The first-time tips already shown (kept in the INI under [Tips], apart from the settings)
+	bool          TipSeen(const char* a_name);
+	void          MarkTipSeen(const char* a_name);
+	void          ResetTips();
 }
