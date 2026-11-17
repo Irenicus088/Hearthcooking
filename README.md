@@ -64,6 +64,11 @@ g++ -std=c++20 -O2 -o build/kitchen_test tests/kitchen_test.cpp src/sim/Kitchen.
 Requires SKSE64, Address Library for SKSE Plugins. SKSE Menu Framework is optional (settings page); everything is also
 in `Hearthcooking.ini`.
 
+One DLL for every version: Skyrim SE 1.5.97, Anniversary Edition 1.6.x (up to 1.6.1170 and later, on Steam and GOG). Install
+the Address Library that matches your game (the SE "All in one" for 1.5.97, the AE one for 1.6.x). `Hearthcooking.esp` is
+ESL-flagged with a 1.70 header and its records in 0x800-0xFFF, so it loads as a light plugin on all of them without
+Backported Extended ESL Support. Not for Skyrim VR.
+
 ## Credits
 
 - Interface fonts: Barlow Condensed, IM Fell English, Fondamento (SIL Open Font License, see `assets/fonts`).
