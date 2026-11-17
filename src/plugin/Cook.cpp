@@ -2228,7 +2228,7 @@ namespace Cook
 						g_oven->Unload();
 						g_peelBread = true;
 						g_peelDwell = -1.0;
-						Audio::Play({ "peel", 0.7f });
+						Audio::Take("peel_", 0.7f);
 					}
 					// slid under the dough: it's on
 					if (!g_peelLoaded && !g_peelBread && !g_oven->InOven() && !g_oven->Out() && g_doughOnBoard && std::hypot(x - g_doughAt.x, y - g_doughAt.y) < 3.5) {
@@ -2701,7 +2701,7 @@ namespace Cook
 					g_oven->Unload();
 					g_peelBread = true;
 					g_peelDwell = -1.0;
-					Audio::Play({ "peel", 0.7f });
+					Audio::Take("peel_", 0.7f);
 					break;  // it rests on the peel
 				}
 				if (g_peelBread) {
@@ -2714,7 +2714,7 @@ namespace Cook
 						g_peelT = 0.0;
 						g_peelIn = true;
 						g_peelBread = false;
-						Audio::Play({ "peel", 0.7f });
+						Audio::Take("peel_", 0.7f);
 					}
 					break;  // else it rests on the peel
 				}
@@ -2729,7 +2729,7 @@ namespace Cook
 						g_peelFrom = g_peelAt;
 						g_peelT = 0.0;  // in it goes
 						g_peelIn = true;
-						Audio::Play({ "peel", 0.7f });
+						Audio::Take("peel_", 0.7f);
 					}
 				} else if (g_peelLoaded) {
 					g_peelLoaded = false;  // put down: the dough back on the board
@@ -2762,7 +2762,7 @@ namespace Cook
 				break;
 			case Hold::Bread:
 				if (OverServe(mx, my)) {
-					Audio::Play({ "peel", 0.7f });
+					Audio::Take("peel_", 0.7f);
 					Serve();
 				}
 				break;
