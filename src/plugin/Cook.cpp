@@ -3732,7 +3732,7 @@ namespace Cook
 				// a cabbage in the pot: its leaves are open shells, and cut to bits (and sinking, tumbling) they showed as
 				// loose shards - in the pot each bit is drawn as what chopped cabbage is: a few thin, curved layers of leaf, cut
 				// square, in strips or wedges, stacked a little apart (about its size)
-				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && u.name.find("abbage") != std::string::npos) {
+				if (false && g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && u.name.find("abbage") != std::string::npos) {  // (off: the cut pieces themselves, small, leafy outside and pale inside, look right in the pot)
 					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
 					double       lo[3], hi[3];
 					for (int ax = 0; ax < 3; ++ax) {

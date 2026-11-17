@@ -232,7 +232,7 @@ def leaf_bit(variant=0):
     return P, N, UV, I
 
 
-def dumpling_flap(f=1.0, nd=40, ne=28, half_side=3.8, rb=1.6, R=0.75, thick=0.09):
+def dumpling_flap(f=1.0, index=0, nd=64, ne=56, half_side=3.8, rb=1.6, R=0.75, thick=0.14):
     """One of the four flaps of an apple dumpling parcel: a quarter of the square sheet (the diamond from the middle out
     to its corner, the corner on +x). At f=0 it lies flat on the board; at f=1 it is rolled up the side of the heap of
     apple pieces and its corner laid back over the top toward the middle, the four corners leaving gaps along the
@@ -241,10 +241,13 @@ def dumpling_flap(f=1.0, nd=40, ne=28, half_side=3.8, rb=1.6, R=0.75, thick=0.09
     L = half_side * math.sqrt(2)  # the middle to the corner
     sf = f * f * (3 - 2 * f)
     phi = math.pi * sf  # how far round the roll has turned
+    # no two corners alike: each laid over a little longer or shorter, swung a little round (a pinwheel)
+    var = [(0.0, 0.32), (0.25, 0.18), (-0.15, 0.4), (0.12, 0.26)][index % 4]
     def width(d):
         return min(d, L - d)
     def at(d, frac):
-        e = frac * width(d)
+        # the trailing side stops at the square's corner (its ear would only tuck away under the next flap)
+        e = frac * (width(d) if frac > 0 else min(width(d), rb + 0.12))
         if d <= rb:
             x, z = d, 0.0
         else:
@@ -254,6 +257,7 @@ def dumpling_flap(f=1.0, nd=40, ne=28, half_side=3.8, rb=1.6, R=0.75, thick=0.09
                 x, z = rb + R * math.sin(a), R * (1 - math.cos(a))
             else:
                 t = q - phi * R
+                t *= 1 + var[0] * sf
                 x = rb + R * math.sin(phi) + t * math.cos(phi)
                 z = R * (1 - math.cos(phi)) + t * math.sin(phi)
                 z -= 0.12 * sf * min(1.0, t / 1.2) ** 2  # the corner sags onto the apple
@@ -262,6 +266,9 @@ def dumpling_flap(f=1.0, nd=40, ne=28, half_side=3.8, rb=1.6, R=0.75, thick=0.09
         if d > rb:
             z += 0.05 * math.sin(min(1.0, (d - rb) / (L - rb)) * math.pi) * sf
         y = e
+        if d > rb + phi * R:
+            y += var[1] * sf * (d - rb - phi * R) ** 1.3  # the corner swung round over the next one
+            z += 0.05 * sf * min(1.0, (d - rb - phi * R) / 0.8) * (1 + index % 2)  # and lying over it
         ex = abs(e) - rb
         if ex > 0 and d > rb:
             sgn = 1.0 if e > 0 else -1.0
