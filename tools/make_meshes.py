@@ -896,7 +896,7 @@ def kitchen():
     for i in range(nseg):
         a0, a1 = 2 * math.pi * i / nseg, 2 * math.pi * (i + 1) / nseg
         ps = [(-0.5, math.cos(a0), math.sin(a0)), (0.5, math.cos(a0), math.sin(a0)), (0.5, math.cos(a1), math.sin(a1)), (-0.5, math.cos(a1), math.sin(a1))]
-        uvs = [(0.55, 0.012), (0.95, 0.012), (0.95, 0.03), (0.55, 0.03)]
+        uvs = [(0.55, 0.002), (0.95, 0.002), (0.95, 0.006), (0.55, 0.006)]  # (the green sheath at the very edge)
         k = [ring.v(pp, uv, (0, pp[1], pp[2]), (1, 0, 0)) for pp, uv in zip(ps, uvs)]
         ring.I += [k[0], k[1], k[2], k[0], k[2], k[3]]
     nif("LeekRing", [("Ring", ring, "flesh_leek", (0.5, 40))])
