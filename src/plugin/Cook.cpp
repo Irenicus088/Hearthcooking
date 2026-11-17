@@ -3569,6 +3569,44 @@ namespace Cook
 				const double flare = g_flow == hc::Flow::Spit && g_clock >= g_flareAt && g_clock < g_flareAt + 0.45 ? 0.35 * (1.0 - (g_clock - g_flareAt) / 0.45) : 0.0;
 				Scene::SetFire(fc + Vec3{ 0, 0, 3.0 }, static_cast<float>(heat + flare));
 			}
+			// heat shimmer: over the open fire, or at the oven's mouth (more with its door open)
+			if (g_flow == hc::Flow::Oven) {
+				Scene::SetHaze(MouthAt() + Vec3{ 0, 0, 3.0 }, static_cast<float>(Clamp(heat, 0.0, 1.2) * (g_door > 0.5 ? 1.0 : 0.35)));
+			} else if (g_flow == hc::Flow::Spit) {
+				Scene::SetHaze(fc + Vec3{ 0, 0, 7.0 }, static_cast<float>(Clamp(heat, 0.0, 1.2) * 0.8));
+			} else {
+				Scene::SetHaze(fc, 0.0f);
+			}
+			// black smoke when it's burning: off the meat on the spit, out of the oven's mouth
+			{
+				double burn = 0.0;
+				Vec3   from = fc;
+				if (g_flow == hc::Flow::Spit && g_spit) {
+					for (int b = 0; b < hc::Spit::kBands; ++b) {
+						burn = (std::max)(burn, g_spit->Band(b) - 1.45);
+					}
+					from = SpitAxis(0.0) + Vec3{ 0, 0, 1.5 };
+				} else if (g_flow == hc::Flow::Oven && g_oven && g_oven->InOven()) {
+					burn = g_oven->Brown() - 1.3;
+					from = MouthAt() + Vec3{ 0, 0, 2.0 };
+				}
+				if (burn > 0.0) {
+					const double k = Clamp(burn * 2.5, 0.0, 1.0);
+					for (int j = 0; j < 6; ++j) {
+						const double p = std::fmod(t * 0.28 + j / 6.0, 1.0);
+						Render3D::Sprite s;
+						s.pos[0] = static_cast<float>(from.x + (Hash(j, 71) - 0.5) * 3.0 + std::sin(t * 0.7 + j) * p * 2.0);
+						s.pos[1] = static_cast<float>(from.y + (Hash(j, 72) - 0.5) * 2.0);
+						s.pos[2] = static_cast<float>(from.z + p * 16.0);
+						s.size = static_cast<float>(1.8 + p * 6.0);
+						s.color[0] = s.color[1] = s.color[2] = 0.12f;
+						s.color[3] = static_cast<float>(0.45 * (1.0 - p) * k);
+						s.seed = 90.0f + j * 2.3f;
+						s.kind = Render3D::Sprite::Kind::Smoke;
+						sp.push_back(s);
+					}
+				}
+			}
 
 			// ---- the log carried
 			if (P.heldLog >= 0) {

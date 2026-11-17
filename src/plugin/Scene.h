@@ -71,6 +71,7 @@ namespace Scene
 	// The camera: looking down at the config's tilt toward a_target from a_dist away; it eases there
 	void SetCamera(const hc::Vec3& a_target, float a_dist, bool a_snap = false);
 	void SetFire(const hc::Vec3& a_pos, float a_heat);  // the fire's light; heat 0 is none
+	void SetHaze(const hc::Vec3& a_pos, float a_amount);  // heat shimmer rising from here; 0 is none
 	void SetSprites(std::vector<Render3D::Sprite>&& a_sprites);
 
 	// Kitchen space <-> screen pixels

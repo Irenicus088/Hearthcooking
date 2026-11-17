@@ -67,6 +67,8 @@ namespace Scene
 		bool     g_placed = false;
 
 		hc::Vec3 g_firePos{ 18, 3, 3 };
+		hc::Vec3 g_hazePos{};
+		float    g_haze = 0.0f;
 		float    g_fireHeat = 0.0f;
 
 		// the game's own sounds (the fire, the bard, the wind) keep playing while it's paused: hush them in the kitchen
@@ -685,6 +687,12 @@ namespace Scene
 		}
 	}
 
+	void SetHaze(const hc::Vec3& a_pos, float a_amount)
+	{
+		g_hazePos = a_pos;
+		g_haze = a_amount;
+	}
+
 	void SetFire(const hc::Vec3& a_pos, float a_heat)
 	{
 		g_firePos = a_pos;
@@ -773,6 +781,10 @@ namespace Scene
 		f.fireColor[1] = 0.44f * fh * 2.2f;
 		f.fireColor[2] = 0.13f * fh * 2.2f;
 		f.fireHeat = fh;
+		f.haze[0] = static_cast<float>(g_hazePos.x);
+		f.haze[1] = static_cast<float>(g_hazePos.y);
+		f.haze[2] = static_cast<float>(g_hazePos.z);
+		f.haze[3] = g_haze;
 		f.sprites = g_sprites;
 		for (auto& p : g_props) {
 			if (!p.used || !p.placed || p.hidden || !p.node) {

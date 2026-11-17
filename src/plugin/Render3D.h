@@ -100,6 +100,7 @@ namespace Render3D
 		float               fire[4]{ 18, 3, 3, 40 };    // the fire's light: where, and its reach
 		float               fireColor[3]{ 1.0f, 0.5f, 0.2f };  // linear, its brightness included
 		float               fireHeat = 0.0f;  // how big the fire is (its flicker grows with it)
+		float               haze[4]{};  // heat shimmer rising from here (world), and how strong (0: none)
 		float               exposure = 1.1f;
 		bool                show = false;
 	};

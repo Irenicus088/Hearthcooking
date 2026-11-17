@@ -29,6 +29,7 @@ cbuffer Frame : register(b0)
 	float4 camUp;
 	float4 occ[32];     // what's on the board as rough balls (middle, radius)
 	float4 occInfo;     // x: how many
+	float4 haze;        // heat shimmer rising from here (world), w: how strong
 };
 cbuffer Object : register(b1)
 {
@@ -561,8 +562,11 @@ float4 PSSprite(SPOut i) : SV_Target
 		return float4(col * k * spColor.rgb * spColor.a * 2.2, 0);
 	}
 	if (kind == 1) {
-		float n = Fbm(uv * 1.6 + float2(seed * 5.1, seed * 2.3 - t * 0.15));
-		float a = pow(saturate(1.0 - r), 1.6) * saturate(0.25 + n * 1.1) * spColor.a;
+		// a soft wisp: its shape warped by slow-turning noise, torn at the edges, curling as it rises
+		float2 w = uv + (float2(Fbm(uv * 1.3 + float2(seed, seed * 0.7 - t * 0.3)), Fbm(uv * 1.3 + float2(seed * 1.7 + t * 0.2, seed))) - 0.5) * 0.9;
+		float  n = Fbm(w * 2.2 + float2(seed * 5.1, seed * 2.3 - t * 0.25));
+		float  edge = pow(saturate(1.0 - length(w) * 0.95), 1.4);
+		float  a = edge * saturate(n * 1.7 - 0.3) * spColor.a;
 		return float4(spColor.rgb * a, a);
 	}
 	if (kind == 2) {
@@ -630,7 +634,21 @@ float3 ACES(float3 c)
 }
 float4 PSComposite(FSOut i) : SV_Target
 {
-	float4 c = texDiffuse.Sample(smpClamp, i.uv);
+	float2 uv = i.uv;
+	// heat shimmer: the air over the fire (the oven's mouth) wavering, rising
+	if (haze.w > 0.01) {
+		float4 hp = mul(viewProj, float4(haze.xyz, 1));
+		if (hp.w > 0.01) {
+			float2 hc = hp.xy / hp.w * float2(0.5, -0.5) + 0.5;
+			float2 d = (uv - hc) / float2(0.07, 0.11);
+			d.y += 0.55;  // (above it)
+			float  wgt = exp(-dot(d, d)) * haze.w;
+			float  tt = params.x;
+			float2 n = float2(Noise(uv * float2(60, 30) + float2(0, tt * 3.0)) - 0.5, Noise(uv * float2(45, 22) + float2(5.2, tt * 2.4)) - 0.5);
+			uv += n * 0.006 * wgt;
+		}
+	}
+	float4 c = texDiffuse.Sample(smpClamp, uv);
 	if (c.a <= 0.0001) return 0;
 	float3 rgb = c.rgb / c.a;
 	rgb = ACES(rgb * passArgs.w / 0.6);
@@ -658,6 +676,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			float camUp[4];
 			float occ[32][4];
 			float occInfo[4];
+			float haze[4];
 		};
 		struct CBObject
 		{
@@ -1505,6 +1524,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			}
 			fr.occInfo[0] = static_cast<float>(n);
 		}
+		std::memcpy(fr.haze, g_frame.haze, sizeof(fr.haze));
 		std::memcpy(fr.camPos, g_frame.camPos, sizeof(float) * 3);
 		std::memcpy(fr.camRight, g_frame.camRight, sizeof(float) * 3);
 		std::memcpy(fr.camUp, g_frame.camUp, sizeof(float) * 3);
