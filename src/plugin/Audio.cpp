@@ -137,9 +137,25 @@ namespace Audio
 			return true;
 		}
 
+		float LevelGroup(const std::string& a_name, const Config::Values& cfg);
 		float Level(const std::string& a_name)
 		{
 			const auto& cfg = Config::Get();
+			// its own level, if it's been set: by its name without the take number (chop_3 -> chop, loop_fire2 -> loop_fire)
+			float own = 1.0f;
+			if (!cfg.soundLevels.empty()) {
+				std::string key = a_name;
+				while (!key.empty() && (std::isdigit(static_cast<unsigned char>(key.back())) || key.back() == '_')) {
+					key.pop_back();
+				}
+				if (const auto it = cfg.soundLevels.find(key); it != cfg.soundLevels.end()) {
+					own = it->second;
+				}
+			}
+			return own * LevelGroup(a_name, cfg);
+		}
+		float LevelGroup(const std::string& a_name, const Config::Values& cfg)
+		{
 			if (a_name.rfind("ui_", 0) == 0) {
 				return cfg.effectsVolume;
 			}

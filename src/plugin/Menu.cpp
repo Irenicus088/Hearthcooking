@@ -62,6 +62,17 @@ namespace Menu
 			Changed(UI::SliderFloat("Kitchen sounds", &v.volume, 0.0f, 2.0f, "%.2f"));
 			Changed(UI::SliderFloat("Fire and simmer", &v.ambience, 0.0f, 2.0f, "%.2f"));
 			Changed(UI::SliderFloat("Menu clicks", &v.effectsVolume, 0.0f, 2.0f, "%.2f"));
+			if (UI::CollapsingHeader("Each sound on its own")) {
+				Hint("1 is as it comes, 0 is off. On top of the sliders above.");
+				for (std::size_t k = 0; k < std::size(Config::kSoundNames); ++k) {
+					const std::string name = Config::kSoundNames[k];
+					float lv = v.soundLevels.count(name) ? v.soundLevels[name] : 1.0f;
+					if (UI::SliderFloat(Config::kSoundLabels[k], &lv, 0.0f, 2.0f, "%.2f")) {
+						v.soundLevels[name] = lv;
+						g_dirty = true;
+					}
+				}
+			}
 			Changed(UI::Checkbox("Show what to do next", &v.hints));
 			Changed(UI::Checkbox("Debug: mark what the mouse can grab", &v.debugOverlay));
 			UI::Spacing();

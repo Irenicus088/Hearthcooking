@@ -2,9 +2,20 @@
 // Copyright (C) 2026 evodube. GPL-3.0 (LICENSE.txt).
 #pragma once
 
+#include <map>
+#include <string>
+
 // Data\SKSE\Plugins\Hearthcooking.ini
 namespace Config
 {
+	// the sounds that can be turned up or down one by one: their names (a file's name without its take number) and
+	// what the settings page calls them
+	inline constexpr const char* kSoundNames[] = { "chop", "stir", "knead", "flour", "egg", "salt", "pour", "splash", "log", "crank", "hiss",
+		"loop_fire", "loop_oven", "loop_boil", "done", "burnt" };
+	inline constexpr const char* kSoundLabels[] = { "Knife on the board", "Stirring", "Kneading", "Flour", "Egg cracking", "Salt", "Pouring",
+		"Splashing into the pot", "Firewood", "Turning the spit", "Meat hissing", "Campfire", "Oven fire", "Pot boiling", "Done chime",
+		"Burnt" };
+
 	struct Values
 	{
 		bool  enabled = true;       // off: the cooking pot and the oven open the game's own menu, as if we weren't here
@@ -20,6 +31,8 @@ namespace Config
 		float volume = 0.5f;        // the kitchen: chopping, the fire, the pot
 		float ambience = 1.0f;      // the loops: the fire's crackle, the simmer, the sizzle
 		float effectsVolume = 1.0f; // menu clicks
+		// each sound on its own (by its file's name, without the take number): 1 as it is, 0 off, up to 2
+		std::map<std::string, float> soundLevels;
 		bool  hints = true;         // the line at the bottom saying what to do next
 
 		// Diagnostics

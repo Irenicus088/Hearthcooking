@@ -63,6 +63,9 @@ namespace Config
 		put("Play", "Volume", f(v.volume));
 		put("Play", "Ambience", f(v.ambience));
 		put("Play", "EffectsVolume", f(v.effectsVolume));
+		for (const auto& [name, lv] : v.soundLevels) {
+			put("Sounds", name.c_str(), f(lv));
+		}
 		put("Play", "Hints", v.hints ? "1" : "0");
 		put("Debug", "Overlay", v.debugOverlay ? "1" : "0");
 		spdlog::info("Settings saved");
@@ -80,6 +83,13 @@ namespace Config
 		v.volume = std::clamp(Float("Play", "Volume", v.volume), 0.0f, 2.0f);
 		v.ambience = std::clamp(Float("Play", "Ambience", v.ambience), 0.0f, 2.0f);
 		v.effectsVolume = std::clamp(Float("Play", "EffectsVolume", v.effectsVolume), 0.0f, 2.0f);
+		v.soundLevels.clear();
+		for (const char* name : kSoundNames) {
+			const float lv = Float("Sounds", name, -1.0f);
+			if (lv >= 0.0f) {
+				v.soundLevels[name] = std::clamp(lv, 0.0f, 2.0f);
+			}
+		}
 		v.hints = Bool("Play", "Hints", v.hints);
 		v.debugOverlay = Bool("Debug", "Overlay", v.debugOverlay);
 		v.logInput = Bool("Debug", "LogInput", v.logInput);
