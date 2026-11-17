@@ -232,54 +232,56 @@ def leaf_bit(variant=0):
     return P, N, UV, I
 
 
-def dumpling_flap(f=1.0, nd=30, ne=24, half_side=3.4, rb=2.3, height=2.5, thick=0.05):
-    """One of the four flaps of an apple dumpling: a quarter of the square sheet (the diamond from the middle out to
-    its corner, the corner on +x), flat on the board at f=0, drawn up over the filling at f=1 - its corner pulled to
-    the top, the sheet draping down the filling's side to flare on the board, its two loose edges curling out where
-    they meet the next flaps'."""
+def dumpling_flap(f=1.0, nd=40, ne=28, half_side=3.8, rb=1.6, R=0.75, thick=0.09):
+    """One of the four flaps of an apple dumpling parcel: a quarter of the square sheet (the diamond from the middle out
+    to its corner, the corner on +x). At f=0 it lies flat on the board; at f=1 it is rolled up the side of the heap of
+    apple pieces and its corner laid back over the top toward the middle, the four corners leaving gaps along the
+    diagonals where the apple shows. Past the square's corners the sheet is gathered round onto the next face: the
+    leading ear lies over the neighbour's side, the trailing ear tucks under it."""
     L = half_side * math.sqrt(2)  # the middle to the corner
-    d0 = rb * 0.8  # where the sheet leaves the board to climb the filling
     sf = f * f * (3 - 2 * f)
+    phi = math.pi * sf  # how far round the roll has turned
     def width(d):
-        return min(d, L - d)  # the diamond: widest at the sides' middles, to a point at the corner
-    def draped(d, frac):
+        return min(d, L - d)
+    def at(d, frac):
         e = frac * width(d)
-        if d <= d0:
-            return np.array([d, e, 0.06])  # under the filling, on the board
-        s = min(1.0, (d - d0) / (L - d0))
-        psi = (e / (L / 2)) * math.pi / 4 * 1.5  # the sides' middles round past the seams (overlapping), the corner to the top
-        w = max(0.0, (abs(frac) - 0.72) / 0.28) * min(1.0, s * 3)
-        # a soft pyramid: straight-ish sides bellying over the filling, flaring onto the board at the foot
-        r = rb * 1.12 * (1 - s) ** 0.95 + 0.35 * math.sin(s * math.pi) * (1 - 0.5 * w) + 0.5 * (1 - s) ** 6
-        z = height * (1 - (1 - s) ** 1.6)
-        # each flap's leading edge lies over the next one's trailing edge
-        r += 0.14 * max(0.0, frac) * math.sin(s * math.pi) - 0.1 * max(0.0, -frac) * math.sin(s * math.pi)
-        # the loose edges, curling out from the seam
-        r += 0.22 * w * w * math.sin(s * math.pi) ** 0.6 * (1.0 if frac > 0 else 0.2)
-        z -= 0.18 * w * w * math.sin(s * math.pi)
-        # the corner, gathered and pinched up at the top
-        if s > 0.88:
-            k = (s - 0.88) / 0.12
-            r = r * (1 - k) + 0.1 * k
-            z += 0.8 * k
-        return np.array([r * math.cos(psi), r * math.sin(psi), z])
-    def folding(d, frac):
-        # lifted about the line where it leaves the filling's foot, swung up and over
-        e = frac * width(d)
-        th = math.pi * 0.62 * min(1.0, sf / 0.75)
-        if d <= d0:
-            return np.array([d, e, 0.06])
-        q = d - d0
-        return np.array([d0 + q * math.cos(th) - 0.0, e, 0.06 + q * math.sin(th) + 0.3 * math.sin(th)])
+        if d <= rb:
+            x, z = d, 0.0
+        else:
+            q = d - rb
+            if q <= phi * R:
+                a = q / R
+                x, z = rb + R * math.sin(a), R * (1 - math.cos(a))
+            else:
+                t = q - phi * R
+                x = rb + R * math.sin(phi) + t * math.cos(phi)
+                z = R * (1 - math.cos(phi)) + t * math.sin(phi)
+                z -= 0.12 * sf * min(1.0, t / 1.2) ** 2  # the corner sags onto the apple
+                z += 0.1 * sf * abs(frac) ** 2 * min(1.0, t / 0.6)  # its loose edges lift off the apple
+        # puff: the dough swells a little over the filling, softer at the gathered middle of each side
+        if d > rb:
+            z += 0.05 * math.sin(min(1.0, (d - rb) / (L - rb)) * math.pi) * sf
+        y = e
+        ex = abs(e) - rb
+        if ex > 0 and d > rb:
+            sgn = 1.0 if e > 0 else -1.0
+            k = min(1.0, ex / 0.8)
+            al = math.pi / 2 * k * k * (3 - 2 * k) * sf
+            o, aa = x - rb, ex
+            x = rb + o * math.cos(al) - aa * math.sin(al)
+            y = sgn * (rb + o * math.sin(al) + aa * math.cos(al))
+            # leading ear over the neighbour's face, trailing ear tucked under it
+            push = (0.24 if e > 0 else -0.32) * k * k * (3 - 2 * k) * sf
+            y += sgn * push
+            z += 0.04 * math.sin(min(1.0, ex / 1.1) * math.pi) * sf
+        return np.array([x, y, z + 0.06])
     rows = []
     for i in range(nd + 1):
         d = L * i / nd
         row = []
         for j in range(ne + 1):
             frac = -1 + 2 * j / ne
-            w = min(1.0, max(0.0, (sf - 0.45) / 0.55))
-            w = w * w * (3 - 2 * w)
-            row.append(folding(d, frac) * (1 - w) + draped(d, frac) * w)
+            row.append(at(d, frac))
         rows.append(row)
     S = np.array(rows)
     du = np.gradient(S, axis=0)
