@@ -34,6 +34,8 @@ namespace Scene
 		bool  occludes = true;     // shades what's under and beside it (a rough ball the size of it)
 		float hollow[4]{};         // a hollow it's in or is (a pot): its rim's middle and radius
 		float hollowDepth = 0.0f;  // how deep the hollow is (0: none)
+		float fx[4]{};             // lumps (unkneaded dough), flour dusted on, crust (blistered, uneven), wet glisten (0..1)
+		float spot[4]{};           // where the flour is: middle (world), radius (0: all over)
 		float alpha = 1.0f;     // below 1: see-through (blended)
 		bool  onlyFlat = false; // only its flattest shape: a dish's food without its bowl
 		bool  hideFlat = false; // all but its flattest shape: a pot without the food modelled in it

@@ -50,6 +50,8 @@ cbuffer Object : register(b1)
 	float4 cookRef;
 	float4 hollow;      // a hollow (a pot): its rim's middle, radius
 	float4 hollow2;     // x: its depth (0: none)
+	float4 fx;          // x lumps (dough not yet kneaded), y flour dusted on, z crust (blistered, unevenly browned), w wet glisten
+	float4 spot;        // where flour's dusted (the board round the dough): middle, radius
 };
 cbuffer Sprite : register(b3)
 {
@@ -82,6 +84,7 @@ struct VSOut
 	float3 n     : TEXCOORD2;
 	float3 t     : TEXCOORD3;
 	float3 b     : TEXCOORD4;
+	float3 opos  : TEXCOORD5;  // its own space, at world size (for its lumps, crust, flour)
 };
 
 float3 ToWorldDir(float3 v) { return float3(dot(rot0.xyz, v), dot(rot1.xyz, v), dot(rot2.xyz, v)); }
@@ -97,6 +100,7 @@ VSOut VSMain(VSIn i)
 	o.n = ToWorldDir((i.nrm.xyz * 2 - 1) / scale3.xyz);
 	o.t = ToWorldDir((i.tan.xyz * 2 - 1) * scale3.xyz);
 	o.b = ToWorldDir(float3(i.pos.w, i.nrm.w * 2 - 1, i.tan.w * 2 - 1) * scale3.xyz);
+	o.opos = i.pos.xyz * scale3.xyz * posScale.w;
 	return o;
 }
 
@@ -139,6 +143,21 @@ float Shadow(float3 wp, float3 n)
 }
 
 float3 Lin(float3 c) { return pow(saturate(c), 2.2); }
+
+float Hash3(float3 p)
+{
+	p = frac(p * 0.3183099 + 0.1);
+	p *= 17.0;
+	return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float Noise3(float3 x)
+{
+	float3 i = floor(x), f = frac(x);
+	f = f * f * (3 - 2 * f);
+	return lerp(lerp(lerp(Hash3(i), Hash3(i + float3(1, 0, 0)), f.x), lerp(Hash3(i + float3(0, 1, 0)), Hash3(i + float3(1, 1, 0)), f.x), f.y),
+	            lerp(lerp(Hash3(i + float3(0, 0, 1)), Hash3(i + float3(1, 0, 1)), f.x), lerp(Hash3(i + float3(0, 1, 1)), Hash3(i + float3(1, 1, 1)), f.x), f.y), f.z);
+}
+float Fbm3(float3 x) { return Noise3(x) * 0.6 + Noise3(x * 2.1 + 7.3) * 0.28 + Noise3(x * 4.3 + 3.1) * 0.12; }
 
 // Ambient occlusion, roughly: what's on the board shades what's under and beside it (each a ball: the light it hides
 // from a surface, by how big it looks from there and how much it's overhead), and down inside a hollow (the pot)
@@ -302,7 +321,26 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	float  lum = dot(dif.rgb, float3(0.3, 0.55, 0.15));
 	float  fruit = lift.a < 0 ? saturate(saturate((dif.b - dif.g) * 4) + saturate(((dif.r - dif.g) - 1.5 * (dif.g - dif.b)) * 3) + saturate((0.36 - lum) * 6)) : 0;
 	albedo = lerp(albedo, Lin(lift.rgb), abs(lift.a) * (1 - fruit));
-	albedo = Cooked(albedo, CookAt(N0));
+	// a crust browns unevenly, with blisters a shade darker
+	float cookC = CookAt(N0);
+	if (fx.z > 0.01 && cookC > 0.02) {
+		float n1 = Fbm3(i.opos * 0.9);
+		float bl = smoothstep(0.7, 0.86, Noise3(i.opos * 3.1));
+		cookC *= lerp(1, 0.72 + 0.56 * n1, fx.z);
+		cookC += bl * 0.25 * fx.z * saturate(cookC);
+	}
+	albedo = Cooked(albedo, cookC);
+	// flour dusted on: speckled and patchy, on what faces up (round a spot, if it has one: the board round the dough)
+	if (fx.y > 0.01) {
+		float up = saturate(N0.z * 1.5 - 0.2);
+		float speck = smoothstep(0.55, 0.78, Noise3(i.opos * 6.0)) * 0.6 + smoothstep(0.45, 0.9, Fbm3(i.opos * 1.3)) * 0.55;
+		float sp = 1;
+		if (spot.w > 0) {
+			sp = saturate(1 - length(i.wpos.xy - spot.xy) / spot.w);
+			sp *= sp;
+		}
+		albedo = lerp(albedo, Lin(float3(0.93, 0.91, 0.86)), saturate(fx.y * up * speck * sp));
+	}
 	float3 N = N0;
 	float  mask = 1;
 	if (has.y) {
@@ -312,6 +350,14 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 		float3 d = nm.xyz * 2 - 1;
 		N = normalize(d.x * t + d.y * b + d.z * N);
 		mask = nm.a;
+	}
+	// lumps: dough not yet kneaded smooth
+	if (fx.x > 0.01) {
+		float3 q = i.opos * 1.6;
+		float  e = 0.15, n0 = Fbm3(q);
+		float3 g = float3(Fbm3(q + float3(e, 0, 0)) - n0, Fbm3(q + float3(0, e, 0)) - n0, Fbm3(q + float3(0, 0, e)) - n0) / e;
+		g = ToWorldDir(g);
+		N = normalize(N - (g - N * dot(g, N)) * 0.55 * fx.x);
 	}
 	float3 V = normalize(camPos.xyz - i.wpos);
 	if (dot(N, V) < -0.2) N = -N;  // an inside face seen from inside (the pot, the bowl)
@@ -335,6 +381,11 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	float  g = max(spec.w, 1);
 	float  norm = (g + 8) / 25.13;
 	float3 sp = spec.rgb * mask * norm * (pow(saturate(dot(N, H)), g) * nl * sh * keyColor.rgb + pow(saturate(dot(N, Hf)), g) * nlf * fire);
+	// wet and glistening (meat on the spit as its fat runs): a tight, bright highlight from the light and the fire
+	if (fx.w > 0.01) {
+		float gl = pow(saturate(dot(N, H)), 90) * nl * sh, glf = pow(saturate(dot(N, Hf)), 60) * nlf;
+		sp += (keyColor.rgb * gl + fire * glf) * 1.4 * fx.w * (0.6 + 0.4 * Noise3(i.opos * 5.0));
+	}
 	float3 env = 0;
 	if (has.z) {
 		float3 R = reflect(-V, N);
@@ -610,6 +661,8 @@ float4 PSComposite(FSOut i) : SV_Target
 			float         cookRef[4];
 			float         hollow[4];
 			float         hollow2[4];
+			float         fx[4];
+			float         spot[4];
 		};
 		struct CBSprite
 		{
@@ -1490,6 +1543,8 @@ float4 PSComposite(FSOut i) : SV_Target
 			ob.emissive[3] = it.sear ? 1.0f : 0.0f;
 			ob.tint[3] = it.unshadowed ? 1.0f : 0.0f;
 			std::memcpy(ob.hollow, it.hollow, sizeof(ob.hollow));
+			std::memcpy(ob.fx, it.fx, sizeof(ob.fx));
+			std::memcpy(ob.spot, it.spot, sizeof(ob.spot));
 			ob.hollow2[0] = it.hollowDepth;
 			Upload(c, g_cbObject, ob);
 			return true;

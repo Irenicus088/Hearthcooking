@@ -438,6 +438,9 @@ namespace Cook
 			}
 			a_lk.tint[0] = 1.0f, a_lk.tint[1] = 0.96f, a_lk.tint[2] = 0.88f;
 			a_lk.lift[0] = 0.95f, a_lk.lift[1] = 0.88f, a_lk.lift[2] = 0.72f, a_lk.lift[3] = 0.25f;
+			a_lk.fx[0] = 0.12f;  // rolled: near smooth, a little uneven
+			a_lk.fx[1] = 0.3f;   // dusted with the flour it was rolled in
+			a_lk.spot[3] = 0.0f;
 		}
 
 		// how far the finished stew shows in the pot over its pieces (0 .. 1), with its doneness
@@ -4129,6 +4132,8 @@ namespace Cook
 					lk.lift[1] = 0.86f;
 					lk.lift[2] = 0.7f;
 					lk.lift[3] = -static_cast<float>(Clamp(0.85 - br * 0.9, 0.0, 0.85));  // pale and doughy at first (its fruit stays fruit)
+					lk.fx[2] = 1.0f;  // its crust: browning unevenly, blistered
+					lk.fx[1] = static_cast<float>(0.25 * Clamp(1.0 - br * 1.5, 0.0, 1.0));  // floury till it bakes
 					Scene::Hide(P.result, false);
 					Scene::Hide(P.dough, true);
 					Scene::Hide(P.disk, true);
@@ -4138,6 +4143,14 @@ namespace Cook
 						Scene::Hide(P.result, true);
 					}
 					const bool dough = g_doughParts > 0 && g_doughOnBoard && !g_oven->Out();
+					// the board floured round the dough while it's worked on it
+					if (P.board >= 0) {
+						auto& bl = Scene::LookOf(P.board);
+						bl.fx[1] = dough ? 0.8f : 0.0f;
+						bl.spot[0] = static_cast<float>(g_doughAt.x);
+						bl.spot[1] = static_cast<float>(g_doughAt.y);
+						bl.spot[3] = 9.0f;
+					}
 					const bool square = Dumpling() && g_flat > 0.0 && !g_rolled;
 					Scene::Hide(P.dough, !dough || g_rolled || square);
 					Scene::Hide(P.disk, !dough || !g_rolled || square || Dumpling());  // (a dumpling's sheet is drawn in its parts)
@@ -4202,6 +4215,9 @@ namespace Cook
 						auto& lk = Scene::LookOf(P.dough);
 						const float smooth = static_cast<float>(Clamp(g_oven->Dough(), 0.0, 1.0));
 						lk.tint[0] = lk.tint[1] = lk.tint[2] = 0.88f + 0.12f * smooth;
+						lk.fx[0] = 1.0f - smooth;               // lumpy at first, kneaded smooth
+						lk.fx[1] = 0.55f - 0.25f * smooth;      // flour on it, worked in as it's kneaded
+						lk.spot[3] = 0.0f;
 					} else if (dough) {
 						// a pie's sheet drawn in under its fluted rim as the rim's made (the scallops are its edge then)
 						const double c = g_oven->Crimped() >= 0.9 ? 1.0 : Clamp(g_oven->Crimped(), 0.0, 1.0);
@@ -4359,6 +4375,7 @@ namespace Cook
 					Scene::Place(P.result, on - q.Rotate(c) * s, q, static_cast<float>(s));
 					auto& lk = Scene::LookOf(P.result);
 					lk.lift[3] = 0.0f;
+					lk.fx[2] = g_flow == hc::Flow::Oven ? 1.0f : 0.0f;  // (a bake's crust, uneven and blistered)
 					lk.cookMode = g_burntLook ? 1 : 0;
 					lk.cook[0] = 1.65f;
 					if (g_flow == hc::Flow::Oven && g_oven && !g_burntLook) {

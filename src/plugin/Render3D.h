@@ -57,6 +57,8 @@ namespace Render3D
 		bool  shadow = true;           // casts a shadow
 		float hollow[4]{};             // a hollow it's in or is (a pot): its rim's middle (world) and radius - darker
 		float hollowDepth = 0.0f;      // down inside it, and toward its wall (0: none)
+		float fx[4]{};                 // lumps (unkneaded dough), flour dusted on, crust (blistered, uneven), wet glisten
+		float spot[4]{};               // where the flour is (middle, radius; 0: all over)
 	};
 
 	struct Sprite

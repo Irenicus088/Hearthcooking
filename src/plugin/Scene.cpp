@@ -935,6 +935,8 @@ namespace Scene
 				it.unshadowed = lk.unshadowed;
 				std::memcpy(it.hollow, lk.hollow, sizeof(it.hollow));
 				it.hollowDepth = lk.hollowDepth;
+				std::memcpy(it.fx, lk.fx, sizeof(it.fx));
+				std::memcpy(it.spot, lk.spot, sizeof(it.spot));
 				if (lk.alpha < 0.999f) {
 					it.alpha = lk.alpha;
 					it.blend = true;
