@@ -230,3 +230,84 @@ def leaf_bit(variant=0):
     N = _normals(P, I)
     UV = P[:, :2] * 0.9 + 0.5
     return P, N, UV, I
+
+
+def dumpling_flap(f=1.0, nd=30, ne=24, half_side=3.4, rb=2.3, height=2.5, thick=0.05):
+    """One of the four flaps of an apple dumpling: a quarter of the square sheet (the diamond from the middle out to
+    its corner, the corner on +x), flat on the board at f=0, drawn up over the filling at f=1 - its corner pulled to
+    the top, the sheet draping down the filling's side to flare on the board, its two loose edges curling out where
+    they meet the next flaps'."""
+    L = half_side * math.sqrt(2)  # the middle to the corner
+    d0 = rb * 0.8  # where the sheet leaves the board to climb the filling
+    sf = f * f * (3 - 2 * f)
+    def width(d):
+        return min(d, L - d)  # the diamond: widest at the sides' middles, to a point at the corner
+    def draped(d, frac):
+        e = frac * width(d)
+        if d <= d0:
+            return np.array([d, e, 0.06])  # under the filling, on the board
+        s = min(1.0, (d - d0) / (L - d0))
+        psi = (e / (L / 2)) * math.pi / 4 * 1.5  # the sides' middles round past the seams (overlapping), the corner to the top
+        w = max(0.0, (abs(frac) - 0.72) / 0.28) * min(1.0, s * 3)
+        # a soft pyramid: straight-ish sides bellying over the filling, flaring onto the board at the foot
+        r = rb * 1.12 * (1 - s) ** 0.95 + 0.35 * math.sin(s * math.pi) * (1 - 0.5 * w) + 0.5 * (1 - s) ** 6
+        z = height * (1 - (1 - s) ** 1.6)
+        # each flap's leading edge lies over the next one's trailing edge
+        r += 0.14 * max(0.0, frac) * math.sin(s * math.pi) - 0.1 * max(0.0, -frac) * math.sin(s * math.pi)
+        # the loose edges, curling out from the seam
+        r += 0.22 * w * w * math.sin(s * math.pi) ** 0.6 * (1.0 if frac > 0 else 0.2)
+        z -= 0.18 * w * w * math.sin(s * math.pi)
+        # the corner, gathered and pinched up at the top
+        if s > 0.88:
+            k = (s - 0.88) / 0.12
+            r = r * (1 - k) + 0.1 * k
+            z += 0.8 * k
+        return np.array([r * math.cos(psi), r * math.sin(psi), z])
+    def folding(d, frac):
+        # lifted about the line where it leaves the filling's foot, swung up and over
+        e = frac * width(d)
+        th = math.pi * 0.62 * min(1.0, sf / 0.75)
+        if d <= d0:
+            return np.array([d, e, 0.06])
+        q = d - d0
+        return np.array([d0 + q * math.cos(th) - 0.0, e, 0.06 + q * math.sin(th) + 0.3 * math.sin(th)])
+    rows = []
+    for i in range(nd + 1):
+        d = L * i / nd
+        row = []
+        for j in range(ne + 1):
+            frac = -1 + 2 * j / ne
+            w = min(1.0, max(0.0, (sf - 0.45) / 0.55))
+            w = w * w * (3 - 2 * w)
+            row.append(folding(d, frac) * (1 - w) + draped(d, frac) * w)
+        rows.append(row)
+    S = np.array(rows)
+    du = np.gradient(S, axis=0)
+    dv = np.gradient(S, axis=1)
+    n = np.cross(du, dv)
+    n /= np.maximum(np.linalg.norm(n, axis=2, keepdims=True), 1e-9)
+    if n[nd // 4, ne // 2, 2] < 0:  # one way for all (the flat inner part faces up)
+        n = -n
+    top, bot = S + n * thick, S - n * thick
+    nu, nv = S.shape[:2]
+    P = np.vstack([top.reshape(-1, 3), bot.reshape(-1, 3)]).astype(float)
+    off = nu * nv
+    I = []
+    for i in range(nu - 1):
+        for j in range(nv - 1):
+            a, b, c, d = i * nv + j, (i + 1) * nv + j, (i + 1) * nv + j + 1, i * nv + j + 1
+            I += [(a, b, c), (a, c, d), (a + off, c + off, b + off), (a + off, d + off, c + off)]
+    def edge(seq):
+        for k in range(len(seq) - 1):
+            a, b = seq[k], seq[k + 1]
+            I.extend([(a, b, b + off), (a, b + off, a + off)])
+    edge([i * nv for i in range(nu)])
+    edge([i * nv + nv - 1 for i in range(nu)][::-1])
+    I = np.array(I)
+    t = P[I[0]]
+    nn = np.cross(t[1] - t[0], t[2] - t[0])
+    if np.dot(nn, n.reshape(-1, 3)[I[0][0]]) < 0:
+        I = I[:, [0, 2, 1]]
+    N = _normals(P, I)
+    UV = P[:, :2] * 0.16 + 0.5
+    return P, N, UV, I
