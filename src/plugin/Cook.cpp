@@ -3305,8 +3305,15 @@ namespace Cook
 			if (a_core < 0) {
 				return;
 			}
+			// a leek's leafy part (it lies white end left, leaves right: from a little past its middle) has no stalk to cut,
+			// only loose leaves - they're just trimmed where the knife went, no solid face drawn across them
+			bool leafy = false;
+			if (leek && std::abs(a_box[0]) < 1e6 && std::abs(a_box[1]) < 1e6) {
+				const double mid = (a_box[0] + a_box[1]) * 0.5 / (std::max)(a_f, 1e-3);
+				leafy = mid > u.boardLen * 0.05;
+			}
 			// every cut piece is solid: its cut faces are drawn wherever they're inside the thing
-			if (!a_cut) {
+			if (!a_cut || leafy) {
 				Scene::Hide(a_core, true);
 				return;
 			}
