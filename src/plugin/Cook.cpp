@@ -2335,9 +2335,6 @@ namespace Cook
 				{
 					const float px = Scene::PixelsPerUnit({ L::kOvenX, L::kOvenMouthY, L::kOvenFloorZ });
 					const double want = Clamp(g_grabY + (g_grabX - mx) / (px * 9.0), 0.0, 1.0);
-					if ((want > 0.5) != (g_doorWant > 0.5)) {
-						Audio::Play({ want > 0.5 ? "door_open" : "door_close", 0.6f });
-					}
 					g_doorWant = want;
 				}
 				break;
