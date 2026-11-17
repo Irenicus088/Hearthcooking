@@ -3774,7 +3774,7 @@ namespace Cook
 				// a cabbage in the pot: its leaves are open shells, and cut to bits (and sinking, tumbling) they showed as
 				// loose shards - in the pot each bit is drawn as what chopped cabbage is: a few thin, curved layers of leaf, cut
 				// square, in strips or wedges, stacked a little apart (about its size)
-				if (false && g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && u.name.find("abbage") != std::string::npos) {  // (off: the cut pieces themselves, small, leafy outside and pale inside, look right in the pot)
+				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && u.name.find("abbage") != std::string::npos) {
 					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
 					double       lo[3], hi[3];
 					for (int ax = 0; ax < 3; ++ax) {
@@ -3794,24 +3794,25 @@ namespace Cook
 					}
 					if (leaf >= 0 && hi[0] > lo[0] && hi[1] > lo[1] && hi[2] > lo[2]) {
 						const Vec3   mid{ (lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 };
-						const double size = (std::max)({ hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] }) * (1.0 + 0.3 * Hash(b, 83));
+						// (as big as the piece across, not its height: a cabbage cut only across stays a whole head deep - those drew
+						// far too big)
+						const double size = (std::min)(hi[0] - lo[0], hi[1] - lo[1]) * 0.75 * (0.85 + 0.3 * Hash(b, 83));
 						// floating near flat in the broth, each turned and tipped its own way
 						const Quat q = RotZ(Hash(b, 84) * 6.283 + g_spin) * RotX((Hash(b, 85) - 0.5) * 0.7) * RotY((Hash(b, 86) - 0.5) * 0.5);
 						Scene::Place(leaf, c + frame.Rotate(mid), q, static_cast<float>(size));
 						Scene::Hide(leaf, false);
 						auto& cl = Scene::LookOf(leaf);
-						if (auto* tex = FleshTexture(u)) {
-							cl.skin = tex;  // (the leaves' veins, from its cut face)
-							cl.uv[0] = 0.22f, cl.uv[1] = 0.45f;
-							cl.uv[2] = 0.1f + 0.12f * Hash(b, 81), cl.uv[3] = 0.25f + 0.25f * Hash(b, 82);
+						if (auto* tex = Scene::Skin(pc.prop)) {
+							cl.skin = tex;  // (the cabbage's own leaf: green and veined outside, pale toward the heart)
+							cl.uv[0] = 0.35f, cl.uv[1] = 0.35f;
+							cl.uv[2] = static_cast<float>(Hash(b, 81)), cl.uv[3] = static_cast<float>(Hash(b, 82));
 						}
-						// wilted: pale green going to a soft yellow-green as it cooks, a little of the broth in it
-						static constexpr float kLeaf[3] = { 0.66f, 0.82f, 0.47f };  // (the light green of a cut cabbage)
+						// wilting as it cooks, a little of the broth in it
 						for (int k = 0; k < 3; ++k) {
 							cl.tint[k] = lk.tint[k];
-							cl.lift[k] = kLeaf[k] * 0.75f + lk.lift[k] * 0.25f;
+							cl.lift[k] = lk.lift[k];
 						}
-						cl.lift[3] = 0.5f;
+						cl.lift[3] = lk.lift[3];
 						cl.shadow = false;
 					} else if (leaf >= 0) {
 						Scene::Hide(leaf, true);
