@@ -276,6 +276,7 @@ namespace Cook
 			}
 		}
 
+		constexpr double kPieRim = 0.9;  // a crimped pie's rim, scaled to the size it comes out of the oven at
 		int g_campfire = -1;  // which campfire recording plays at the pot and spit (picked once per cook)
 
 		// The fire's loop: the oven's own roar in its box, a campfire anywhere else (one of two recordings).
@@ -4016,7 +4017,8 @@ namespace Cook
 						lk.tint[0] = lk.tint[1] = lk.tint[2] = 0.88f + 0.12f * smooth;
 					} else if (dough) {
 						// a pie's sheet drawn in under its fluted rim as the rim's made (the scallops are its edge then)
-						const double r = g_oven->Pie() && !Crostata() && !Dumpling() ? 5.0 - 0.75 * Clamp(g_oven->Crimped(), 0.0, 1.0) : 5.0;
+						const double c = g_oven->Crimped() >= 0.9 ? 1.0 : Clamp(g_oven->Crimped(), 0.0, 1.0);
+						const double r = g_oven->Pie() && !Crostata() && !Dumpling() ? 5.0 - (5.0 - 4.3 * kPieRim) * c : 5.0;
 						Scene::Place(P.disk, at + Vec3{ 0, 0, 0.3 }, {}, static_cast<float>(r));
 						Scene::Stretch(P.disk, 1.0f, 1.0f, static_cast<float>(2.0 * 5.0 / r));
 					}
@@ -4141,7 +4143,7 @@ namespace Cook
 						}
 						for (int j = 0; j < 8; ++j) {
 							const auto id = P.galette[j];
-							const bool show = live && (g_oven->CrimpedAt(3 * j) || g_oven->CrimpedAt(3 * j + 1) || g_oven->CrimpedAt(3 * j + 2));
+							const bool show = live && (g_oven->Crimped() >= 0.9 || g_oven->CrimpedAt(3 * j) || g_oven->CrimpedAt(3 * j + 1) || g_oven->CrimpedAt(3 * j + 2));
 							Scene::Hide(id, !show);
 							if (show) {
 								const double a = (3 * j + 1.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
@@ -4156,11 +4158,12 @@ namespace Cook
 						}
 						for (int k = 0; k < hc::Oven::kCrimps; ++k) {
 							const auto id = P.pieRim[k];
-							const bool show = live && g_oven->CrimpedAt(k);
+							// (the step's done at nine tenths: the last few pinches are taken as made, so no gaps are left)
+							const bool show = live && (g_oven->CrimpedAt(k) || g_oven->Crimped() >= 0.9);
 							Scene::Hide(id, !show);
 							if (show) {
 								const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
-								Scene::Place(id, at, RotZ(a), 1.0f);
+								Scene::Place(id, at, RotZ(a), static_cast<float>(kPieRim));
 								DoughLook(Scene::LookOf(id));
 							}
 						}
