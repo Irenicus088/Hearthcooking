@@ -3316,8 +3316,11 @@ namespace Cook
 			if (u.thin && std::abs(a_box[0]) < 1e6 && std::abs(a_box[1]) < 1e6) {
 				// a leek, a carrot: round as thick as it is where this piece was cut (not its widest, loose leaves and all)
 				const auto [cy, cz] = Cross(u, Clamp(0.0, a_box[0] / (std::max)(a_f, 1e-3), a_box[1] / (std::max)(a_f, 1e-3)));
-				R[1] = (std::max)(0.05, cy * 0.5 * 0.85) * a_f;
-				R[2] = (std::max)(0.05, cz * 0.5 * 0.85) * a_f;
+				// (its measured thickness takes in its fanned leaves: a leek's stalk is far thinner - a sixteenth of its length
+				// across - and its cut faces were drawn as big discs standing out round it)
+				const double stalk = u.name.find("eek") != std::string::npos ? u.boardLen * 0.032 : 1e9;
+				R[1] = (std::max)(0.05, (std::min)(cy * 0.5 * 0.85, stalk)) * a_f;
+				R[2] = (std::max)(0.05, (std::min)(cz * 0.5 * 0.85, stalk)) * a_f;
 			}
 			double lo[3], hi[3];
 			for (int ax = 0; ax < 3; ++ax) {
