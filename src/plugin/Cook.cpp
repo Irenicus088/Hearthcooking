@@ -3776,7 +3776,7 @@ namespace Cook
 				if (P.dishRef >= 0) {
 					const double fade = StewFade();
 					Vec3         fmn, fmx;
-					const bool   show = fade > 0.01 && Scene::FlatBounds(P.dishRef, fmn, fmx);
+					const bool   show = fade > 0.01 && !SauceBowl() && Scene::FlatBounds(P.dishRef, fmn, fmx);  // (a sauce is just its colour)
 					Scene::Hide(P.dishRef, !show);
 					if (show) {
 						const double wide = (std::max)(fmx.x - fmn.x, fmx.y - fmn.y);
@@ -3875,7 +3875,7 @@ namespace Cook
 						// the stew itself in the cup, as much as it shows in the pot
 						Vec3         fmn, fmx;
 						const double fade = StewFade();
-						const bool   stew = full && fade > 0.01 && P.ladleStew >= 0 && Scene::FlatBounds(P.ladleStew, fmn, fmx);
+						const bool   stew = full && fade > 0.01 && !SauceBowl() && P.ladleStew >= 0 && Scene::FlatBounds(P.ladleStew, fmn, fmx);
 						if (P.ladleStew >= 0) {
 							Scene::Hide(P.ladleStew, !stew);
 						}
