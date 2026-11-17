@@ -2152,7 +2152,7 @@ namespace Cook
 						if (std::abs(dA) < 1.2) {
 							g_spit->Turn(dA);
 							g_crankRun += std::abs(dA);
-							if (g_crankRun > kPi / 3) {
+							if (g_crankRun > kPi) {
 								g_crankRun = 0;
 								Audio::Take("crank_", 0.45f);
 							}
