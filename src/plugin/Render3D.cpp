@@ -386,7 +386,10 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 			g += cos(a) * dir[k] * 0.5;
 		}
 		g = ToWorldDir(g);
-		N = normalize(N - (g - N * dot(g, N)) * 0.6 * fx.x);
+		float3 gt = g - N * dot(g, N);
+		float  gl = length(gt);
+		gt *= min(1.0, 1.2 / max(gl, 1e-4));  // (a gentle tilt at most: steep ones went dark in odd patches)
+		N = normalize(N - gt * 0.28 * fx.x);
 		// the hollows a shade darker, flour caught on the swells
 		albedo *= 1 - 0.12 * fx.x * saturate(-lumpH);
 		albedo = lerp(albedo, Lin(float3(0.97, 0.96, 0.92)), saturate((lumpH - 0.2) * 2.5) * saturate(N0.z) * 0.55 * (0.4 + 0.6 * fx.x));
@@ -395,7 +398,8 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	if (dot(N, V) < -0.2) N = -N;  // an inside face seen from inside (the pot, the bowl)
 	float3 L = keyDir.xyz;
 	float  nl = saturate(dot(N, L));
-	float  sh = tint.w > 0.5 ? 1.0 : Shadow(i.wpos, N);
+	if (fx.x > 0.01) nl = lerp(nl, saturate(dot(N, L) * 0.6 + 0.4), fx.x);  // (soft dough: the light wraps round its lumps)
+	float  sh = tint.w > 0.5 ? 1.0 : Shadow(i.wpos, normalize(i.n));  // (by the surface itself, not its bumps)
 	float3 hemi = lerp(ground.rgb, sky.rgb, N.z * 0.5 + 0.5);
 	float3 toF = firePos.xyz - i.wpos;
 	float  df = length(toF);
