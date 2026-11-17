@@ -7,6 +7,7 @@
 #pragma push_macro("_WIN32_WINNT")
 #undef _WIN32_WINNT
 #define _WIN32_WINNT 0x0A00
+#include <cctype>
 #include <xaudio2.h>
 #pragma pop_macro("_WIN32_WINNT")
 
