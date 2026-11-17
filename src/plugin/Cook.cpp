@@ -439,9 +439,6 @@ namespace Cook
 			}
 			a_lk.tint[0] = 1.0f, a_lk.tint[1] = 0.96f, a_lk.tint[2] = 0.88f;
 			a_lk.lift[0] = 0.95f, a_lk.lift[1] = 0.88f, a_lk.lift[2] = 0.72f, a_lk.lift[3] = 0.25f;
-			a_lk.fx[0] = 0.12f;  // rolled: near smooth, a little uneven
-			a_lk.fx[1] = 0.3f;   // dusted with the flour it was rolled in
-			a_lk.spot[3] = 0.0f;
 		}
 
 		// how far the finished stew shows in the pot over its pieces (0 .. 1), with its doneness
@@ -4247,7 +4244,6 @@ namespace Cook
 					lk.lift[2] = 0.7f;
 					lk.lift[3] = -static_cast<float>(Clamp(0.85 - br * 0.9, 0.0, 0.85));  // pale and doughy at first (its fruit stays fruit)
 					lk.fx[2] = 1.0f;  // its crust: browning unevenly, blistered
-					lk.fx[1] = static_cast<float>(0.25 * Clamp(1.0 - br * 1.5, 0.0, 1.0));  // floury till it bakes
 					Scene::Hide(P.result, false);
 					Scene::Hide(P.dough, true);
 					Scene::Hide(P.disk, true);
@@ -4257,14 +4253,6 @@ namespace Cook
 						Scene::Hide(P.result, true);
 					}
 					const bool dough = g_doughParts > 0 && g_doughOnBoard && !g_oven->Out();
-					// the board floured round the dough while it's worked on it
-					if (P.board >= 0) {
-						auto& bl = Scene::LookOf(P.board);
-						bl.fx[1] = dough ? 0.8f : 0.0f;
-						bl.spot[0] = static_cast<float>(g_doughAt.x);
-						bl.spot[1] = static_cast<float>(g_doughAt.y);
-						bl.spot[3] = 9.0f;
-					}
 					const bool square = Dumpling() && g_flat > 0.0 && !g_rolled;
 					Scene::Hide(P.dough, !dough || g_rolled || square);
 					Scene::Hide(P.disk, !dough || !g_rolled || square || Dumpling());  // (a dumpling's sheet is drawn in its parts)
@@ -4329,9 +4317,6 @@ namespace Cook
 						auto& lk = Scene::LookOf(P.dough);
 						const float smooth = static_cast<float>(Clamp(g_oven->Dough(), 0.0, 1.0));
 						lk.tint[0] = lk.tint[1] = lk.tint[2] = 0.88f + 0.12f * smooth;
-						lk.fx[0] = 1.0f - smooth;               // lumpy at first, kneaded smooth
-						lk.fx[1] = 0.55f - 0.25f * smooth;      // flour on it, worked in as it's kneaded
-						lk.spot[3] = 0.0f;
 					} else if (dough) {
 						// a pie's sheet drawn in under its fluted rim as the rim's made (the scallops are its edge then)
 						const double c = g_oven->Crimped() >= 0.9 ? 1.0 : Clamp(g_oven->Crimped(), 0.0, 1.0);
@@ -5232,88 +5217,6 @@ namespace Cook
 		std::string ClickWord() { return Overlay::UsingPad() ? fmt::format("press {}", Btn("A")) : std::string("click"); }
 		std::string HoldWord() { return Overlay::UsingPad() ? fmt::format("hold {}", Btn("A")) : std::string("hold the button"); }
 
-		// ---- first-time tips: a short card the first time each step comes up, then never again
-		struct TipNow
-		{
-			std::string text;
-			double      at = -100.0;
-		} g_tipNow;
-		void Tip(const char* a_name, const std::string& a_text)
-		{
-			if (!Config::Get().tips || Config::TipSeen(a_name) || g_clock - g_tipNow.at < 9.0) {
-				return;  // (one at a time: this one waits its turn)
-			}
-			g_tipNow = { a_text, g_clock };
-			Config::MarkTipSeen(a_name);
-		}
-		void CheckTips()
-		{
-			if (g_phase != Phase::Cooking) {
-				return;
-			}
-			const bool pad = Overlay::UsingPad();
-			if (g_fire.Logs() == 0 && g_hold == Hold::None) {
-				Tip("fire", "Logs from the pile heat the fire. There's no gauge for the heat: watch the flames.");
-			}
-			switch (g_hold) {
-			case Hold::Ladle:
-				Tip("stir", pad ? "Circle the right stick to stir. Stir often, or it catches on the bottom." : "Circle round to stir. Stir often, or it catches on the bottom.");
-				break;
-			case Hold::Salt:
-				Tip("salt", "Hold about half a second for a good pinch, then let go over the dish.");
-				break;
-			case Hold::Crank:
-				Tip("crank", pad ? "Circle the right stick to turn the spit, steadily, so every side gets its turn at the fire." : "Turn it round steadily, so every side gets its turn at the fire.");
-				break;
-			case Hold::Mix:
-				Tip("mix", pad ? "Circle the right stick to stir, round and round until it comes together." : "Stir round and round until it comes together into a ball.");
-				break;
-			case Hold::Roll:
-				Tip("roll", "Roll it back and forth over the dough until it's flat.");
-				break;
-			case Hold::Crimp:
-				Tip(g_foldSide >= 0 ? "fold" : "crimp", g_foldSide >= 0 ? "Draw each corner in over the filling." : "Pinch your way round the edge to close it.");
-				break;
-			default:
-				break;
-			}
-			if (g_flow != hc::Flow::Spit && AnyOnBoard() && g_hold == Hold::None) {
-				Tip("knife", fmt::format("{} across it to chop. {} turns the knife to cut along: both ways makes dice. Small, even pieces score best.",
-								 pad ? fmt::format("Press {}", Btn("A")) : std::string("Click"), pad ? Btn("RB") : "Right-click (or R)"));
-			}
-			if (g_flow == hc::Flow::Pot) {
-				bool any = false, cut = true;
-				for (const auto& u : g_units) {
-					if (u.at == Unit::At::Board) {
-						any = true;
-						cut &= u.cut.cutCount + u.cut.alongCount > 0;
-					}
-				}
-				if (any && cut && g_hold == Hold::None) {
-					Tip("tip", "Take the board by its left end and drag right to tip it into the pot.");
-				}
-				if (g_pot && g_pot->Cooked() >= 0.92 && !g_served) {
-					Tip("serve", "The meter's in the gold: lift the ladle out of the pot and let go over the bowl.");
-				}
-			}
-			if (g_flow == hc::Flow::Oven && g_oven) {
-				if (g_doughOnBoard && g_doughNeeded > 0 && g_oven->Dough() < 0.9 && g_hold == Hold::None) {
-					Tip("knead", "Push across the dough, long and steady, in a rhythm. Stop once it's smooth.");
-				}
-				if (g_doughOnBoard && g_oven->Pie() && g_oven->Dough() >= 0.9 && !g_rolled && g_hold == Hold::None) {
-					Tip("pin", "Pick up the rolling pin and roll it over the dough.");
-				}
-				if (DoughReady() && g_hold == Hold::None) {
-					Tip("oven", "Open the door, slide the peel under it, carry it into the oven, and shut the door to bake.");
-				}
-				if (g_oven->InOven() && g_oven->Brown() >= 0.85) {
-					Tip("bakedone", "It's golden: open the door and take it out with the peel.");
-				}
-			}
-			if (g_flow == hc::Flow::Spit && g_spit && g_spit->Mean() >= 0.9) {
-				Tip("spitdone", "The meter's in the gold: lift it off the spit onto the plate.");
-			}
-		}
 		// With a controller: while stirring or turning, the right stick goes round the pot, the bowl or the crank
 		void PadOrbit()
 		{
@@ -5340,23 +5243,6 @@ namespace Cook
 			} else {
 				Overlay::SetStickOrbit(false);
 			}
-		}
-
-		void TipBox(float W)
-		{
-			const double t = g_clock - g_tipNow.at;
-			if (t < 0.0 || t > 9.0 || g_tipNow.text.empty()) {
-				return;
-			}
-			const float a = static_cast<float>(Clamp(t / 0.35, 0.0, 1.0) * Clamp((9.0 - t) / 0.6, 0.0, 1.0));
-			auto*       dl = ImGui::GetForegroundDrawList();
-			const float w = S(540), x = W * 0.5f - w * 0.5f, y = S(26);
-			const float th = F.sans->CalcTextSizeA(F.sans->FontSize, FLT_MAX, w - S(48), g_tipNow.text.c_str()).y;
-			const float h = th + S(54);
-			dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), IM_COL32(12, 10, 8, static_cast<int>(200 * a)), S(6));
-			dl->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), Alpha(kGold, 0.55f * a), S(6), 0, 1.2f * g_ui);
-			TextC(dl, F.sansSemi, W * 0.5f, y + S(10), Alpha(kGold, a), "TIP", 0.2f);
-			Para(dl, F.sans, x + S(24), y + S(36), w - S(48), Alpha(kWhite, a), g_tipNow.text);
 		}
 
 		void HintLine(float W, float H)
@@ -5409,6 +5295,12 @@ namespace Cook
 			float sx = 0, sy = 0;
 			if (!Scene::Project(at, sx, sy)) {
 				return;
+			}
+			if (g_flow == hc::Flow::Oven) {
+				float mx0 = 0, my0 = 0;
+				if (Scene::Project(MouthAt(), mx0, my0)) {
+					sx = mx0;  // (centred over the oven, as its mouth is: the point over the dome sat off to one side in the view)
+				}
 			}
 			auto*       dl = ImGui::GetForegroundDrawList();
 			const float w = S(240), h = S(12);
@@ -5836,7 +5728,6 @@ namespace Cook
 			return;
 		}
 		HandleKeys();
-		CheckTips();
 		PadOrbit();
 		if (g_phase == Phase::Cooking && !g_confirm && !g_help && !g_soundBox) {
 			HandleInput(dt);
@@ -5884,7 +5775,6 @@ namespace Cook
 			RecipeCard(W, H);
 			Meter();
 			HintLine(W, H);
-			TipBox(W);
 			if (g_confirm) {
 				ConfirmBox(W, H);
 			}

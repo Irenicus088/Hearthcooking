@@ -74,11 +74,6 @@ namespace Menu
 				}
 			}
 			Changed(UI::Checkbox("Show what to do next", &v.hints));
-			Changed(UI::Checkbox("A tip the first time each step comes up", &v.tips));
-			UI::SameLine();
-			if (UI::Button("Show the tips again")) {
-				Config::ResetTips();
-			}
 			{
 				const char* styles[] = { "Xbox", "PlayStation" };
 				if (UI::BeginCombo("Controller buttons", styles[v.padStyle == 1 ? 1 : 0])) {
