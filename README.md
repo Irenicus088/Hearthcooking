@@ -70,7 +70,7 @@ in `Hearthcooking.ini`.
 - Settings page: SKSE Menu Framework header (MIT).
 - Sounds: "Egg crack" by OpenWindow_2023_Group_14 (Liora Caplan), freesound.org/s/708312, CC BY 4.0, trimmed and
   converted. Campfire loops by HECKFRICKER (freesound.org/s/729395, /729396, CC0). Cutting board and log boiler
-  recordings from BigSoundBank.com (CC0). Pot boiling by TinyWorlds (OpenGameArt, CC0). Firewood: "Wood Logs 02" from SoundJay.com.
+  recordings from BigSoundBank.com (CC0). Pot boiling by TinyWorlds (OpenGameArt, CC0). Firewood: "Wood Logs 02" from SoundJay.com. Milk: "pours milk" by Legato87 (freesound.org/s/72745).
 - The renderer, overlay and input plumbing come from Skyrim Yacht.
 
 GPL-3.0 (LICENSE.txt).
