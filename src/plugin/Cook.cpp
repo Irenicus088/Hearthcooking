@@ -4639,10 +4639,23 @@ namespace Cook
 					s.push_back({ DiceLine(name, c.first), c.second >= c.first });
 				}
 				if (anyDice) {
-					s.push_back({ "Sweep it into the bowl", allInBowl });
+					s.push_back({ BreadCuts() ? "Sweep it into the right bowl" : "Sweep it into the bowl", allInBowl });
 				}
 				if (g_doughNeeded > 0) {
+					const std::size_t from = s.size();
 					unitsDone(Role::Dough, { Unit::At::Dough }, g_bowlWater ? "Into the water: the " : "Into the bowl: the ", g_bowlWater ? "" : "");
+					if (anyDice && BreadCuts()) {
+						// a bread's cut things (a potato bread's potato) poured in after the flour
+						std::size_t at = s.size();
+						for (std::size_t k = from; k < s.size(); ++k) {
+							std::string l = s[k].text;
+							std::transform(l.begin(), l.end(), l.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							if (l.find("flour") != std::string::npos) {
+								at = k + 1;
+							}
+						}
+						s.insert(s.begin() + static_cast<std::ptrdiff_t>(at), CardLine{ "Pour the right bowl into the left bowl", g_cutInMix });
+					}
 				}
 				if (g_recipe->salted) {
 					s.push_back({ "A pinch of salt", g_oven && g_oven->Seasoning().amount >= 0.7 });
