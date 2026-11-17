@@ -766,11 +766,13 @@ namespace Scene
 		f.fire[0] = static_cast<float>(g_firePos.x);
 		f.fire[1] = static_cast<float>(g_firePos.y);
 		f.fire[2] = static_cast<float>(g_firePos.z);
-		f.fire[3] = 34.0f + 26.0f * std::clamp(g_fireHeat, 0.0f, 1.3f);
+		// the fire's glow: reaching further and brighter as it grows (onto the pot, the board, the dough)
+		f.fire[3] = 40.0f + 40.0f * std::clamp(g_fireHeat, 0.0f, 1.3f);
 		const float fh = std::clamp(g_fireHeat, 0.0f, 1.4f);
-		f.fireColor[0] = 1.0f * fh * 1.6f;
-		f.fireColor[1] = 0.42f * fh * 1.6f;
-		f.fireColor[2] = 0.12f * fh * 1.6f;
+		f.fireColor[0] = 1.0f * fh * 2.2f;
+		f.fireColor[1] = 0.44f * fh * 2.2f;
+		f.fireColor[2] = 0.13f * fh * 2.2f;
+		f.fireHeat = fh;
 		f.sprites = g_sprites;
 		for (auto& p : g_props) {
 			if (!p.used || !p.placed || p.hidden || !p.node) {

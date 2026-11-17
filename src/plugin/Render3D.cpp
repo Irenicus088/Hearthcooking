@@ -292,7 +292,10 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	float  df = length(toF);
 	float3 Lf = toF / max(df, 1e-3);
 	float  att = pow(saturate(1 - df / firePos.w), 2);
-	float  flick = 0.84 + 0.1 * sin(params.x * 11.3) + 0.06 * sin(params.x * 23.7 + 1.3);
+	// it flickers, more as it grows: a slow sway, quicker licks, and the light swaying side to side a little
+	float  fa = 0.1 + 0.16 * saturate(fireColor.w);
+	float  flick = 1.0 - fa + fa * (0.55 * sin(params.x * 7.3) + 0.3 * sin(params.x * 13.1 + 1.3) + 0.15 * sin(params.x * 29.7 + 0.4)) * 0.5 + fa * 0.5;
+	Lf = normalize(Lf + float3(sin(params.x * 3.1), cos(params.x * 2.3), 0) * 0.08 * fa);
 	float3 fire = fireColor.rgb * att * flick;
 	float  nlf = saturate(dot(N, Lf) * 0.85 + 0.15);
 	float3 light = hemi + keyColor.rgb * nl * sh + fire * nlf;
@@ -1386,6 +1389,7 @@ float4 PSComposite(FSOut i) : SV_Target
 		lin(0x1a120a, 0.36f, fr.ground);
 		std::memcpy(fr.firePos, g_frame.fire, sizeof(fr.firePos));
 		std::memcpy(fr.fireColor, g_frame.fireColor, sizeof(float) * 3);
+		fr.fireColor[3] = g_frame.fireHeat;
 		std::memcpy(fr.camPos, g_frame.camPos, sizeof(float) * 3);
 		std::memcpy(fr.camRight, g_frame.camRight, sizeof(float) * 3);
 		std::memcpy(fr.camUp, g_frame.camUp, sizeof(float) * 3);
