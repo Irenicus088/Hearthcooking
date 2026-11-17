@@ -3730,7 +3730,8 @@ namespace Cook
 				lk.lift[3] = static_cast<float>(0.18 * boiled);
 				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut, shrink);
 				// a cabbage in the pot: its leaves are open shells, and cut to bits (and sinking, tumbling) they showed as
-				// loose shards - in the pot each bit is drawn as a torn, crinkled piece of wilted leaf, about its size
+				// loose shards - in the pot each bit is drawn as what chopped cabbage is: a few thin, curved layers of leaf, cut
+				// square, in strips or wedges, stacked a little apart (about its size)
 				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && u.name.find("abbage") != std::string::npos) {
 					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
 					double       lo[3], hi[3];
@@ -3747,7 +3748,7 @@ namespace Cook
 					}
 					auto& leaf = P.leafBits[b];
 					if (leaf < 0) {
-						leaf = Add(fmt::format("LeafBit{}", b % 3).c_str());
+						leaf = Add(fmt::format("LeafBit{}", b % 9).c_str());
 					}
 					if (leaf >= 0 && hi[0] > lo[0] && hi[1] > lo[1] && hi[2] > lo[2]) {
 						const Vec3   mid{ (lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 };
@@ -3763,12 +3764,12 @@ namespace Cook
 							cl.uv[2] = 0.1f + 0.12f * Hash(b, 81), cl.uv[3] = 0.25f + 0.25f * Hash(b, 82);
 						}
 						// wilted: pale green going to a soft yellow-green as it cooks, a little of the broth in it
-						static constexpr float kLeaf[3] = { 0.78f, 0.84f, 0.56f };
+						static constexpr float kLeaf[3] = { 0.66f, 0.82f, 0.47f };  // (the light green of a cut cabbage)
 						for (int k = 0; k < 3; ++k) {
 							cl.tint[k] = lk.tint[k];
 							cl.lift[k] = kLeaf[k] * 0.75f + lk.lift[k] * 0.25f;
 						}
-						cl.lift[3] = 0.35f;
+						cl.lift[3] = 0.5f;
 						cl.shadow = false;
 					} else if (leaf >= 0) {
 						Scene::Hide(leaf, true);

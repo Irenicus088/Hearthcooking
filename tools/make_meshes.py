@@ -1018,7 +1018,7 @@ def pastry_edges():
     nif("PieCrimp", [("Dough", to_mesh(*pastry.pie_crimp()), "dough", (0.3, 25))])
     for j in range(8):
         nif(f"GaletteFold{j}", [("Dough", to_mesh(*pastry.galette_fold(j)), "dough", (0.3, 25))])
-    for j in range(3):
+    for j in range(9):
         nif(f"LeafBit{j}", [("Leaf", to_mesh(*pastry.leaf_bit(j)), "dough", (0.3, 25))])
 
 

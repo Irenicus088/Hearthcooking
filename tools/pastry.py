@@ -170,64 +170,63 @@ def galette_fold(index=0, nt=34, seed=0):
     return _finish(flat, I)
 
 
-def leaf_bit(variant=0, rings=7, segs=36):
-    """A torn, crinkled bit of cooked cabbage leaf: a thin curved sheet with a ragged outline, a vein or two raised
-    across it - about one unit across, centred on the origin, lying in x/y."""
-    rng = np.random.default_rng(77 + variant * 13)
-    harm = rng.random((5, 2))
-    def outline(th):
-        r = 0.5
-        for k, (a, ph) in enumerate(harm):
-            r += 0.07 / (k + 1) * math.sin((k + 2) * th + ph * 6.283) * (0.5 + a)
-        return r * (1.0 + 0.25 * math.cos(th) ** 2)  # longer than wide
-    bend = 0.35 + 0.25 * rng.random()
-    tw = 0.3 * (rng.random() - 0.5)
-    half = 0.028
-    def surf(x, y):
-        z = bend * (y * y) + tw * x * y  # cupped across, a little twisted
-        z += 0.035 * math.sin(11 * x + 3 * variant) * math.sin(9 * y + variant)  # crinkled
-        z += 0.05 * math.exp(-((y - 0.15 * x) / 0.05) ** 2)  # the rib
-        return z
-    pts, top, bot = [], [], []
-    for side, store in ((1, top), (-1, bot)):
-        grid = []
-        for i in range(rings + 1):
-            rho = i / rings
-            row = []
-            for j in range(segs):
-                th = 2 * math.pi * j / segs
-                R = outline(th)
-                x, y = rho * R * math.cos(th), rho * R * math.sin(th)
-                z = surf(x, y) + side * half * (1.0 - 0.6 * rho ** 4)
-                row.append(len(pts))
-                pts.append((x, y, z))
-                if i == 0:
-                    break  # the middle: one point
-            grid.append(row)
-        store.append(grid)
-    P = np.array(pts, float)
-    I = []
-    for grid, up in ((top[0], True), (bot[0], False)):
-        c = grid[0][0]
-        for j in range(segs):
-            a, b = grid[1][j], grid[1][(j + 1) % segs]
-            I.append((c, a, b) if up else (c, b, a))
-        for i in range(1, rings):
-            for j in range(segs):
-                a, b = grid[i][j], grid[i][(j + 1) % segs]
-                cc, d = grid[i + 1][(j + 1) % segs], grid[i + 1][j]
-                I += [(a, d, cc), (a, cc, b)] if up else [(a, cc, d), (a, b, cc)]
-    # the torn edge: top rim to bottom rim
-    tr, br = top[0][rings], bot[0][rings]
-    for j in range(segs):
-        a, b = tr[j], tr[(j + 1) % segs]
-        c, d = br[(j + 1) % segs], br[j]
-        I += [(a, b, c), (a, c, d)]
-    I = np.array(I)
-    # wind so the top faces up
-    t = P[I[: segs]]
-    if np.cross(t[0, 1] - t[0, 0], t[0, 2] - t[0, 0])[2] < 0:
-        I = I[:, [0, 2, 1]]
+def _layer(corners, bend, ruffle, z0, half, n=10, seed=0):
+    """One thin, curved layer of leaf with straight cut sides: a sheet over the quad 'corners' (x, y), cupped by
+    'bend' across its length, its surface a little rippled; solid (top, bottom and the four cut edges)."""
+    rng = np.random.default_rng(seed)
+    ph = rng.random(2) * 6.283
+    c = np.array(corners, float)
+    def at(u, v, side):
+        p = (1 - u) * (1 - v) * c[0] + u * (1 - v) * c[1] + u * v * c[2] + (1 - u) * v * c[3]
+        z = z0 + bend * ((u - 0.5) ** 2 * 4 - 1) * 0.5 + ruffle * math.sin(7 * v + ph[0]) * math.sin(5 * u + ph[1])
+        return (p[0], p[1], z + side * half)
+    P, I = [], []
+    idx = {}
+    for side in (1, -1):
+        for i in range(n + 1):
+            for j in range(n + 1):
+                idx[(side, i, j)] = len(P)
+                P.append(at(i / n, j / n, side))
+    for side in (1, -1):
+        for i in range(n):
+            for j in range(n):
+                a, b, cc, d = idx[(side, i, j)], idx[(side, i + 1, j)], idx[(side, i + 1, j + 1)], idx[(side, i, j + 1)]
+                I += [(a, b, cc), (a, cc, d)] if side > 0 else [(a, cc, b), (a, d, cc)]
+    # the cut edges round the outside
+    ring = [(i, 0) for i in range(n)] + [(n, j) for j in range(n)] + [(i, n) for i in range(n, 0, -1)] + [(0, j) for j in range(n, 0, -1)]
+    for k in range(len(ring)):
+        (i0, j0), (i1, j1) = ring[k], ring[(k + 1) % len(ring)]
+        a, b = idx[(1, i0, j0)], idx[(1, i1, j1)]
+        cc, d = idx[(-1, i1, j1)], idx[(-1, i0, j0)]
+        I += [(a, d, cc), (a, cc, b)]
+    return np.array(P, float), I
+
+
+def leaf_bit(variant=0):
+    """A chopped bit of cabbage: two to four thin layers of leaf, stacked a little apart and fanned, cut with straight
+    sides (the knife's) and curved through (the leaf's) - squares, strips and wedges - about one unit across."""
+    rng = np.random.default_rng(31 + variant * 17)
+    layers = 2 + variant % 3
+    shape = variant % 3  # a squarish piece, a long strip, a wedge
+    w0 = 0.9 + 0.2 * rng.random()
+    h0 = (0.75, 0.38, 0.8)[shape] * (0.85 + 0.3 * rng.random())
+    P_all, I_all = [], []
+    for k in range(layers):
+        w, h = w0 * (1.0 - 0.08 * k + 0.06 * rng.random()), h0 * (1.0 - 0.06 * k)
+        sk = (rng.random() - 0.5) * 0.35
+        corners = [(-w / 2 + sk, -h / 2), (w / 2 + sk * 0.3, -h / 2 + 0.06 * rng.random()), (w / 2 - sk * 0.4, h / 2), (-w / 2 - sk, h / 2 - 0.1 * rng.random())]
+        if shape == 2:  # a wedge: one end come to (almost) a point
+            corners[2] = (corners[2][0] - 0.05, corners[2][1] * 0.15 + corners[1][1] * 0.0)
+            corners[1] = (corners[1][0], corners[1][1] * 0.15)
+        ang = (rng.random() - 0.5) * 0.5 + k * 0.14  # fanned
+        ca, sa = math.cos(ang), math.sin(ang)
+        corners = [(x * ca - y * sa + 0.07 * k, x * sa + y * ca - 0.05 * k) for x, y in corners]
+        P, I = _layer(corners, 0.3 + 0.2 * rng.random(), 0.03, -0.16 * (layers - 1) * 0.5 + 0.16 * k + 0.04 * rng.random(), 0.022, seed=variant * 10 + k)
+        base = sum(len(p) for p in P_all)
+        P_all.append(P)
+        I_all += [(a + base, b + base, c + base) for a, b, c in I]
+    P = np.vstack(P_all)
+    I = np.array(I_all)
     N = _normals(P, I)
     UV = P[:, :2] * 0.9 + 0.5
     return P, N, UV, I
