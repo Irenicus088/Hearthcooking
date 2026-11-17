@@ -3361,7 +3361,12 @@ namespace Cook
 			if (std::abs(a_box[0]) > 1e6 || std::abs(a_box[1]) > 1e6) {
 				return false;  // (an end left uncut: drawn as it is)
 			}
-			auto& ring = g_rings[a_id];
+			// (a new entry starts as none: a default 0 is the kitchen's first prop, the table, which got stretched into a slice)
+			auto it = g_rings.find(a_id);
+			if (it == g_rings.end()) {
+				it = g_rings.emplace(a_id, Scene::Id{ -1 }).first;
+			}
+			auto& ring = it->second;
 			if (ring < 0 || !Scene::Valid(ring)) {
 				ring = Add("LeekRing");
 			}
