@@ -322,6 +322,7 @@ namespace Cook
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
 		double g_fold[4]{}, g_foldWant[4]{};
+		double g_flareAt = -10.0, g_flareX = 0.0, g_dripNext = 0.0;  // the spit's fat dripping into the fire, and its flare-up
 		double g_flat = 0.0;                 // a dumpling's dough rolled out square (0 a ball .. 1 flat)
 		double g_bowlTip = 0.0;              // the fruit bowl lifted and tipped over the dough
 		bool   g_bowlPoured = false;
@@ -3505,6 +3506,32 @@ namespace Cook
 				g.color[3] = static_cast<float>(0.22 * Clamp(heat, 0.0, 1.2));
 				g.kind = Render3D::Sprite::Kind::Glow;
 				sp.push_back(g);
+				// a flare-up where the spit's fat lands: a tall lick of flame, a burst of light and a spark or two
+				if (g_flow == hc::Flow::Spit && g_clock >= g_flareAt && g_clock < g_flareAt + 0.45) {
+					const double f = 1.0 - (g_clock - g_flareAt) / 0.45;
+					Render3D::Sprite fl;
+					fl.pos[0] = static_cast<float>(g_flareX);
+					fl.pos[1] = static_cast<float>(fc.y);
+					fl.pos[2] = static_cast<float>(fc.z + 1.2);
+					fl.size = static_cast<float>(1.6 + 1.6 * f);
+					fl.stretch = 2.6f;
+					fl.seed = static_cast<float>(g_flareAt * 7.0);
+					fl.color[3] = static_cast<float>(f);
+					fl.kind = Render3D::Sprite::Kind::Flame;
+					sp.push_back(fl);
+					Render3D::Sprite gl = g;
+					gl.pos[0] = static_cast<float>(g_flareX);
+					gl.size = 5.0f;
+					gl.color[3] = static_cast<float>(0.3 * f);
+					sp.push_back(gl);
+					static double s_sparked = -1.0;
+					if (s_sparked != g_flareAt) {
+						s_sparked = g_flareAt;
+						static const float spark[4] = { 1.0f, 0.6f, 0.2f, 1.0f };
+						Spray(Vec3{ g_flareX, fc.y, fc.z + 1.0 }, 3, spark, 2.0, 5.0, 0.1f, true, Render3D::Sprite::Kind::Ember, 0.6);
+						Hiss(0.45f, 0.0f);
+					}
+				}
 				// embers rising, and a little smoke
 				for (int k = 0; k < 14; ++k) {
 					const double p = std::fmod(t * (0.3 + 0.25 * Hash(k, 5)) + Hash(k, 6), 1.0);
@@ -3537,7 +3564,11 @@ namespace Cook
 				s.kind = Render3D::Sprite::Kind::Smoke;
 				sp.push_back(s);
 			}
-			Scene::SetFire(fc + Vec3{ 0, 0, 3.0 }, static_cast<float>(heat));
+			{
+				// (a flare-up brightens the fire's light for a moment)
+				const double flare = g_flow == hc::Flow::Spit && g_clock >= g_flareAt && g_clock < g_flareAt + 0.45 ? 0.35 * (1.0 - (g_clock - g_flareAt) / 0.45) : 0.0;
+				Scene::SetFire(fc + Vec3{ 0, 0, 3.0 }, static_cast<float>(heat + flare));
+			}
 
 			// ---- the log carried
 			if (P.heldLog >= 0) {
@@ -3597,6 +3628,22 @@ namespace Cook
 						}
 						for (int b = 0; b < hc::Spit::kBands; ++b) {
 							lk.cook[b] = static_cast<float>(g_spit->Band(b));
+						}
+						// its fat running as it roasts: glistening, browning unevenly
+						{
+							const double m = g_spit->Mean();
+							lk.fx[3] = static_cast<float>(Clamp((m - 0.1) * 1.6, 0.0, 1.0) * Clamp((1.7 - m) * 2.0, 0.25, 1.0));
+							lk.fx[2] = 0.7f;
+							// now and then a drop of fat off its underside, into the fire: a flare-up where it lands
+							if (g_fire.Heat() > 0.3 && m > 0.2 && m < 1.5 && g_clock >= g_dripNext) {
+								g_dripNext = g_clock + 0.7 + 1.1 * Rand01();
+								const auto   ax = SpitAxis(u.spitX);
+								const double x = (Rand01() - 0.5) * len * 0.8;
+								static const float fat[4] = { 0.95f, 0.78f, 0.4f, 0.9f };
+								Spray(Vec3{ ax.x + x, ax.y, ax.z - 1.4 }, 1, fat, 0.1, -1.0, 0.13f, true, Render3D::Sprite::Kind::Grain, 0.5);
+								g_flareAt = g_clock + 0.32;
+								g_flareX = ax.x + x;
+							}
 						}
 						lk.cookAxis[0] = 1.0f;
 						lk.cookAxis[1] = lk.cookAxis[2] = 0.0f;
