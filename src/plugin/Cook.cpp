@@ -1117,7 +1117,7 @@ namespace Cook
 			static const std::pair<const char*, const char*> kBy[] = {
 				{ "venison", "venison" }, { "pheasant", "pheasant" }, { "chicken", "chicken" }, { "beef", "beef" }, { "horker", "beef" },
 				{ "mammoth", "beef" }, { "goat", "beef" }, { "horse", "beef" }, { "carrot", "carrot" }, { "potato", "potato" },
-				{ "apple", "apple" }, { "tomato", "tomato" }, { "cabbage", "cabbage" }
+				{ "apple", "apple" }, { "tomato", "tomato" }, { "cabbage", "cabbage" }, { "leek", "leek" }
 			};
 			for (const auto& [word, tex] : kBy) {
 				if (n.find(word) != std::string::npos) {
@@ -3246,7 +3246,8 @@ namespace Cook
 				look->shape[0][0] = static_cast<float>(a_c.x);
 				look->shape[0][1] = static_cast<float>(a_c.y);
 				look->shape[0][2] = static_cast<float>(a_c.z);
-				look->shape[0][3] = u.thin ? 1.0f : 2.0f;  // (a leek, a carrot: a tight round section)
+				// (a leek, a carrot: a tight round section; a cabbage: a tight ball - their loose outer leaves stay leaves)
+				look->shape[0][3] = u.thin ? 1.0f : u.name.find("abbage") != std::string::npos ? 0.5f : 2.0f;
 				for (int j = 0; j < 3; ++j) {
 					look->shape[j + 1][0] = static_cast<float>(axv[j].x);
 					look->shape[j + 1][1] = static_cast<float>(axv[j].y);

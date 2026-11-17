@@ -305,6 +305,28 @@ def cabbage():
     save("cabbage", cross, along)
 
 
+def leek():
+    f1, f2, f3 = (Field(700 + k) for k in range(3))
+    u, v = X * 0.5 + 0.5, Y * 0.5 + 0.5
+    # across: tight rings of sheath round the heart, white in, pale green out, a thin line between each
+    rw = R + 0.02 * (f1(u * 3, v * 3) - 0.5) + 0.012 * np.sin(A * 2 + f2(u, v) * 4)
+    t = rw * 9 + 0.3 * (f3(u, v) - 0.5)
+    ring = np.mod(t, 1.0)
+    cross = mix((250, 250, 238), (214, 230, 170), smooth(0.25, 0.95, rw))
+    cross = mix(cross, (168, 196, 120), ridge(ring, 0.06) * (0.4 + 0.5 * smooth(0.2, 1.0, rw)))
+    cross = mix(cross, (236, 244, 214), (1 - smooth(0.04, 0.09, R)))
+    cross = mix(cross, (150, 180, 100), smooth(0.97, 1.0, R))  # its outer skin
+    cross *= (0.97 + 0.06 * f1(u * 18, v * 18))[..., None]
+    # along: the sheaths as long straight stripes
+    ay = np.abs(Y) + 0.01 * (f1(u * 4, v) - 0.5)
+    t2 = ay * 9 + 0.2 * (f3(u * 0.5, v) - 0.5)
+    along = mix((250, 250, 238), (214, 230, 170), smooth(0.25, 0.95, ay))
+    along = mix(along, (168, 196, 120), ridge(np.mod(t2, 1.0), 0.06) * (0.4 + 0.5 * smooth(0.2, 1.0, ay)))
+    along = mix(along, (150, 180, 100), smooth(0.97, 1.0, ay))
+    along *= (0.97 + 0.06 * f1(u * 30, v * 6))[..., None]
+    save("leek", cross, along)
+
+
 def all_flesh():
     meat("beef", 10, lean=(186, 40, 44), lean_dark=(140, 24, 32), fat=(244, 230, 218), marbling=0.95, fat_width=0.022,
          sinew=0.25, grain=0.6)
@@ -319,7 +341,12 @@ def all_flesh():
     apple()
     tomato()
     cabbage()
+    leek()
 
 
 if __name__ == "__main__":
-    all_flesh()
+    if len(sys.argv) > 1:
+        for name in sys.argv[1:]:
+            globals()[name]()
+    else:
+        all_flesh()

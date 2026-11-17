@@ -202,6 +202,9 @@ bool CutFace(VSOut i, out float3 q, out float3 n)
 		if (flesh.w > 1.5) {
 			// a core: its cut face is exactly its own section, nothing past it
 			if (lx * lx + ly * ly + lz * lz > 1.02) return false;
+		} else if (shape[0].w < 0.75) {
+			// a cabbage: a round head of leaves, its section a tight round too
+			if (lx * lx + ay * ay + az * az > 1.0) return false;
 		} else if (shape[0].w < 1.5) {
 			// a long, thin thing (a leek, a carrot): its section is a round, tight to the stalk - its loose outer leaves,
 			// fanned past it and seen from behind, were drawn as flat cut faces (big pale shards)
@@ -257,7 +260,8 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	if (shape[0].w < 1.5 && any(shape[1].xyz != 0)) {
 		float3 r = i.wpos - shape[0].xyz;
 		float  ly = dot(shape[2].xyz, r), lz = dot(shape[3].xyz, r);
-		inStalk = ly * ly + lz * lz <= 1.0;  // (a leek's loose leaf, seen from behind, stays a leaf)
+		float  lx = dot(shape[1].xyz, r);
+		inStalk = ly * ly + lz * lz + (shape[0].w < 0.75 ? lx * lx : 0) <= 1.0;  // (a leek's or a cabbage's loose leaf, seen from behind, stays a leaf)
 	}
 	if (flesh.w > 2.5 && flesh.w < 3.5 && inStalk && dot(N0, camPos.xyz - i.wpos) < 0) {
 		albedo = Lin(flesh.rgb) * 0.92 * tint.rgb;
