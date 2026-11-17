@@ -3296,14 +3296,17 @@ namespace Cook
 			float fl[3];
 			Flesh(u, fl);
 			std::copy(fl, fl + 3, lk.flesh);
-			lk.flesh[3] = a_cut ? 3.0f : 0.0f;  // seen from inside, the skin shows its flesh
+			// a leek: its own mesh as it is, only cut where the knife went - its layers and leaves seen from behind are
+			// leaf, not painted over as flesh, and no solid face drawn across its loose layers (both showed as white shards)
+			const bool leek = u.name.find("eek") != std::string::npos;
+			lk.flesh[3] = a_cut && !leek ? 3.0f : 0.0f;  // seen from inside, the skin shows its flesh
 			auto* fleshTex = FleshTexture(u);
 			lk.fleshTex = fleshTex;
 			if (a_core < 0) {
 				return;
 			}
-			// every cut piece is solid: its cut faces are drawn wherever they're inside the thing
-			if (!a_cut) {
+			// every cut piece is solid: its cut faces are drawn wherever they're inside the thing (not a leek: above)
+			if (!a_cut || leek) {
 				Scene::Hide(a_core, true);
 				return;
 			}
