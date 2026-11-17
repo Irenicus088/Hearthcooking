@@ -2117,22 +2117,14 @@ namespace Cook
 				g_pinch = 0;
 				return;
 			}
-			// logs: from the pile, or a burning one out of the fire
+			// logs: from the pile
 			for (int k = 0; k < 3; ++k) {
 				if (NearScreen({ L::kPileX, L::kPileY + (k - 1) * 1.6, 1.5 }, mx, my, 3.0, 22.0f)) {
 					g_hold = Hold::Log;
 					return;
 				}
 			}
-			if (g_fire.Logs() > 0) {
-				const Vec3 fc = FireCenter();
-				const bool ring = pot ? (!OverPot(mx, my, 0.8) && OverFire(mx, my)) : oven ? OverFire(mx, my) : NearScreen(fc, mx, my, 4.0);
-				if (ring && g_fire.RemoveLog()) {
-					g_hold = Hold::FireLog;
-					Audio::Take("log_", 0.5f);
-					return;
-				}
-			}
+			// (a log once in the fire stays there: it burns down, it isn't taken back out)
 			// an ingredient off the cloth
 			if (const int k = UnitAt(mx, my, Unit::At::Cloth); k >= 0) {
 				g_hold = Hold::Ingredient;
@@ -5058,7 +5050,7 @@ namespace Cook
 				}
 				lines.push_back("Open the door (drag it left). Drag the peel under the dough, carry it into the mouth, shut the door. Peek, but each peek lets the heat out.");
 			}
-			lines.push_back("The meter shows how done it is; there's no gauge for the heat: watch the flames. Logs from the pile make it hotter; drag a burning one out to cool it.");
+			lines.push_back("The meter shows how done it is; there's no gauge for the heat: watch the flames. Logs from the pile make it hotter; once in, they stay in, so don't overdo it.");
 			float h = S(80);
 			for (const auto& l : lines) {
 				h += F.sans->CalcTextSizeA(F.sans->FontSize, FLT_MAX, w - S(64), l.c_str()).y + S(10);
