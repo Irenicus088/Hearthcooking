@@ -217,6 +217,9 @@ namespace Recipes
 				if (low.find("garlic bread") != std::string::npos) {
 					r->makes = (std::max)(r->makes, 5);  // a loaf cut into five slices: five of it
 				}
+				if (low.find("stew") != std::string::npos || low.find("soup") != std::string::npos) {
+					r->makes = (std::max)(r->makes, 3);  // a whole pot of it: three bowls
+				}
 				// a pie is baked, wherever the game has it made (its Chaurus Pie is a cooking pot's)
 				const bool toOven = isOven || Has(low, { " pie", "pie " }) || low.rfind("pie", 0) == 0 || (low.size() >= 3 && low.compare(low.size() - 3, 3, "pie") == 0);
 				r->oven = toOven;

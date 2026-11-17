@@ -151,14 +151,15 @@ def solid(rgb):
     return lambda P: np.tile(np.array(rgb), (len(P), 1))
 
 
-def sheet():
-    prof = [(0.0, 1.3), (4.6, 1.3), (4.9, 1.22), (5.02, 1.0), (4.98, 0.6), (4.8, 0.45), (0.0, 0.45)]
+def sheet(r=5.0):
+    k = r / 5.0
+    prof = [(0.0, 1.3), (4.6 * k, 1.3), (4.9 * k, 1.22), (5.02 * k, 1.0), (4.98 * k, 0.6), (4.8 * k, 0.45), (0.0, 0.45)]
     return lathe(prof)
 
 
 def pie(baked=0.0):
     S = Scene()
-    P, I = sheet()
+    P, I = lathe([(0.0, 1.3), (4.3, 1.3), (4.3, 0.45), (0.0, 0.45)])  # the sheet ends inside the rim: the crimped edge is the pie's outside
     S.add(P, I, dough_albedo(baked))
     cp, cn, _, ci = pastry.pie_crimp()
     for k in range(24):

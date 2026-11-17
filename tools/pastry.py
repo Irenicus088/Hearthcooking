@@ -82,7 +82,7 @@ def pie_crimp(nt=26, nphi=30, seed=0):
         s = math.cos(math.pi * t)  # 1 in the scallop's middle, 0 at the pinches
         ro = 4.48 + 0.56 * s ** 0.55  # the U bulging out, pinched deep between
         ri = 4.12 - 0.34 * (1 - s) ** 4 + 0.04 * s  # the pinch pressed in on the inside
-        zb, zt = 0.95, 1.72 + 0.16 * s ** 0.5  # standing up off the sheet, highest mid-scallop
+        zb, zt = 0.45, 1.72 + 0.16 * s ** 0.5  # down to the board: it is the pie's outside  # standing up off the sheet, highest mid-scallop
         rc, zc = (ro + ri) / 2, (zb + zt) / 2
         w, h = (ro - ri) / 2, (zt - zb) / 2
         a = t * 2 * half
