@@ -2537,7 +2537,7 @@ namespace Cook
 																	u.name.find("Wine") != std::string::npos || u.name.find("Mead") != std::string::npos)
 												  ? "pour"
 												  : "splash_0",
-									0.7f });
+									0.525f });  // (a quarter quieter)
 								static const float drop[4] = { 0.5f, 0.35f, 0.2f, 0.9f };
 								Spray({ L::kPotX, L::kPotY, L::kLiquidZ }, 10, drop, 4.0, 18.0, 0.18f);
 							}
@@ -3062,7 +3062,7 @@ namespace Cook
 						}
 					}
 					g_sauceN = 0;
-					Audio::Play({ "pour", 0.8f });
+					Audio::Play({ "pour", 0.6f });  // (a quarter quieter)
 					static const float drop[4] = { 0.6f, 0.38f, 0.14f, 0.9f };
 					Spray({ L::kPotX, L::kPotY, L::kLiquidZ }, 14, drop, 4.0, 18.0, 0.18f);
 				}
