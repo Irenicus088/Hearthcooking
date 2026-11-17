@@ -1611,6 +1611,13 @@ namespace Cook
 
 		// all done but the baking: it takes the dish's own shape
 		bool FoldedOver();
+		// what's chopped for the pot, in the order it goes in: a tomato first (it cooks down), the rest after
+		int ChopRank(const std::string& a_name)
+		{
+			std::string n = a_name;
+			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return n.find("tomato") != std::string::npos ? 0 : 1;
+		}
 		bool DoughReady()
 		{
 			if (g_topping) {
@@ -1806,6 +1813,23 @@ namespace Cook
 		// The dough's things laid out on the cloth in the order they go in (the first at the top)
 		void ArrangeCloth()
 		{
+			{
+				// what's chopped for the pot: a tomato at the top, the rest under it, in their own spots
+				std::vector<int> idx;
+				std::vector<Vec3> spots;
+				for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
+					if (g_units[i].role == Role::Chop) {
+						idx.push_back(i);
+						spots.push_back(g_units[i].clothAt);
+					}
+				}
+				// (their spots as laid out: down a column, then the next)
+				std::sort(spots.begin(), spots.end(), [](const Vec3& a, const Vec3& b) { return std::abs(a.x - b.x) > 1.0 ? a.x < b.x : a.y > b.y; });
+				std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return ChopRank(g_units[a].name) < ChopRank(g_units[b].name); });
+				for (std::size_t k = 0; k < idx.size(); ++k) {
+					g_units[idx[k]].clothAt = spots[k];
+				}
+			}
 			const auto order = DoughOrder();
 			if (order.empty()) {
 				return;
@@ -4501,6 +4525,9 @@ namespace Cook
 				}
 				// in the order they go in (a dough's own order, where it has one), else by name
 				std::vector<std::pair<std::string, std::pair<int, int>>> list(by.begin(), by.end());
+				if (a_role == Role::Chop) {
+					std::stable_sort(list.begin(), list.end(), [](const auto& a_a, const auto& a_b) { return ChopRank(a_a.first) < ChopRank(a_b.first); });
+				}
 				if (a_role == Role::Dough) {
 					const auto order = DoughOrder();
 					auto rank = [&](const std::string& a_n) {
@@ -4535,7 +4562,10 @@ namespace Cook
 							e.second += u.cut.cutCount > 0 || u.at == Unit::At::Pot;
 						}
 					}
-					for (const auto& [name, c] : by) {
+					// (in the order they go in: a sauce's tomato first, to cook down, the garlic after it)
+					std::vector<std::pair<std::string, std::pair<int, int>>> list(by.begin(), by.end());
+					std::stable_sort(list.begin(), list.end(), [](const auto& a_a, const auto& a_b) { return ChopRank(a_a.first) < ChopRank(a_b.first); });
+					for (const auto& [name, c] : list) {
 						s.push_back({ DiceLine(name, c.first), c.second >= c.first });
 					}
 					unitsDone(Role::Chop, { Unit::At::Pot }, "Tip in the ", "");
