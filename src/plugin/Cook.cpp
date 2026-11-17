@@ -4143,10 +4143,12 @@ namespace Cook
 							if (Crostata()) {
 								// a rustic fold: the edge lifted up and laid in over the fruit, a broad pleat, each one
 								// overlapping the last all the way round (a galette)
-								const double pleat = (k % 2 ? 0.12 : -0.1) + 0.08 * (Hash(k, 71) - 0.5);
-								const double r = 3.95 + 0.15 * (Hash(k, 72) - 0.5);
-								Scene::Place(id, at + Vec3{ std::cos(a) * r, std::sin(a) * r, 0.78 + 0.06 * (k % 3) }, RotZ(a) * RotY(0.38) * RotX(pleat), 1.0f);
-								Scene::Stretch(id, 1.05f, 0.88f, 0.3f);
+								// each a broad flap of the rim, from the outside edge (rounded, standing high) laid in over the
+								// outer band of the fruit, its inner edge sloping down onto it: the fruit shows only in the middle
+								const double pleat = (k % 2 ? 0.1 : -0.08) + 0.06 * (Hash(k, 71) - 0.5);
+								const double r = 3.75 + 0.12 * (Hash(k, 72) - 0.5);
+								Scene::Place(id, at + Vec3{ std::cos(a) * r, std::sin(a) * r, 0.82 + 0.07 * (k % 2) }, RotZ(a + 0.05 * (Hash(k, 73) - 0.5)) * RotY(-0.3) * RotX(pleat), 1.0f);
+								Scene::Stretch(id, 1.15f, 0.82f, 0.52f);
 								DoughLook(cl);
 							} else {
 								// a fluted edge: the rim stood up as a thin wall, pinched into a zigzag - each pinch a short slanted
