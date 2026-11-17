@@ -2043,6 +2043,15 @@ namespace Cook
 					if (OnPlane(mx, my, kBoardTop + 1.0, x, y)) {
 						const double dx = x - g_doughAt.x, dy = y - g_doughAt.y, r = std::hypot(dx, dy);
 						const double R = g_rolled ? 5.0 : 3.2;
+						// the edge isn't folded or crimped till all the filling is on
+						bool fillingOff = false;
+						for (const auto& u : g_units) {
+							fillingOff |= u.role == Role::Filling && u.at != Unit::At::Dough;
+						}
+						if (g_rolled && fillingOff && r > 2.6 && r < R + 1.2) {
+							Toast(Dumpling() ? "All the filling on first, then fold" : Crostata() ? "All the fruit on first, then fold the edge" : "All the filling on first, then crimp");
+							return;
+						}
 						if (g_rolled && Dumpling() && r > 2.6 && r < R + 1.2) {
 							// a side to fold in: the quarter nearest where it was taken
 							const double a = std::atan2(dy, dx);
@@ -4055,7 +4064,8 @@ namespace Cook
 					} else if (dough) {
 						// a pie's sheet drawn in under its fluted rim as the rim's made (the scallops are its edge then)
 						const double c = g_oven->Crimped() >= 0.9 ? 1.0 : Clamp(g_oven->Crimped(), 0.0, 1.0);
-						const double r = g_oven->Pie() && !Crostata() && !Dumpling() ? 5.0 - (5.0 - 4.3 * kPieRim) * c : 5.0;
+						// a crostata's sheet drawn in to its folded size too (its edge is under the pleats)
+						const double r = !g_oven->Pie() || Dumpling() ? 5.0 : Crostata() ? 5.0 - 5.0 * (1.0 - kPieRim) * c : 5.0 - (5.0 - 4.3 * kPieRim) * c;
 						Scene::Place(P.disk, at + Vec3{ 0, 0, 0.3 }, {}, static_cast<float>(r));
 						Scene::Stretch(P.disk, 1.0f, 1.0f, static_cast<float>(2.0 * 5.0 / r));
 					}
@@ -4108,7 +4118,9 @@ namespace Cook
 						const int ui = static_cast<int>(off.z);
 						// a round berry (or bit of fruit), wearing the colour of what it came from
 						const float br = static_cast<float>(0.32 + 0.1 * Hash(id, 24));
-						Scene::Place(id, at + Vec3{ off.x, off.y, 0.75 + br }, RotZ(Hash(id, 21) * 6.28), br);
+						// (drawn in with the pie's edge as it's crimped or folded: the whole pie a tenth smaller by the end)
+						const double shrink = Dumpling() ? 1.0 : 1.0 - (1.0 - kPieRim) * (g_oven->Crimped() >= 0.9 ? 1.0 : Clamp(g_oven->Crimped(), 0.0, 1.0));
+						Scene::Place(id, at + Vec3{ off.x * shrink, off.y * shrink, 0.75 + br }, RotZ(Hash(id, 21) * 6.28), br);
 						auto& lk = Scene::LookOf(id);
 						std::string bn;
 						for (const auto& u : g_units) {
@@ -4184,7 +4196,7 @@ namespace Cook
 							Scene::Hide(id, !show);
 							if (show) {
 								const double a = (3 * j + 1.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
-								Scene::Place(id, at, RotZ(a), 1.0f);
+								Scene::Place(id, at, RotZ(a), static_cast<float>(kPieRim));
 								DoughLook(Scene::LookOf(id));
 							}
 						}
