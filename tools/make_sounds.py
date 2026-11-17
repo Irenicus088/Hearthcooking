@@ -7,7 +7,7 @@ the menu sounds (ui_*) are Skyrim Yacht's own.
   log_N       a log set on the fire                                splash_N  a piece into the broth
   hiss_N      something landing in the fire                        stir_N    the ladle scraping round the pot
   salt_N      a pinch of salt                                      knead_N   dough pushed and slapped
-  crank_N     the spit's crank turning a notch                     crackle_N a pop from the fire
+  crank_N     the spit's crank turning a notch
   door_open / door_close  the oven door                            peel      the peel sliding on stone
   pour        something poured in                                  flour     a puff of flour
   done / burnt            the result
@@ -276,7 +276,6 @@ def main():
     salts()
     kneads()
     cranks()
-    crackles()
     doors()
     pours()
     results()
