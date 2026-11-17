@@ -480,6 +480,20 @@ namespace Scene
 
 	bool IsOpen() { return g_open; }
 
+	void Preload(const std::vector<std::string>& a_models)
+	{
+		// loaded once now (the game's model cache keeps them while they're held), so opening the kitchen only copies them
+		static std::vector<RE::NiPointer<RE::NiNode>> s_held;
+		for (const auto& m : a_models) {
+			RE::NiPointer<RE::NiNode>         node;
+			RE::BSModelDB::DBTraits::ArgsType args{};
+			RE::BSModelDB::Demand(m.c_str(), node, args);
+			if (node) {
+				s_held.push_back(node);
+			}
+		}
+	}
+
 	Id Add(const std::string& a_model)
 	{
 		if (!g_root) {

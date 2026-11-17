@@ -47,6 +47,7 @@ namespace Scene
 	void Close();
 	bool IsOpen();
 
+	void  Preload(const std::vector<std::string>& a_models);  // at load: the kitchen's meshes read in ahead
 	Id    Add(const std::string& a_model);  // meshes\-relative; hidden until placed; -1 if it couldn't load
 	void  Remove(Id a_id);
 	void  RemoveAll();

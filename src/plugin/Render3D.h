@@ -105,6 +105,7 @@ namespace Render3D
 		bool                show = false;
 	};
 
+	void Prewarm();  // at load: compiles the shaders in the background, so the kitchen opens without a pause
 	void Submit(Frame&& a_frame);  // main thread, every frame the kitchen is open
 	void Clear();                  // closed: drop everything
 

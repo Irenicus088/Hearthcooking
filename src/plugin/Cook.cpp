@@ -5570,6 +5570,19 @@ namespace Cook
 		Recipes::OnDataLoaded();
 		Recipes::InstallEatWatch();
 		Scene::Register();
+		{
+			// the kitchen's own meshes read in now, not as it opens
+			std::vector<std::string> ours;
+			for (const char* n : { "Board", "Bowl", "Broth", "Cap", "Chunk", "Cloth", "Dough", "DoughDisk", "FirePit", "Hull", "Knife", "Ladle", "Log", "OvenBase", "OvenDome",
+					 "OvenDoor", "OvenDoorArch", "Peel", "PieCrimp", "Plate", "Pot", "RollingPin", "Room", "SaltBowl", "SpitCrank", "SpitPosts", "SpitRod", "Spoon", "Worktop" }) {
+				ours.push_back(fmt::format("Hearthcooking\\{}.nif", n));
+			}
+			for (int k = 0; k < 9; ++k) {
+				ours.push_back(fmt::format("Hearthcooking\\DumplingFold{}.nif", k));
+				ours.push_back(fmt::format("Hearthcooking\\LeafBit{}.nif", k));
+			}
+			Scene::Preload(ours);
+		}
 		static MenuWatch s_watch;
 		if (auto* ui = RE::UI::GetSingleton()) {
 			ui->AddEventSink<RE::MenuOpenCloseEvent>(&s_watch);

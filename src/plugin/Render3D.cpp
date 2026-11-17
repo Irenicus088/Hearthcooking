@@ -1,6 +1,11 @@
 // Hearthcooking - cook by hand in Skyrim Special Edition.
 // Copyright (C) 2026 evodube. GPL-3.0 (LICENSE.txt).
 #include "Render3D.h"
+#include <unordered_map>
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <thread>
 
 #include <d3dcompiler.h>
 
@@ -817,7 +822,30 @@ float4 PSComposite(FSOut i) : SV_Target
 		};
 		std::unordered_map<std::uint64_t, Measured> g_measured;
 
+		ID3DBlob* CompileNow(const char* a_entry, const char* a_target);
+		// the shaders compiled ahead, off the main thread, while the game loads (they took a moment the first time the
+		// kitchen opened): each taken from here once it's in, or compiled then if it isn't
+		std::mutex                                   g_preMtx;
+		std::unordered_map<std::string, ID3DBlob*>   g_pre;
+		std::atomic<int>                             g_preState{ 0 };  // 0 not started, 1 compiling, 2 done
 		ID3DBlob* Compile(const char* a_entry, const char* a_target)
+		{
+			while (g_preState.load() == 1) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(2));  // (long done by the time the kitchen opens)
+			}
+			{
+				std::lock_guard lk(g_preMtx);
+				if (auto it = g_pre.find(a_entry); it != g_pre.end()) {
+					auto* b = it->second;
+					g_pre.erase(it);
+					if (b) {
+						return b;
+					}
+				}
+			}
+			return CompileNow(a_entry, a_target);
+		}
+		ID3DBlob* CompileNow(const char* a_entry, const char* a_target)
 		{
 			ID3DBlob* code = nullptr;
 			ID3DBlob* err = nullptr;
@@ -1363,6 +1391,25 @@ float4 PSComposite(FSOut i) : SV_Target
 	{
 		std::lock_guard lk(g_mtx);
 		g_frame = std::move(a_frame);
+	}
+
+	void Prewarm()
+	{
+		int expect = 0;
+		if (!g_preState.compare_exchange_strong(expect, 1)) {
+			return;
+		}
+		std::thread([] {
+			static const std::pair<const char*, const char*> kAll[] = { { "VSMain", "vs_5_0" }, { "VSShadow", "vs_5_0" }, { "VSShadowCut", "vs_5_0" }, { "VSFull", "vs_5_0" },
+				{ "VSSprite", "vs_5_0" }, { "PSMain", "ps_5_0" }, { "PSCut", "ps_5_0" }, { "PSSolid", "ps_5_0" }, { "PSParity", "ps_5_0" }, { "PSParityBack", "ps_5_0" },
+				{ "PSShadowCut", "ps_5_0" }, { "PSSprite", "ps_5_0" }, { "PSDown", "ps_5_0" }, { "PSBlur", "ps_5_0" }, { "PSBack", "ps_5_0" }, { "PSComposite", "ps_5_0" } };
+			for (const auto& [e, t] : kAll) {
+				auto* b = CompileNow(e, t);
+				std::lock_guard lk(g_preMtx);
+				g_pre[e] = b;
+			}
+			g_preState.store(2);
+		}).detach();
 	}
 
 	void Clear()

@@ -15,6 +15,7 @@
 #include "Menu.h"
 #include "Config.h"
 #include "Cook.h"
+#include "Render3D.h"
 #include "Overlay.h"
 
 // One DLL for every version: CommonLibSSE-NG built for SE and AE, every game address taken from Address Library by
@@ -108,6 +109,7 @@ namespace
 			Menu::Register();
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
+			Render3D::Prewarm();  // (the kitchen's shaders, compiled in the background)
 			Cook::OnDataLoaded();
 			if (SafeInstallPresentHook()) {
 				spdlog::info("Present hook installed");
