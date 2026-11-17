@@ -3309,8 +3309,14 @@ namespace Cook
 			}
 			// the solid: a box round the piece (the cell, within the thing's measured bounds); the renderer draws
 			// its cut faces exactly where they're inside the thing's own mesh
-			const double R[3] = { u.boardLen * 0.5 * a_f, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * a_f, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * a_f };
-			double       lo[3], hi[3];
+			double R[3] = { u.boardLen * 0.5 * a_f, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * a_f, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * a_f };
+			if (u.thin && std::abs(a_box[0]) < 1e6 && std::abs(a_box[1]) < 1e6) {
+				// a leek, a carrot: round as thick as it is where this piece was cut (not its widest, loose leaves and all)
+				const auto [cy, cz] = Cross(u, Clamp(0.0, a_box[0] / (std::max)(a_f, 1e-3), a_box[1] / (std::max)(a_f, 1e-3)));
+				R[1] = (std::max)(0.05, cy * 0.5 * 0.85) * a_f;
+				R[2] = (std::max)(0.05, cz * 0.5 * 0.85) * a_f;
+			}
+			double lo[3], hi[3];
 			for (int ax = 0; ax < 3; ++ax) {
 				lo[ax] = (std::max)(a_box[ax * 2], -R[ax]);
 				hi[ax] = (std::min)(a_box[ax * 2 + 1], R[ax]);
