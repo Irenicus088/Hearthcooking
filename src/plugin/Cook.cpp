@@ -4527,7 +4527,7 @@ namespace Cook
 					s.push_back({ "Onto the board", g_doughOnBoard });
 					s.push_back({ "Knead the dough", g_oven && g_oven->Dough() >= 0.9 });
 					if (g_recipe->pie) {
-						s.push_back({ "Pick up the rolling pin and flatten to shape", g_flat >= 1.0 });
+						s.push_back({ "Pick up rolling pin and flatten to shape", g_flat >= 1.0 });
 					}
 				}
 				if (g_recipe->pie) {
