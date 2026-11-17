@@ -2418,7 +2418,8 @@ namespace Cook
 								}
 							} else {
 								++g_tossedIn;
-								Audio::Play({ u.role == Role::Toss && (u.name.find("Ale") != std::string::npos || u.name.find("Milk") != std::string::npos ||
+								Audio::Play({ u.role == Role::Toss && u.name.find("Milk") != std::string::npos ? "milk"
+											  : u.role == Role::Toss && (u.name.find("Ale") != std::string::npos ||
 																	u.name.find("Wine") != std::string::npos || u.name.find("Mead") != std::string::npos)
 												  ? "pour"
 												  : "splash_0",
@@ -2548,6 +2549,8 @@ namespace Cook
 								}
 								g_eggT = 0.0;
 								Audio::Take("egg_", 0.7f, 0.05f);
+							} else if (ln.find("milk") != std::string::npos) {
+								Audio::Play({ "milk", 0.7f });  // poured in (no flour dust off it)
 							} else {
 								Flour(kMixAt + Vec3{ 0, 0, 1.0 });
 							}
