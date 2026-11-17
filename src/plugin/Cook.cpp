@@ -1751,7 +1751,7 @@ namespace Cook
 		{
 			static const float dust[4] = { 0.92f, 0.9f, 0.86f, 0.35f };
 			Spray(a_at + Vec3{ 0, 0, 0.8 }, 10, dust, 3.0, 2.0, 1.6f, false, Render3D::Sprite::Kind::Smoke, 1.4);
-			Audio::Play({ "flour", 0.7f });
+			Audio::Take("flour_", 0.7f);
 		}
 
 		// The order a dough's things go into its bowl, by recipe: groups of words, each group after the ones before
