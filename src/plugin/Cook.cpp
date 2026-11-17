@@ -3494,7 +3494,9 @@ namespace Cook
 						for (int j = 0; j < i; ++j) {
 							k += g_units[j].byBowl;
 						}
-						Stand(u, kSauceAt + Vec3{ 5.2 + k * 2.6, -1.2 + k * 0.8, 0.0 }, u.boardLen, 0.4 + k);
+						// the honey pot on the bowl's left, the bottles on its right
+						const bool honeyPot = u.name.find("oney") != std::string::npos;
+						Stand(u, kSauceAt + (honeyPot ? Vec3{ -5.6, -0.6, 0.0 } : Vec3{ 5.2 + k * 2.6, -1.2 + k * 0.8, 0.0 }), u.boardLen, 0.4 + k);
 						HideBoardBits(u);
 						break;
 					}
