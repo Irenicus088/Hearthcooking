@@ -59,6 +59,7 @@ namespace Render3D
 		float hollowDepth = 0.0f;      // down inside it, and toward its wall (0: none)
 		float fx[4]{};                 // lumps (unkneaded dough), flour dusted on, crust (blistered, uneven), wet glisten
 		float spot[4]{};               // where the flour is (middle, radius; 0: all over)
+		float fx2[4]{};                // a liquid's surface rippling, fat glinting on it
 	};
 
 	struct Sprite

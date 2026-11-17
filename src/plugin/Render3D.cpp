@@ -52,6 +52,7 @@ cbuffer Object : register(b1)
 	float4 hollow2;     // x: its depth (0: none)
 	float4 fx;          // x lumps (dough not yet kneaded), y flour dusted on, z crust (blistered, unevenly browned), w wet glisten
 	float4 spot;        // where flour's dusted (the board round the dough): middle, radius
+	float4 fx2;         // x a liquid's surface rippling (by how hard it boils), y fat glinting on it
 };
 cbuffer Sprite : register(b3)
 {
@@ -351,6 +352,16 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 		N = normalize(d.x * t + d.y * b + d.z * N);
 		mask = nm.a;
 	}
+	// a liquid's surface: rippling, more as it boils (slow swells and quick ripples, drifting)
+	if (fx2.x > 0.01) {
+		float3 q = float3(i.wpos.xy * 0.7, params.x * 0.8);
+		float  e = 0.12, n0 = Fbm3(q);
+		float2 g = float2(Fbm3(q + float3(e, 0, 0)) - n0, Fbm3(q + float3(0, e, 0)) - n0) / e;
+		float3 q2 = float3(i.wpos.xy * 2.3 + params.x * 0.3, params.x * 2.1);
+		float  m0 = Noise3(q2);
+		g += float2(Noise3(q2 + float3(e, 0, 0)) - m0, Noise3(q2 + float3(0, e, 0)) - m0) / e * 0.35;
+		N = normalize(N - float3(g, 0) * 0.22 * fx2.x);
+	}
 	// lumps: dough not yet kneaded smooth
 	if (fx.x > 0.01) {
 		float3 q = i.opos * 1.6;
@@ -381,6 +392,13 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	float  g = max(spec.w, 1);
 	float  norm = (g + 8) / 25.13;
 	float3 sp = spec.rgb * mask * norm * (pow(saturate(dot(N, H)), g) * nl * sh * keyColor.rgb + pow(saturate(dot(N, Hf)), g) * nlf * fire);
+	// fat on a liquid: drifting round glints, a little golden
+	if (fx2.y > 0.01) {
+		float fat = smoothstep(0.6, 0.72, Noise3(float3(i.opos.xy * 0.55, params.x * 0.04))) * fx2.y;
+		float gl = pow(saturate(dot(N, H)), 50) * nl, glf = pow(saturate(dot(N, Hf)), 40) * nlf;
+		sp += (keyColor.rgb * gl + fire * glf) * fat * 1.2;
+		albedo *= 1 + fat * float3(0.1, 0.06, -0.04);
+	}
 	// wet and glistening (meat on the spit as its fat runs): a tight, bright highlight from the light and the fire
 	if (fx.w > 0.01) {
 		float gl = pow(saturate(dot(N, H)), 90) * nl * sh, glf = pow(saturate(dot(N, Hf)), 60) * nlf;
@@ -663,6 +681,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			float         hollow2[4];
 			float         fx[4];
 			float         spot[4];
+			float         fx2[4];
 		};
 		struct CBSprite
 		{
@@ -1545,6 +1564,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			std::memcpy(ob.hollow, it.hollow, sizeof(ob.hollow));
 			std::memcpy(ob.fx, it.fx, sizeof(ob.fx));
 			std::memcpy(ob.spot, it.spot, sizeof(ob.spot));
+			std::memcpy(ob.fx2, it.fx2, sizeof(ob.fx2));
 			ob.hollow2[0] = it.hollowDepth;
 			Upload(c, g_cbObject, ob);
 			return true;

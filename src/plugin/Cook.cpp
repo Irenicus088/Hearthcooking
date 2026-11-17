@@ -3805,6 +3805,13 @@ namespace Cook
 						continue;
 					}
 					at.z -= 0.45 * broken + 0.35 * broken * Hash(b, 41) + 1.6 * fade;
+					// bobbing on the simmer, each its own way, turning a little
+					if (g_pot) {
+						const double boil = Clamp((g_pot->Temp() - 0.35) / 0.5, 0.0, 1.0);
+						const double ph = g_clock * (1.3 + 0.9 * Hash(b, 43)) + Hash(b, 44) * 6.283;
+						at.z += (0.1 + 0.16 * boil) * std::sin(ph);
+						frame = RotX(0.08 * boil * std::sin(ph * 0.7 + 1.1)) * RotY(0.08 * boil * std::cos(ph * 0.6)) * frame;
+					}
 				}
 				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
@@ -3911,6 +3918,17 @@ namespace Cook
 					lk.lift[j] = any ? g_broth[j] * (1.0f - (1.0f - kDeep[j]) * thick) * (1.0f - 0.12f * (std::max)(0.0f, c - 1.0f)) : (j == 2 ? 0.52f : 0.55f);
 				}
 				lk.lift[3] = any ? 0.82f + 0.17f * thick : 0.6f;  // plain water until something's in it; thick by the end
+				{
+					// its surface rippling, harder as it boils (calmer as it thickens); fat glinting on it once there's food in
+					const double tpNow = g_pot->Temp();
+					lk.fx2[0] = static_cast<float>(0.2 + 0.8 * Clamp((tpNow - 0.3) / 0.55, 0.0, 1.0)) * (1.0f - 0.4f * thick);
+					lk.fx2[1] = any ? 0.55f * (1.0f - 0.5f * thick) : 0.0f;
+					if (P.dishRef >= 0) {
+						auto& dr = Scene::LookOf(P.dishRef);
+						dr.fx2[0] = lk.fx2[0] * 0.5f;
+						dr.fx2[1] = 0.3f;
+					}
+				}
 				// the finished stew showing through more and more (from a third of the way), the whole of its look by the end
 				if (P.dishRef >= 0) {
 					const double fade = StewFade();
@@ -4007,6 +4025,16 @@ namespace Cook
 					Scene::Place(P.ladle, at - q.Rotate(cup) * ls, q, static_cast<float>(ls));
 					Scene::Hide(P.ladle, false);
 					const bool full = out && g_chunks.CountIn(hc::Chunks::State::Pot) + g_tossedIn > 0;
+					// a ladleful drips from the bottom of the cup as it's carried
+					if (full) {
+						static double s_drip = 0.0;
+						s_drip -= 1.0 / 60.0;
+						if (s_drip <= 0.0) {
+							s_drip = 0.25 + 0.35 * Rand01();
+							const float drop[4] = { g_broth[0] * 0.9f, g_broth[1] * 0.9f, g_broth[2] * 0.9f, 0.9f };
+							Spray(at + Vec3{ 0, 0, -cupR * ls * 1.1 }, 1, drop, 0.2, -0.5, 0.16f, true, Render3D::Sprite::Kind::Grain, 0.8);
+						}
+					}
 					if (P.ladleSoup >= 0) {
 						const double r = cupR * ls * 0.82;
 						Scene::Place(P.ladleSoup, at + Vec3{ 0, 0, -cupR * ls * 0.3 }, RotZ(g_clock * 0.3), static_cast<float>(r / 6.1));
