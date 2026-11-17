@@ -31,6 +31,7 @@ namespace Render3D
 		ID3D11ShaderResourceView* env = nullptr;  // a cube map
 		ID3D11ShaderResourceView* envMask = nullptr;
 		bool                      sear = false;     // cooks darker (red meat seared), not golden
+		bool                      unshadowed = false;  // takes no shadow (a pot's broth: its wall's shadow lay across it)
 		ID3D11ShaderResourceView* fleshTex = nullptr;  // what's inside it, for its cut faces (an atlas: across | along)
 		float                     specColor[3]{ 1, 1, 1 };
 		float                     specScale = 1.0f, gloss = 30.0f, envScale = 0.0f, alpha = 1.0f, alphaRef = 0.0f;

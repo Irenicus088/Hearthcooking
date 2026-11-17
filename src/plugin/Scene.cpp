@@ -903,6 +903,7 @@ namespace Scene
 				it.shadow = lk.shadow;
 				it.fleshTex = lk.fleshTex;
 				it.sear = lk.sear;
+				it.unshadowed = lk.unshadowed;
 				if (lk.alpha < 0.999f) {
 					it.alpha = lk.alpha;
 					it.blend = true;

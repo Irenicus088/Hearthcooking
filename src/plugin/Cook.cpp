@@ -658,6 +658,7 @@ namespace Cook
 				P.dishRef = AddResult();  // the finished stew's own food (not its bowl), fading in over the broth as it comes together
 				Scene::Hide(P.dishRef, true);
 				Scene::LookOf(P.dishRef).onlyFlat = true;
+				Scene::LookOf(P.dishRef).unshadowed = true;  // (as the broth: no shadow of the pot's wall across it)
 				P.ladleSoup = Add("Broth");  // a ladleful, carried to the bowl
 				Scene::Hide(P.ladleSoup, true);
 				P.ladleStew = AddResult();  // ... the finished stew's own look in it, once it shows in the pot
@@ -3875,6 +3876,7 @@ namespace Cook
 				// it cooks down: a little lower, thick and opaque, deeper and richer in colour
 				Scene::Place(P.broth, { L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick }, RotZ(std::fmod(t * 0.05, 6.283) + g_spin), 1.0f);
 				auto& lk = Scene::LookOf(P.broth);
+				lk.unshadowed = true;  // (the pot wall's shadow lay across it)
 				static constexpr float kDeep[3] = { 0.78f, 0.6f, 0.42f };  // what the broth's colour comes to, by channel
 				for (int j = 0; j < 3; ++j) {
 					lk.lift[j] = any ? g_broth[j] * (1.0f - (1.0f - kDeep[j]) * thick) * (1.0f - 0.12f * (std::max)(0.0f, c - 1.0f)) : (j == 2 ? 0.52f : 0.55f);

@@ -286,7 +286,7 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	if (dot(N, V) < -0.2) N = -N;  // an inside face seen from inside (the pot, the bowl)
 	float3 L = keyDir.xyz;
 	float  nl = saturate(dot(N, L));
-	float  sh = Shadow(i.wpos, N);
+	float  sh = tint.w > 0.5 ? 1.0 : Shadow(i.wpos, N);
 	float3 hemi = lerp(ground.rgb, sky.rgb, N.z * 0.5 + 0.5);
 	float3 toF = firePos.xyz - i.wpos;
 	float  df = length(toF);
@@ -1441,6 +1441,7 @@ float4 PSComposite(FSOut i) : SV_Target
 			ob.cookAxis[3] = static_cast<float>(it.cookMode);
 			ob.cookRef[3] = it.fleshTex ? 1.0f : 0.0f;
 			ob.emissive[3] = it.sear ? 1.0f : 0.0f;
+			ob.tint[3] = it.unshadowed ? 1.0f : 0.0f;
 			Upload(c, g_cbObject, ob);
 			return true;
 		};

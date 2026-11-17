@@ -30,6 +30,7 @@ namespace Scene
 		bool  shadow = true;
 		ID3D11ShaderResourceView* fleshTex = nullptr;  // its inside, where it's cut (see Render3D::Item)
 		bool  sear = false;     // cooks darker (meat over a fire), not golden-brown
+		bool  unshadowed = false;  // takes no shadow
 		float alpha = 1.0f;     // below 1: see-through (blended)
 		bool  onlyFlat = false; // only its flattest shape: a dish's food without its bowl
 		bool  hideFlat = false; // all but its flattest shape: a pot without the food modelled in it
