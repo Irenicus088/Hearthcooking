@@ -1633,7 +1633,8 @@ namespace Cook
 		{
 			std::string n = a_name;
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			return n.find("tomato") != std::string::npos ? 0 : 1;
+			// (a tomato cooks down first; a chowder's clam goes in before its potato)
+			return n.find("tomato") != std::string::npos ? 0 : n.find("clam") != std::string::npos ? 1 : 2;
 		}
 		bool DoughReady()
 		{
@@ -4611,10 +4612,18 @@ namespace Cook
 					// (in the order they go in: a sauce's tomato first, to cook down, the garlic after it)
 					std::vector<std::pair<std::string, std::pair<int, int>>> list(by.begin(), by.end());
 					std::stable_sort(list.begin(), list.end(), [](const auto& a_a, const auto& a_b) { return ChopRank(a_a.first) < ChopRank(a_b.first); });
+					// each diced and tipped in before the next is cut
 					for (const auto& [name, c] : list) {
 						s.push_back({ DiceLine(name, c.first), c.second >= c.first });
+						int n = 0, in = 0;
+						for (const auto& u : g_units) {
+							if (u.role == Role::Chop && u.name == name) {
+								++n;
+								in += u.at == Unit::At::Pot;
+							}
+						}
+						s.push_back({ fmt::format("Tip in the {}{}", name, n > 1 ? fmt::format(" ({})", n) : ""), in >= n });
 					}
-					unitsDone(Role::Chop, { Unit::At::Pot }, "Tip in the ", "");
 				}
 				if (SauceBowl()) {
 					// its liquids into the bowl, then the bowl into the pot
