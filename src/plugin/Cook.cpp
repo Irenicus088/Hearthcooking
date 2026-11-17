@@ -1622,6 +1622,7 @@ namespace Cook
 
 		// all done but the baking: it takes the dish's own shape
 		bool FoldedOver();
+		const char* Btn(const char* a_xbox);  // a controller button's name, Xbox's or PlayStation's
 		// down in the pot: darker deeper in and toward its wall (the renderer's hollow)
 		void PotHollow(Scene::Look& a_lk, bool a_in)
 		{
@@ -4937,13 +4938,13 @@ namespace Cook
 			case Hold::Board:
 				return g_flow == hc::Flow::Oven ? "Its right end over the empty bowl: it tips in" : "Drag right to tip it into the pot; up and down to line it up";
 			case Hold::Ladle:
-				return "Round and round. Lift it out to the bowl when it's done";
+				return Overlay::UsingPad() ? "Circle the right stick to stir. Left stick lifts it out to the bowl when it's done" : "Round and round. Lift it out to the bowl when it's done";
 			case Hold::LadleOut:
 				return "Over the bowl to serve, or back into the pot";
 			case Hold::Salt:
 				return "Hold for a bigger pinch. Let go over the dish";
 			case Hold::Crank:
-				return "Turn it round and round";
+				return Overlay::UsingPad() ? "Circle the right stick to turn it" : "Turn it round and round";
 			case Hold::Meat:
 				return "Onto the plate to serve, or back on the spit";
 			case Hold::Dough:
@@ -4951,7 +4952,7 @@ namespace Cook
 			case Hold::Roll:
 				return Dumpling() ? "Hold and roll it about over the dough, out square" : "Hold and roll it about over the dough, out round";
 			case Hold::Mix:
-				return "Round and round until it comes together";
+				return Overlay::UsingPad() ? "Circle the right stick, round and round until it comes together" : "Round and round until it comes together";
 			case Hold::Ball:
 				return "Onto the board";
 			case Hold::Apples:
@@ -4985,6 +4986,10 @@ namespace Cook
 				}
 			}
 			if (g_knifeOn) {
+				if (Overlay::UsingPad()) {
+					return g_knifeAlong ? fmt::format("{} to cut along it. {} turns the knife back across", Btn("A"), Btn("RB"))
+					                    : fmt::format("{} to chop across. {} turns the knife to cut along: both ways makes dice", Btn("A"), Btn("RB"));
+				}
 				return g_knifeAlong ? "Click to cut along it. Right-click (or R) turns the knife back across"
 				                    : "Click to chop across. Right-click (or R) turns the knife to cut along: both ways makes dice";
 			}
@@ -5168,8 +5173,9 @@ namespace Cook
 			const bool pad = Overlay::UsingPad();
 			// the knife can be swapped from here while there's one in the kitchen
 			const bool knife = g_phase == Phase::Cooking && P.knife >= 0;
-			const Key  keys[4] = { { "N", "Knife", Act::Knife }, { pad ? "X" : "H", "How to cook", Act::Help }, { pad ? "Back" : "M", Audio::Muted() ? "Sound (muted)" : "Sound", Act::Mute },
-				 { pad ? "Y" : "Tab", g_phase == Phase::Cooking ? "Put it aside" : "Leave", g_phase == Phase::Cooking ? Act::Abandon : Act::Leave } };
+			const Key  keys[4] = { { pad ? Btn("LB") : "N", "Knife", Act::Knife }, { pad ? Btn("X") : "H", "How to cook", Act::Help },
+				 { pad ? Btn("Back") : "M", Audio::Muted() ? "Sound (muted)" : "Sound", Act::Mute },
+				 { pad ? Btn("Y") : "Tab", g_phase == Phase::Cooking ? "Put it aside" : "Leave", g_phase == Phase::Cooking ? Act::Abandon : Act::Leave } };
 			const int first = knife ? 0 : 1, count = 4;
 			float     widths[4]{}, total = 0;
 			for (int k = first; k < count; ++k) {
@@ -5308,6 +5314,34 @@ namespace Cook
 				Tip("spitdone", "The meter's in the gold: lift it off the spit onto the plate.");
 			}
 		}
+		// With a controller: while stirring or turning, the right stick goes round the pot, the bowl or the crank
+		void PadOrbit()
+		{
+			Vec3   c, rim;
+			bool   on = false;
+			if (Overlay::UsingPad() && g_phase == Phase::Cooking) {
+				if (g_hold == Hold::Ladle) {
+					c = { L::kPotX, L::kPotY, L::kLiquidZ };
+					rim = c + Vec3{ L::kPotR - 3.0, 0, 0 };
+					on = true;
+				} else if (g_hold == Hold::Mix) {
+					c = kMixAt + Vec3{ 0, 0, 1.8 - kMixAt.z };
+					rim = c + Vec3{ 2.6, 0, 0 };
+					on = true;
+				} else if (g_hold == Hold::Crank) {
+					c = { L::kFireX + L::kCrankOff, L::kFireY, L::kSpitZ };
+					rim = CrankGrip();
+					on = true;
+				}
+			}
+			float cx = 0, cy = 0, rx = 0, ry = 0;
+			if (on && Scene::Project(c, cx, cy) && Scene::Project(rim, rx, ry)) {
+				Overlay::SetStickOrbit(true, cx, cy, (std::max)(S(40), std::hypot(rx - cx, ry - cy)));
+			} else {
+				Overlay::SetStickOrbit(false);
+			}
+		}
+
 		void TipBox(float W)
 		{
 			const double t = g_clock - g_tipNow.at;
@@ -5487,7 +5521,13 @@ namespace Cook
 		{
 			const float w = S(520), x = W * 0.5f - w * 0.5f, y = S(110);
 			std::vector<std::string> lines;
-			lines.push_back("Hold the left button to pick things up; let go to put them down. The right button puts back what you're holding.");
+			if (Overlay::UsingPad()) {
+				lines.push_back(fmt::format("The left stick moves the hand (the right one finely). Hold {} or {} to pick things up; let go to put them down. {} puts back what you're holding.",
+					Btn("A"), Btn("RT"), Btn("LT")));
+				lines.push_back(fmt::format("Stirring or turning the spit: circle the right stick. {} turns the knife to cut along; {} swaps the knife.", Btn("RB"), Btn("LB")));
+			} else {
+				lines.push_back("Hold the left button to pick things up; let go to put them down. The right button puts back what you're holding.");
+			}
 			if (g_flow == hc::Flow::Pot) {
 				lines.push_back("Drag ingredients onto the board and click to chop across them; right-click (or R) turns the knife to cut along them. Both ways makes dice: small and even scores best.");
 				lines.push_back("Grab the board by its left end and drag right to tip it into the pot. Line it up with the pot first.");
@@ -5797,6 +5837,7 @@ namespace Cook
 		}
 		HandleKeys();
 		CheckTips();
+		PadOrbit();
 		if (g_phase == Phase::Cooking && !g_confirm && !g_help && !g_soundBox) {
 			HandleInput(dt);
 		} else {

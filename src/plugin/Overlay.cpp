@@ -39,6 +39,10 @@ namespace Overlay
 		// a controller: the left stick moves the pointer (the right one finely), A is the left button
 		std::atomic<float> g_stickL[2]{}, g_stickR[2]{};
 		std::atomic<bool>  g_padHeld{ false }, g_usingPad{ false };
+		// stirring or turning with the right stick: the pointer goes round a centre on the screen, where the stick points
+		std::atomic<bool>  g_orbit{ false };
+		std::atomic<float> g_orbitC[2]{}, g_orbitR{ 0.0f };
+		std::atomic<bool>  g_ltHeld{ false };
 		std::atomic<float> g_mx{ 0.0f }, g_my{ 0.0f };
 		std::atomic<float> g_screenW{ 1920.0f }, g_screenH{ 1080.0f };
 		std::atomic<bool>  g_center{ true };
@@ -113,7 +117,13 @@ namespace Overlay
 				} else if (e->GetDevice() == RE::INPUT_DEVICE::kGamepad) {
 					using Pad = RE::BSWin32GamepadDevice::Key;
 					g_usingPad = true;
-					if (code == Pad::kA || code == Pad::kRightTrigger) {  // the left mouse button
+					if (code == Pad::kLeftTrigger) {  // the right mouse button: put back what's held
+						g_held[1] = down;
+						g_ltHeld = down;
+						Push({ InputMsg::Kind::MouseButton, g_mx.load(), g_my.load(), 1, down });
+						std::lock_guard lk(g_inputMtx);
+						g_presses.push_back({ g_mx.load(), g_my.load(), 1, down, down && g_uiHover.load() });
+					} else if (code == Pad::kA || code == Pad::kRightTrigger) {  // the left mouse button
 						g_held[0] = down;
 						g_padHeld = down;
 						Push({ InputMsg::Kind::MouseButton, g_mx.load(), g_my.load(), 0, down });
@@ -130,6 +140,14 @@ namespace Overlay
 							key = 0x23;
 						} else if (code == Pad::kBack) {
 							key = kPadSoundKey;
+						} else if (code == Pad::kLeftShoulder) {
+							key = 0x31;  // N: the next knife
+						} else if (code == Pad::kRightShoulder) {
+							key = 0x13;  // R: the knife turned to cut along, or back across
+						} else if (code == Pad::kUp) {
+							key = 0xC8;  // the recipe book's list
+						} else if (code == Pad::kDown) {
+							key = 0xD0;
 						}
 						if (key) {
 							std::lock_guard lk(g_inputMtx);
@@ -346,6 +364,13 @@ namespace Overlay
 	}
 
 	bool UsingPad() { return g_usingPad; }
+	void SetStickOrbit(bool a_on, float a_cx, float a_cy, float a_r)
+	{
+		g_orbitC[0] = a_cx;
+		g_orbitC[1] = a_cy;
+		g_orbitR = a_r;
+		g_orbit = a_on;
+	}
 
 	void ScreenSize(float& a_w, float& a_h)
 	{
@@ -460,7 +485,22 @@ namespace Overlay
 		{
 			const float k = 1500.0f * (io.DisplaySize.y / 1080.0f) * Config::Get().mouseSpeed * io.DeltaTime;
 			float       dx = 0.0f, dy = 0.0f;
+			// stirring, turning: the right stick points where round the centre the pointer goes
+			bool orbited = false;
+			if (g_orbit.load()) {
+				const float x = g_stickR[0], y = g_stickR[1], m = std::sqrt(x * x + y * y);
+				if (m > 0.35f) {
+					const float r = g_orbitR.load() * (std::min)(1.0f, m);
+					g_mx = std::clamp(g_orbitC[0].load() + x / m * r, 0.0f, io.DisplaySize.x - 1.0f);
+					g_my = std::clamp(g_orbitC[1].load() - y / m * r, 0.0f, io.DisplaySize.y - 1.0f);
+					Push({ InputMsg::Kind::MouseMove, g_mx.load(), g_my.load() });
+					orbited = true;
+				}
+			}
 			for (auto* st : { &g_stickL, &g_stickR }) {
+				if (orbited && st == &g_stickR) {
+					continue;
+				}
 				const float x = (*st)[0], y = (*st)[1], m = std::sqrt(x * x + y * y);
 				if (m > 0.15f) {
 					const float g = (m - 0.15f) / 0.85f * (st == &g_stickL ? 1.0f : 0.3f);

@@ -26,6 +26,7 @@ namespace Overlay
 	std::vector<int>   TakeKeys();  // DirectInput scan codes pressed
 	bool               ButtonHeld(int a_button);
 	bool               UsingPad();
+	void               SetStickOrbit(bool a_on, float a_cx = 0, float a_cy = 0, float a_r = 0);  // the right stick stirs round this (screen)
 	void               ScreenSize(float& a_w, float& a_h);  // the back buffer's size: the mouse's and the drawing's
 	inline constexpr int kPadSoundKey = 0x1000;  // the controller's Back: the sound panel
 
