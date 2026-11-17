@@ -3071,7 +3071,6 @@ namespace Cook
 					for (int b = 0; b < g_chunks.Count(); ++b) {
 						g_chunks.Launch(b, g_boardPose);
 					}
-					Audio::Take("splash_", 0.25f);
 				}
 				if (g_tip < 0.02 && !lifting) {
 					g_tipped = false;
@@ -3079,9 +3078,7 @@ namespace Cook
 				// the cut filling, flying into its bowl
 				g_chunks.Step(dt, g_boardPose, 0.0);
 				hc::Chunks::Event ev[32];
-				if (g_chunks.TakeEvents(ev, 32) > 0) {
-					Audio::Take("thunk_", 0.25f);
-				}
+				g_chunks.TakeEvents(ev, 32);  // (into its bowl without a sound)
 				if (g_eggT >= 0.0 && g_eggT < 100.0) {
 					g_eggT += dt;
 				}
