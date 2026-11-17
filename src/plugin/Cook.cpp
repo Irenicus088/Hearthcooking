@@ -1832,6 +1832,9 @@ namespace Cook
 			for (int i : idx) {
 				spots.push_back(g_units[i].clothAt);  // (their spots, top to bottom as they were given)
 			}
+			// (the spots read top to bottom, left to right on a row, whatever order the things were given in: the first
+			// goes in is never below the next)
+			std::sort(spots.begin(), spots.end(), [](const Vec3& a, const Vec3& b) { return std::abs(a.y - b.y) > 1.0 ? a.y > b.y : a.x < b.x; });
 			std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return rank(g_units[a]) < rank(g_units[b]); });
 			for (std::size_t k = 0; k < idx.size(); ++k) {
 				g_units[idx[k]].clothAt = spots[k];
