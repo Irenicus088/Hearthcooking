@@ -146,6 +146,8 @@ float Shadow(float3 wp, float3 n)
 
 float3 Lin(float3 c) { return pow(saturate(c), 2.2); }
 
+)"
+R"(
 float Hash3(float3 p)
 {
 	p = frac(p * 0.3183099 + 0.1);
@@ -226,6 +228,8 @@ float CookAt(float3 n)
 
 // A cut piece: the inside of its skin, seen through a cut, is drawn as the cut face itself - flat, the flesh's colour,
 // where the eye's ray first crosses into the kept part (so any number of cuts give a solid piece)
+)"
+R"(
 bool CutFace(VSOut i, out float3 q, out float3 n)
 {
 	q = i.wpos;
@@ -268,6 +272,8 @@ bool CutFace(VSOut i, out float3 q, out float3 n)
 	return true;
 }
 
+)"
+R"(
 float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 {
 	if (cut) {
