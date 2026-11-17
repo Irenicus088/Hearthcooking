@@ -265,6 +265,16 @@ namespace Cook
 		double g_eggT = -1.0;  // an egg cracked over the mixing bowl: time since (-1: none yet)
 		bool SauceBowl();
 		bool NearScreen(const Vec3& a_p, float a_mx, float a_my, double a_r, float a_minPx);
+		// A hiss at the fire, no more than one every three seconds.
+		void Hiss(float a_vol, float a_pan = 0.0f)
+		{
+			static double s_last = -10.0;
+			if (Audio::Now() - s_last >= 3.0) {
+				s_last = Audio::Now();
+				Audio::Take("hiss_", a_vol, 0.1f, a_pan);
+			}
+		}
+
 		int g_campfire = -1;  // which campfire recording plays at the pot and spit (picked once per cook)
 
 		// The fire's loop: the oven's own roar in its box, a campfire anywhere else (one of two recordings).
@@ -2609,7 +2619,7 @@ namespace Cook
 				} else {
 					static const float smoke[4] = { 0.3f, 0.28f, 0.26f, 0.5f };
 					Spray(g_carry, 6, smoke, 1.5, 3.0, 1.4f, false, Render3D::Sprite::Kind::Smoke, 1.6);
-					Audio::Take("hiss_", 0.4f);
+					Hiss(0.4f);
 				}
 				break;
 			case Hold::Board:
@@ -2984,7 +2994,7 @@ namespace Cook
 					} else if (e.kind == hc::Chunks::Event::Kind::Land) {
 						const double fx = e.at.x - L::kFireX, fy = e.at.y - L::kFireY;
 						if (fx * fx + fy * fy < L::kFireR * L::kFireR) {
-							Audio::Take("hiss_", 0.5f, 0.1f, pan);
+							Hiss(0.5f, pan);
 						} else {
 							Audio::Take("thunk_", 0.35f, 0.1f, pan);
 						}
@@ -3003,7 +3013,6 @@ namespace Cook
 			if (g_flow == hc::Flow::Spit && g_spit) {
 				const int m = Mounted();
 				g_spit->Step(dt * kSpitSpeed, g_fire.Heat(), m > 0);
-				Audio::SetLoop("loop_sizzle", m > 0 ? static_cast<float>(Clamp((g_fire.Heat() - 0.3) * 1.4, 0.0, 0.8)) : 0.0f);
 			}
 			if (g_flow == hc::Flow::Oven && g_oven) {
 				g_door += Clamp(g_doorWant - g_door, -dt * 3.0, dt * 3.0);
@@ -5181,7 +5190,6 @@ namespace Cook
 			g_fire.Step(dt);
 			FireLoop(Clamp(g_fire.Heat() * 0.5, 0.0, 0.6));
 			Audio::SetLoop("loop_boil", 0.0f);
-			Audio::SetLoop("loop_sizzle", 0.0f);
 		}
 		Look3D();
 	}
