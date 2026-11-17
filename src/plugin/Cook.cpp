@@ -277,6 +277,7 @@ namespace Cook
 		}
 
 		constexpr double kPieRim = 0.9;  // a crimped pie's rim, scaled to the size it comes out of the oven at
+		void ArrangeCloth();
 		int g_campfire = -1;  // which campfire recording plays at the pot and spit (picked once per cook)
 
 		// The fire's loop: the oven's own roar in its box, a campfire anywhere else (one of two recordings).
@@ -1060,6 +1061,7 @@ namespace Cook
 					u.clothAt = { -31.5 + 5.0 * (k / 4) + kClothShift, 5.5 - (k % 4) * 6.5, 0.0 };  // clear of the recipe card
 					g_units.push_back(std::move(u));
 				}
+				ArrangeCloth();
 			}
 		}
 
@@ -1782,6 +1784,41 @@ namespace Cook
 				return { { "flour" }, { "butter" } };  // the flour, then the butter cut into it
 			}
 			return {};
+		}
+
+		// The dough's things laid out on the cloth in the order they go in (the first at the top)
+		void ArrangeCloth()
+		{
+			const auto order = DoughOrder();
+			if (order.empty()) {
+				return;
+			}
+			auto rank = [&](const Unit& a_u) {
+				std::string n = a_u.name;
+				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				for (int g = 0; g < static_cast<int>(order.size()); ++g) {
+					for (std::size_t w = 0; w < order[g].size(); ++w) {
+						if (n.find(order[g][w]) != std::string::npos) {
+							return g * 8 + static_cast<int>(w);
+						}
+					}
+				}
+				return 1000;
+			};
+			std::vector<int> idx;
+			for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
+				if (g_units[i].role == Role::Dough) {
+					idx.push_back(i);
+				}
+			}
+			std::vector<Vec3> spots;
+			for (int i : idx) {
+				spots.push_back(g_units[i].clothAt);  // (their spots, top to bottom as they were given)
+			}
+			std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return rank(g_units[a]) < rank(g_units[b]); });
+			for (std::size_t k = 0; k < idx.size(); ++k) {
+				g_units[idx[k]].clothAt = spots[k];
+			}
 		}
 
 		// What has to go in before this (lower-case name): "" if nothing's waiting
