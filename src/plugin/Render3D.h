@@ -2,6 +2,8 @@
 // Copyright (C) 2026 evodube. GPL-3.0 (LICENSE.txt).
 #pragma once
 
+#include <array>
+
 struct ID3D11Buffer;
 struct ID3D11ShaderResourceView;
 struct ID3D11Device;
@@ -53,6 +55,8 @@ namespace Render3D
 		float cookAxis[3]{ 1, 0, 0 };  // mode 2: the axis (world), and the side that's band 0
 		float cookRef[3]{ 0, 0, -1 };
 		bool  shadow = true;           // casts a shadow
+		float hollow[4]{};             // a hollow it's in or is (a pot): its rim's middle (world) and radius - darker
+		float hollowDepth = 0.0f;      // down inside it, and toward its wall (0: none)
 	};
 
 	struct Sprite
@@ -79,6 +83,8 @@ namespace Render3D
 	{
 		std::vector<Item>   items;
 		std::vector<Sprite> sprites;
+		std::vector<std::array<float, 4>> occluders;  // what's on the board, as rough balls (middle, radius): soft
+		                                              // shade on what's under and beside them
 		float               viewProj[16]{};  // row-major: clip = M * (x, y, z, 1), in kitchen space (z up)
 		float               camPos[3]{};
 		float               camRight[3]{ 1, 0, 0 };

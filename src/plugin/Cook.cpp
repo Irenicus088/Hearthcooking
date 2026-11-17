@@ -1618,6 +1618,20 @@ namespace Cook
 
 		// all done but the baking: it takes the dish's own shape
 		bool FoldedOver();
+		// down in the pot: darker deeper in and toward its wall (the renderer's hollow)
+		void PotHollow(Scene::Look& a_lk, bool a_in)
+		{
+			if (!a_in) {
+				a_lk.hollowDepth = 0.0f;
+				return;
+			}
+			const double rim = L::kPotRim * 1.0815;
+			a_lk.hollow[0] = static_cast<float>(L::kPotX);
+			a_lk.hollow[1] = static_cast<float>(L::kPotY);
+			a_lk.hollow[2] = static_cast<float>(rim);
+			a_lk.hollow[3] = static_cast<float>(L::kPotR * 1.06);
+			a_lk.hollowDepth = static_cast<float>(rim - L::kPotFloor * 1.0815);
+		}
 		// clam meat: near white, the palest orange (its own texture is a deep orange) - on the cloth, the board, in the pot
 		void ClamLook(const Unit& u, Scene::Look& lk)
 		{
@@ -3792,6 +3806,7 @@ namespace Cook
 				const Vec3   c = at - frame.Rotate(pc.mid * shrink);  // where its whole would have its middle
 				auto& lk = Scene::LookOf(pc.prop);
 				lk.shadow = body.state != hc::Chunks::State::Pot;
+				PotHollow(lk, g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot);
 				// boiled, not browned: softening, a little darker and taking the broth's colour as it cooks (well
 				// on the way by halfway), skin and cut faces alike
 				// cooked, not washed out: darker and warmer, keeping their own colour, only a little of the broth's
@@ -3860,6 +3875,7 @@ namespace Cook
 						}
 						cl.lift[3] = 0.35f + lk.lift[3];
 						cl.shadow = false;
+						PotHollow(cl, true);
 					}
 				} else {
 					for (int m = 0; m < 2; ++m) {
@@ -3878,6 +3894,15 @@ namespace Cook
 				Scene::Place(P.broth, { L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick }, RotZ(std::fmod(t * 0.05, 6.283) + g_spin), 1.0f);
 				auto& lk = Scene::LookOf(P.broth);
 				lk.unshadowed = true;  // (the pot wall's shadow lay across it)
+				PotHollow(lk, true);
+				if (P.pot >= 0) {
+					auto& pl = Scene::LookOf(P.pot);
+					PotHollow(pl, true);  // (its inside darker down toward the bottom)
+					pl.occludes = false;  // (too big to shade by as a ball)
+				}
+				if (P.dishRef >= 0) {
+					PotHollow(Scene::LookOf(P.dishRef), true);
+				}
 				static constexpr float kDeep[3] = { 0.78f, 0.6f, 0.42f };  // what the broth's colour comes to, by channel
 				for (int j = 0; j < 3; ++j) {
 					lk.lift[j] = any ? g_broth[j] * (1.0f - (1.0f - kDeep[j]) * thick) * (1.0f - 0.12f * (std::max)(0.0f, c - 1.0f)) : (j == 2 ? 0.52f : 0.55f);

@@ -779,6 +779,33 @@ namespace Scene
 				continue;
 			}
 			TryBounds(p);
+			// as an occluder: a ball the size of it (not the big flat things - a board, the cloth, the table - nor
+			// anything as big as the pot)
+			if (p.look.occludes && p.measured && f.occluders.size() < 32) {
+				const auto& pw = p.node->world;
+				const float ps = pw.scale;
+				const float c[3] = { (p.bmin.x + p.bmax.x) * 0.5f, (p.bmin.y + p.bmax.y) * 0.5f, (p.bmin.z + p.bmax.z) * 0.5f };
+				float       h[3] = { (p.bmax.x - p.bmin.x) * 0.5f, (p.bmax.y - p.bmin.y) * 0.5f, (p.bmax.z - p.bmin.z) * 0.5f };
+				for (int k = 0; k < 3; ++k) {
+					h[k] = std::abs(h[k] * p.scale3[k] * p.world3[k] * ps);
+				}
+				const float hmax = (std::max)({ h[0], h[1], h[2] }), hmin = (std::min)({ h[0], h[1], h[2] });
+				if (hmax > 0.05f && hmax < 7.5f && hmin > hmax * 0.18f) {
+					std::array<float, 4> o{};
+					for (int r = 0; r < 3; ++r) {
+						float v = 0.0f;
+						for (int k = 0; k < 3; ++k) {
+							v += pw.rotate.entry[r][k] * p.scale3[k] * c[k];
+						}
+						o[r] = p.world3[r] * v * ps;
+					}
+					o[0] += pw.translate.x;
+					o[1] += pw.translate.y;
+					o[2] += pw.translate.z;
+					o[3] = std::cbrt(h[0] * h[1] * h[2]) * 0.95f;  // (a ball of its volume)
+					f.occluders.push_back(o);
+				}
+			}
 			int shapeIndex = -1;
 			RE::BSVisit::TraverseScenegraphGeometries(p.node.get(), [&](RE::BSGeometry* a_geo) {
 				++shapeIndex;
@@ -906,6 +933,8 @@ namespace Scene
 				it.fleshTex = lk.fleshTex;
 				it.sear = lk.sear;
 				it.unshadowed = lk.unshadowed;
+				std::memcpy(it.hollow, lk.hollow, sizeof(it.hollow));
+				it.hollowDepth = lk.hollowDepth;
 				if (lk.alpha < 0.999f) {
 					it.alpha = lk.alpha;
 					it.blend = true;

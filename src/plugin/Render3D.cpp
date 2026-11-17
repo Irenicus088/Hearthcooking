@@ -27,6 +27,8 @@ cbuffer Frame : register(b0)
 	float4 params;      // x time, y shadow texel, z exposure
 	float4 camRight;
 	float4 camUp;
+	float4 occ[32];     // what's on the board as rough balls (middle, radius)
+	float4 occInfo;     // x: how many
 };
 cbuffer Object : register(b1)
 {
@@ -46,6 +48,8 @@ cbuffer Object : register(b1)
 	float4 cookA, cookB, cookC;
 	float4 cookAxis;    // xyz, w mode
 	float4 cookRef;
+	float4 hollow;      // a hollow (a pot): its rim's middle, radius
+	float4 hollow2;     // x: its depth (0: none)
 };
 cbuffer Sprite : register(b3)
 {
@@ -135,6 +139,33 @@ float Shadow(float3 wp, float3 n)
 }
 
 float3 Lin(float3 c) { return pow(saturate(c), 2.2); }
+
+// Ambient occlusion, roughly: what's on the board shades what's under and beside it (each a ball: the light it hides
+// from a surface, by how big it looks from there and how much it's overhead), and down inside a hollow (the pot)
+// it's darker, deeper and toward the wall
+float AO(float3 p, float3 n)
+{
+	float o = 0;
+	int   cnt = (int)occInfo.x;
+	[loop] for (int k = 0; k < cnt; k++) {
+		float3 d = occ[k].xyz - p;
+		float  l = length(d);
+		float  r = occ[k].w;
+		if (l < r * 1.05) continue;  // (on or in the ball: itself)
+		o += saturate(dot(n, d / l) * 0.8 + 0.2) * (r * r) / (l * l);
+	}
+	float ao = 1 - saturate(o * 0.85);
+	if (hollow2.x > 0.01) {
+		float3 q = p - hollow.xyz;
+		float  rr = length(q.xy);
+		if (rr < hollow.w * 1.02 && q.z < 0.2) {
+			float down = saturate(-q.z / hollow2.x);
+			float wall = saturate(1 - (hollow.w - rr) / (hollow.w * 0.35));
+			ao *= 1 - 0.38 * sqrt(down) - 0.22 * wall * (0.4 + 0.6 * down);
+		}
+	}
+	return ao;
+}
 
 // Browning: golden at 1, dark at 1.4, black at 1.8; the texture's own light and shade kept as detail
 float3 Cooked(float3 albedo, float c)
@@ -298,7 +329,8 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	Lf = normalize(Lf + float3(sin(params.x * 3.1), cos(params.x * 2.3), 0) * 0.08 * fa);
 	float3 fire = fireColor.rgb * att * flick;
 	float  nlf = saturate(dot(N, Lf) * 0.85 + 0.15);
-	float3 light = hemi + keyColor.rgb * nl * sh + fire * nlf;
+	float  ao = AO(i.wpos, N);
+	float3 light = hemi * ao + keyColor.rgb * nl * sh * lerp(1, ao, 0.6) + fire * nlf * lerp(1, ao, 0.7);
 	float3 H = normalize(L + V), Hf = normalize(Lf + V);
 	float  g = max(spec.w, 1);
 	float  norm = (g + 8) / 25.13;
@@ -555,6 +587,8 @@ float4 PSComposite(FSOut i) : SV_Target
 			float params[4];
 			float camRight[4];
 			float camUp[4];
+			float occ[32][4];
+			float occInfo[4];
 		};
 		struct CBObject
 		{
@@ -574,6 +608,8 @@ float4 PSComposite(FSOut i) : SV_Target
 			float         cook[12];
 			float         cookAxis[4];
 			float         cookRef[4];
+			float         hollow[4];
+			float         hollow2[4];
 		};
 		struct CBSprite
 		{
@@ -1390,6 +1426,13 @@ float4 PSComposite(FSOut i) : SV_Target
 		std::memcpy(fr.firePos, g_frame.fire, sizeof(fr.firePos));
 		std::memcpy(fr.fireColor, g_frame.fireColor, sizeof(float) * 3);
 		fr.fireColor[3] = g_frame.fireHeat;
+		{
+			const int n = (std::min)(static_cast<int>(g_frame.occluders.size()), 32);
+			for (int k = 0; k < n; ++k) {
+				std::memcpy(fr.occ[k], g_frame.occluders[k].data(), sizeof(float) * 4);
+			}
+			fr.occInfo[0] = static_cast<float>(n);
+		}
 		std::memcpy(fr.camPos, g_frame.camPos, sizeof(float) * 3);
 		std::memcpy(fr.camRight, g_frame.camRight, sizeof(float) * 3);
 		std::memcpy(fr.camUp, g_frame.camUp, sizeof(float) * 3);
@@ -1446,6 +1489,8 @@ float4 PSComposite(FSOut i) : SV_Target
 			ob.cookRef[3] = it.fleshTex ? 1.0f : 0.0f;
 			ob.emissive[3] = it.sear ? 1.0f : 0.0f;
 			ob.tint[3] = it.unshadowed ? 1.0f : 0.0f;
+			std::memcpy(ob.hollow, it.hollow, sizeof(ob.hollow));
+			ob.hollow2[0] = it.hollowDepth;
 			Upload(c, g_cbObject, ob);
 			return true;
 		};

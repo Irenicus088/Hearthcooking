@@ -31,6 +31,9 @@ namespace Scene
 		ID3D11ShaderResourceView* fleshTex = nullptr;  // its inside, where it's cut (see Render3D::Item)
 		bool  sear = false;     // cooks darker (meat over a fire), not golden-brown
 		bool  unshadowed = false;  // takes no shadow
+		bool  occludes = true;     // shades what's under and beside it (a rough ball the size of it)
+		float hollow[4]{};         // a hollow it's in or is (a pot): its rim's middle and radius
+		float hollowDepth = 0.0f;  // how deep the hollow is (0: none)
 		float alpha = 1.0f;     // below 1: see-through (blended)
 		bool  onlyFlat = false; // only its flattest shape: a dish's food without its bowl
 		bool  hideFlat = false; // all but its flattest shape: a pot without the food modelled in it
