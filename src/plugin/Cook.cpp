@@ -3732,7 +3732,7 @@ namespace Cook
 						const double wide = (std::max)(fmx.x - fmn.x, fmx.y - fmn.y);
 						// a little past the pot's inside, and trimmed to it (below): no gap at the edge. A sauce's dish is
 						// mostly jar - its sauce a small part of what's measured - so it's taken much wider
-						const double fill = SauceBowl() ? 2.2 : 1.12;
+						const double fill = SauceBowl() ? 6.4 : 1.12;
 						const double sc = fill * 2.0 * (L::kPotR - 0.2) / (std::max)(0.1, wide);
 						const Vec3   mid{ (fmn.x + fmx.x) * 0.5, (fmn.y + fmx.y) * 0.5, fmx.z * 0.3 };  // (its top, as flattened below)
 						const Vec3   top{ L::kPotX, L::kPotY, L::kLiquidZ - 0.45 * thick + 0.08 };
