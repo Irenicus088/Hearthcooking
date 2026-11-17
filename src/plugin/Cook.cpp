@@ -5422,6 +5422,47 @@ namespace Cook
 			ImGui::End();
 		}
 
+		// What to do differently next time, for a line of the verdict that held it back
+		std::string Advice(const hc::Line& a_l)
+		{
+			const std::string lab = a_l.label, v = a_l.verdict;
+			auto has = [&](const char* w) { return v.find(w) != std::string::npos; };
+			if (lab == "The cuts") {
+				return "Space your cuts evenly, for small pieces of a size";
+			}
+			if (lab == "Into the pot") {
+				return "Line the board up over the pot before you tip it";
+			}
+			if (lab == "The heat" || lab == "The fire" || lab == "The oven") {
+				return has("hot") ? "Fewer logs: let the fire settle before adding more" : "Add a log sooner, keep the flames lively";
+			}
+			if (lab == "The stirring") {
+				return has("Caught") ? "Stir more often, so nothing catches on the bottom" : "Keep the ladle moving round the pot";
+			}
+			if (lab == "The salt") {
+				return has("salty") ? "A shorter pinch of salt" : "A pinch of salt: hold it about half a second";
+			}
+			if (lab == "All the way round") {
+				return "Turn the crank steadily, so every side faces the fire";
+			}
+			if (lab == "Done") {
+				if (has("raw") || has("bloody") || has("Not quite") || has("Underdone")) {
+					return g_flow == hc::Flow::Spit ? "Leave it over the fire a little longer" : "Give it longer: wait for the meter's gold";
+				}
+				return g_flow == hc::Flow::Spit ? "Take it off sooner, in the gold" : "Serve it sooner, while the meter's in the gold";
+			}
+			if (lab == "The dough") {
+				return has("fits") ? "Knead in a steady rhythm" : has("Over") ? "Stop kneading once it's smooth" : "Knead longer, with long steady pushes";
+			}
+			if (lab == "The filling") {
+				return has("open") ? "Close the whole edge before it goes in" : "Heap the filling right out to the edge";
+			}
+			if (lab == "The bake") {
+				return has("Dark") ? "Open the door and take it out sooner" : "Leave it in the oven a little longer";
+			}
+			return {};
+		}
+
 		void DrawResult(float W, float H)
 		{
 			auto* bg = ImGui::GetBackgroundDrawList();
@@ -5441,9 +5482,25 @@ namespace Cook
 			if (g_result.tier == hc::Tier::Burnt && *g_result.burntWhy) {
 				TextC(bg, F.sans, W * 0.5f, ty + F.title->FontSize + S(64), Alpha(IM_COL32(230, 170, 150, 255), a), g_result.burntWhy, 0.05f, 0.8f);
 			}
-			// how it went, on a card
-			const float  w = S(430), rowH = S(30);
-			const float  h = S(30) + S(40) + rowH * static_cast<float>(g_result.count) + S(28);
+			// how it went, on a card: each line marked as it helped or held it back; then what to do next time
+			std::vector<std::pair<double, std::string>> tips;
+			for (int i = 0; i < g_result.count; ++i) {
+				if (g_result.lines[i].score < 0.8) {
+					if (auto adv = Advice(g_result.lines[i]); !adv.empty()) {
+						tips.emplace_back(g_result.lines[i].score, std::move(adv));
+					}
+				}
+			}
+			std::sort(tips.begin(), tips.end(), [](const auto& a_a, const auto& a_b) { return a_a.first < a_b.first; });
+			if (tips.size() > 2) {
+				tips.resize(2);  // (the two that cost it most)
+			}
+			const float  w = S(470), rowH = S(30);
+			float        tipsH = 0.0f;
+			for (const auto& tp : tips) {
+				tipsH += F.hand->CalcTextSizeA(F.hand->FontSize, FLT_MAX, w - S(60), tp.second.c_str()).y + S(6);
+			}
+			const float  h = S(30) + S(40) + rowH * static_cast<float>(g_result.count) + (tips.empty() ? 0.0f : S(44) + tipsH) + S(28);
 			const ImVec2 pos(W - w - S(40), H * 0.5f - h * 0.5f);
 			BeginArea("##verdict", pos, ImVec2(w, h));
 			auto* dl = ImGui::GetWindowDrawList();
@@ -5453,10 +5510,23 @@ namespace Cook
 			y += S(42);
 			for (int i = 0; i < g_result.count; ++i) {
 				const auto& l = g_result.lines[i];
-				Text(dl, F.bookSCsm, ImVec2(pos.x + S(30), y + S(4)), kRubric, l.label, 0.04f);
 				const ImU32 c = l.score >= 0.8 ? kGreenInk : l.score >= 0.5 ? kInk : kRubric;
+				// a mark: it helped (+), it was all right, or it held the dish back (-)
+				const char* mark = l.score >= 0.8 ? "+" : l.score >= 0.5 ? "~" : "-";
+				TextC(dl, F.bookSC, pos.x + S(26), y - S(1), c, mark);
+				Text(dl, F.bookSCsm, ImVec2(pos.x + S(44), y + S(4)), kRubric, l.label, 0.04f);
 				Text(dl, F.hand, ImVec2(pos.x + w - S(30) - Measure(F.hand, l.verdict, 0), y), c, l.verdict);
 				y += rowH;
+			}
+			if (!tips.empty()) {
+				y += S(10);
+				dl->AddLine(ImVec2(pos.x + S(30), y), ImVec2(pos.x + w - S(30), y), Alpha(kInkSoft, 0.35f), 1.0f * g_ui);
+				y += S(10);
+				Text(dl, F.bookSCsm, ImVec2(pos.x + S(30), y + S(2)), kRubric, "Next time", 0.04f);
+				y += S(24);
+				for (const auto& tp : tips) {
+					y += Para(dl, F.hand, pos.x + S(30), y, w - S(60), kInkSoft, tp.second) + S(6);
+				}
 			}
 			ImGui::End();
 			BeginArea("##again", ImVec2(W * 0.5f - S(300), H - S(90)), ImVec2(S(600), S(60)));
