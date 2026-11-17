@@ -3138,7 +3138,9 @@ namespace Cook
 						g_peelT = -1;
 						if (g_peelIn) {
 							g_oven->Load();
-							Toast("Shut the door, and let it bake");
+							if (g_flow == hc::Flow::Oven) {
+								Toast("Shut the door, and let it bake");
+							}
 						}
 					}
 				}
@@ -5198,6 +5200,8 @@ namespace Cook
 			ShowStation();
 			g_phase = Phase::Book;
 			g_clock = 0;
+			g_toast.clear();  // (the clock starts again: a message left from the last cook would come back partway through this one)
+			g_toastAt = -10.0;
 			Audio::Ready();
 			spdlog::info("At the {}: {} recipes", oven ? "oven" : "cooking pot", g_book.size());
 		}
