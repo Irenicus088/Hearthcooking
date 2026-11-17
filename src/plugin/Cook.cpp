@@ -4930,7 +4930,7 @@ namespace Cook
 			case Hold::Salt:
 				return "Hold for a bigger pinch. Let go over the dish";
 			case Hold::Crank:
-				return Overlay::UsingPad() ? "Circle the right stick to turn it" : "Turn it round and round";
+				return Overlay::UsingPad() ? "Circle the right stick to turn it: a quarter turn every few seconds is plenty" : "Turn it round: a quarter turn every few seconds is plenty";
 			case Hold::Meat:
 				return "Onto the plate to serve, or back on the spit";
 			case Hold::Dough:
@@ -5494,7 +5494,7 @@ namespace Cook
 				return has("salty") ? "A shorter pinch of salt" : "A pinch of salt: hold it about half a second";
 			}
 			if (lab == "All the way round") {
-				return "Turn the crank steadily, so every side faces the fire";
+				return "Give the crank a quarter turn every few seconds, so no side sits too long facing the fire";
 			}
 			if (lab == "Done") {
 				if (has("raw") || has("bloody") || has("Not quite") || has("Underdone")) {

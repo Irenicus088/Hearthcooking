@@ -707,7 +707,16 @@ namespace hc
 		for (int i = 0; i < kBands; ++i) {
 			const double c = m::Cos(_angle + i * (2.0 * m::kPi / kBands));  // 1: this side faces the fire
 			const double f = c > 0.0 ? c * c : 0.0;
-			_band[i] += a_dt * (h * 0.11 * f + h * 0.016);  // the side to the fire browns, the rest slowly
+			_band[i] += a_dt * (h * 0.08 * f + h * 0.024);  // the side to the fire browns faster, the rest steadily
+		}
+		// the heat spreads round through the meat a little, side to side (a turn now and then is enough)
+		double prev[kBands];
+		for (int i = 0; i < kBands; ++i) {
+			prev[i] = _band[i];
+		}
+		for (int i = 0; i < kBands; ++i) {
+			const double nb = 0.5 * (prev[(i + kBands - 1) % kBands] + prev[(i + 1) % kBands]);
+			_band[i] += (nb - prev[i]) * m::Min(1.0, a_dt * 0.02);
 		}
 	}
 
@@ -743,7 +752,7 @@ namespace hc
 	{
 		Line         l[4];
 		double       w[4];
-		const double even = m::Clamp(1.0 - Spread() * 2.5, 0.0, 1.0);
+		const double even = m::Clamp(1.0 - Spread() * 2.0, 0.0, 1.0);
 		l[0] = { "All the way round", Pick3(even, "Evenly browned", "Patchy", "One side black, one side raw"), even };
 		w[0] = 0.35;
 		const double mean = Mean();
@@ -755,7 +764,11 @@ namespace hc
 		l[3] = { "The salt", _salt.Verdict(), _salt.Score() };
 		w[3] = _salt.wanted ? 0.15 : -1.0;
 		const bool burnt = Charred() >= 4 || mean > 1.7;
-		return Grade(l, w, 4, 1, burnt, Charred() >= 4 ? "One side went black" : "Left over the fire too long");
+		Result r = Grade(l, w, 4, 1, burnt, Charred() >= 4 ? "One side went black" : "Left over the fire too long");
+		if (!burnt && even < 0.6 && r.tier > Tier::Plain) {
+			r.tier = Tier::Plain;  // (one side done and the other not is no better than plain, however done it is on the whole)
+		}
+		return r;
 	}
 
 	// ------------------------------------------------------------------ the oven
