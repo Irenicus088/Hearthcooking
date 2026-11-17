@@ -2782,11 +2782,6 @@ namespace Cook
 					return;
 				}
 				g_flat = (std::min)(1.0, g_flat + a_len / 30.0);
-				static double s_lastRoll = -1.0;  // one roll of the pin at a time, not one per push
-				if (Audio::Now() - s_lastRoll > 0.5) {
-					s_lastRoll = Audio::Now();
-					Audio::Take("roll_", 0.6f, 0.08f);
-				}
 				if (g_flat >= 1.0) {
 					Toast("Rolled out: now the filling");
 					g_pinHeld = false;  // the pin back on the table
