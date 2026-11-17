@@ -482,7 +482,8 @@ def write_nif(out, root_name, shapes):
         assert len(mesh.V) < 65536, f"{name}: too many vertices ({len(mesh.V)})"
         data = verts + struct.pack(f"<{len(idx)}H", *idx)
         shape = bytes(head) + struct.pack("<HHI", len(idx) // 3, len(mesh.V), len(data)) + data + struct.pack("<I", 0)
-        blocks += [shape, shader_block(shader_t, me + 2, spec, gloss), texset_block([TEX + tex + ".dds", TEX + tex + "_n.dds"])]
+        path = tex if "\\" in tex else TEX + tex  # (a path with a folder is one of the game's own textures)
+        blocks += [shape, shader_block(shader_t, me + 2, spec, gloss), texset_block([path + ".dds", path + "_n.dds"])]
         tidx += [3, 4, 5]
     n.blocks = [bytearray(b) for b in blocks]
     n.tidx = tidx
@@ -506,10 +507,11 @@ def kitchen():
     top, slab = Mesh(), Mesh()
     x0, x1, y0, y1 = -TOP_W / 2, TOP_W / 2, -TOP_D / 2, TOP_D / 2
     top.box(x0, HEARTH_EDGE, y0, y1, -2.5, 0, uscale=40.0, faces="Zyx")
-    slab.box(HEARTH_EDGE, x1, y0, y1, -2.5, 0, uscale=24.0, faces="ZyX")
+    slab.box(HEARTH_EDGE, x1, y0, y1, -2.5, 0, uscale=48.0, faces="ZyX")
     # the worktop on its own, so a table of the game's can stand in for it
     nif("Worktop", [("Worktop", top, "worktop", WOOD)])
-    nif("Room", [("Hearth", slab, "hearth", STONE)])
+    # (the hearth slab wears the game's own farmhouse stone floor)
+    nif("Room", [("Hearth", slab, "textures\\architecture\\farmhouse\\stonefloor01", STONE)])
 
     # the linen the ingredients wait on
     cloth = Mesh()
