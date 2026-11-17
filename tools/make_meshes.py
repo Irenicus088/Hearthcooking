@@ -509,7 +509,7 @@ def kitchen():
     top.box(x0, HEARTH_EDGE, y0, y1, -2.5, 0, uscale=40.0, faces="Zyx")
     slab.box(HEARTH_EDGE, x1, y0, y1, -2.5, 0, uscale=48.0, faces="ZyX")
     # the worktop on its own, so a table of the game's can stand in for it
-    nif("Worktop", [("Worktop", top, "worktop", WOOD)])
+    nif("Worktop", [("Worktop", top, "textures\\architecture\\farmhouse\\woodwalkway01", WOOD)])
     # (the hearth slab wears the game's own farmhouse stone floor)
     nif("Room", [("Hearth", slab, "textures\\architecture\\farmhouse\\stonefloor01", STONE)])
 
@@ -600,7 +600,7 @@ def kitchen():
             ends.I += [c, ring[i + 1], ring[i]] if x < 0 else [c, ring[i], ring[i + 1]]
     nif("Log", [("Bark", bark, "bark", MATTE), ("Ends", ends, "logend", MATTE)])
 
-    # the fire pit: a ring of stones and a bed of ash, its middle at the origin
+    # the fire pit: a ring of stones (the game's own mountain rock) and a bed of ash, its middle at the origin
     stones, ash = Mesh(), Mesh()
     g = np.random.default_rng(5)
     for k in range(13):
@@ -615,7 +615,7 @@ def kitchen():
         ring.append(ash.v((FIRE_R * math.cos(a), FIRE_R * math.sin(a), 0.02), (0.5 + 0.5 * math.cos(a), 0.5 + 0.5 * math.sin(a)), (0, 0, 1), (1, 0, 0)))
     for i in range(40):
         ash.I += [c, ring[i], ring[i + 1]]
-    nif("FirePit", [("Stones", stones, "hearth", STONE), ("Ash", ash, "ash", MATTE)])
+    nif("FirePit", [("Stones", stones, "textures\\landscape\\mountains\\mountainslab01", STONE), ("Ash", ash, "ash", MATTE)])
 
     # the spit's posts (forked at the top), the rod with its crank (turns about x, its axis at the origin)
     posts = Mesh()
@@ -637,7 +637,7 @@ def kitchen():
     cgrip.cylinder((CRANK_OFF, 0, CRANK_R), (CRANK_OFF + 1.9, 0, CRANK_R), 0.32, 10)
     nif("SpitCrank", [("Rod", crod, "iron", IRON), ("Grip", cgrip, "handle", WOOD)])
 
-    # the oven: a stone base with the firebox in its front, the dome with its mouth, the door, the peel
+    # the oven: a stone base with the firebox in its front, the dome with its mouth (the game's farmhouse stone wall), the door, the peel
     base = Mesh()
     bx0, bx1, by0, by1, bz = -12.5, 12.5, -12.0, 11.0, OVEN_FLOOR
     hx0, hx1, hz0, hz1, depth = -5.0, 5.0, 0.6, 5.8, 8.0
@@ -694,8 +694,8 @@ def kitchen():
         oa = (xa * 1.25, za * 1.12 if za > 0 else 0)
         ob = (xb * 1.25, zb * 1.12 if zb > 0 else 0)
         lip.quad([(xa, yo, bz + za), (xb, yo, bz + zb), (ob[0], yo, bz + ob[1]), (oa[0], yo, bz + oa[1])], [(0, 0), (0.3, 0), (0.3, 0.2), (0, 0.2)], (0, -1, 0), (1, 0, 0))
-    nif("OvenBase", [("Base", base, "ovenstone", STONE), ("Firebox", soot, "soot", MATTE)])
-    nif("OvenDome", [("Dome", dome, "ovenstone", STONE), ("Mouth", lip, "ovenstone", STONE)])
+    nif("OvenBase", [("Base", base, "textures\\architecture\\farmhouse\\stonewall01", STONE), ("Firebox", soot, "soot", MATTE)])
+    nif("OvenDome", [("Dome", dome, "textures\\architecture\\farmhouse\\stonewall01", STONE), ("Mouth", lip, "textures\\architecture\\farmhouse\\stonewall01", STONE)])
 
     # the door: hinged at its left edge (the origin), the arch's shape, planks with iron straps and a ring
     door, straps = Mesh(), Mesh()
