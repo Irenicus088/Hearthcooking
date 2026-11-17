@@ -637,7 +637,7 @@ namespace Cook
 				P.knife = KitAdd(Kit::Role::Knife);
 				P.pot = KitAdd(Kit::Role::Pot);
 				Scene::LookOf(P.pot).hideFlat = true;  // (a game pot can come with a stew already in it: only ours shows)
-				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2 * (L::kPotR + 0.9), 2 * (L::kPotR + 0.9), L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
+				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2.1 * (L::kPotR + 0.9), 2.1 * (L::kPotR + 0.9), 1.05 * L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
 				P.broth = Add("Broth");
 				P.dishRef = AddResult();  // the finished stew's own food (not its bowl), fading in over the broth as it comes together
 				Scene::Hide(P.dishRef, true);
