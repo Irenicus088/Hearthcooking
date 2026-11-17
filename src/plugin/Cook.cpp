@@ -2037,7 +2037,6 @@ namespace Cook
 				if (NearScreen({ L::kBoardX, L::kBoardY - L::kBoardD * 0.5 - 1.3, 0.72 }, mx, my, 5.0, 40.0f)) {
 					if (ready) {
 						g_pinHeld = true;
-						Audio::Take("thunk_", 0.25f);
 					} else {
 						Toast(g_flat >= 1.0 || g_rolled ? "It's rolled out already" : "Knead the dough first, then roll it out");
 					}
@@ -2240,7 +2239,6 @@ namespace Cook
 							}
 						} else {
 							g_peelLoaded = true;
-							Audio::Take("thunk_", 0.4f);
 						}
 					}
 				}
@@ -2376,7 +2374,6 @@ namespace Cook
 							if (lane >= 0 && Fit(u)) {
 								u.at = Unit::At::Board;
 								u.lane = lane;
-								Audio::Take("thunk_", 0.4f);
 								break;
 							}
 							Toast("The board is full");
@@ -2474,7 +2471,6 @@ namespace Cook
 								u.at = Unit::At::Board;
 								u.lane = 1;
 								g_doughAt = { L::kBoardX, L::kBoardY + L::kLaneY[1], kBoardTop };
-								Audio::Take("thunk_", 0.4f);
 								break;
 							}
 							PutBack(ui);
@@ -2492,7 +2488,6 @@ namespace Cook
 								if (lane >= 0 && Fit(u)) {
 									u.at = Unit::At::Board;
 									u.lane = lane;
-									Audio::Take("thunk_", 0.4f);
 									break;
 								}
 								Toast(g_doughOnBoard ? "The dough has the board: cut it first next time" : "The board is full");
@@ -2930,7 +2925,9 @@ namespace Cook
 							cut |= u.cut.Chop(x);
 						}
 					}
-					Audio::Take(cut ? "chop_" : "thunk_", cut ? 0.8f : 0.5f, 0.08f, static_cast<float>(Clamp((g_knifeX - 0.0) / 40.0, -0.8, 0.8)));
+					if (cut) {
+						Audio::Take("chop_", 0.8f, 0.08f, static_cast<float>(Clamp((g_knifeX - 0.0) / 40.0, -0.8, 0.8)));
+					}
 				}
 				if (g_knifeAnim > 0.2) {
 					g_knifeAnim = -1;
@@ -2987,8 +2984,6 @@ namespace Cook
 						const double fx = e.at.x - L::kFireX, fy = e.at.y - L::kFireY;
 						if (fx * fx + fy * fy < L::kFireR * L::kFireR) {
 							Hiss(0.5f, pan);
-						} else {
-							Audio::Take("thunk_", 0.35f, 0.1f, pan);
 						}
 					}
 				}
@@ -3038,7 +3033,6 @@ namespace Cook
 					} else if (g_bowlTip > 0.6 && !g_bowlPoured && BreadCuts()) {
 						g_cutInMix = true;  // into the mixing bowl, after the dough's things, before the salt
 						g_bowlPoured = true;
-						Audio::Take("thunk_", 0.4f);
 					} else if (g_bowlTip > 0.6 && !g_bowlPoured) {
 						PourOnDough();
 						if (!g_bowlPoured) {
