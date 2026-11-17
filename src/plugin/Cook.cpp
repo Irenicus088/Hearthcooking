@@ -3892,7 +3892,9 @@ namespace Cook
 					if (auto* wood = Game(Kit::Role::Table) && P.kitchen >= 0 ? Scene::Skin(P.kitchen) : nullptr) {  // (as the board wears it)
 						auto& pl = Scene::LookOf(P.peel);
 						pl.skin = wood;
-						pl.tint[0] = 1.45f, pl.tint[1] = 1.3f, pl.tint[2] = 1.12f;
+						// light oak: the grain kept, the whole drawn to a pale golden brown
+						pl.tint[0] = 1.6f, pl.tint[1] = 1.4f, pl.tint[2] = 1.15f;
+						pl.lift[0] = 0.8f, pl.lift[1] = 0.62f, pl.lift[2] = 0.4f, pl.lift[3] = 0.45f;
 						pl.uv[0] = pl.uv[1] = 0.45f;
 					}
 				}
@@ -3974,7 +3976,9 @@ namespace Cook
 							if (auto* wood = Game(Kit::Role::Table) && P.kitchen >= 0 ? Scene::Skin(P.kitchen) : nullptr) {  // (the board's wood)
 								auto& pl = Scene::LookOf(P.pin);
 								pl.skin = wood;
-								pl.tint[0] = 1.45f, pl.tint[1] = 1.3f, pl.tint[2] = 1.12f;
+								// birch: pale and creamy, a little of the grain showing through
+								pl.tint[0] = 1.5f, pl.tint[1] = 1.45f, pl.tint[2] = 1.3f;
+								pl.lift[0] = 0.88f, pl.lift[1] = 0.8f, pl.lift[2] = 0.64f, pl.lift[3] = 0.6f;
 								pl.uv[0] = pl.uv[1] = 0.3f;
 							}
 						}
@@ -4523,7 +4527,7 @@ namespace Cook
 					s.push_back({ "Onto the board", g_doughOnBoard });
 					s.push_back({ "Knead the dough", g_oven && g_oven->Dough() >= 0.9 });
 					if (g_recipe->pie) {
-						s.push_back({ Dumpling() ? "Roll it out square" : "Roll it out round", g_flat >= 1.0 });
+						s.push_back({ "Pick up the rolling pin and flatten to shape", g_flat >= 1.0 });
 					}
 				}
 				if (g_recipe->pie) {
