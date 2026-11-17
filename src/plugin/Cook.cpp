@@ -1261,7 +1261,7 @@ namespace Cook
 							}
 							// (an outer piece is open on its outer side: the cuts' range can fall short of the thing's own edge, which
 							// was cut off flat, its inside showing - a pale band down an apple's side)
-							const double box[6] = { cut && ix > 0 ? xa : -1e7, cut && ix < nx - 1 ? xb : 1e7, ny > 1 && iy > 0 ? ya : -1e7, ny > 1 && iy < ny - 1 ? yb : 1e7,
+							const double box[6] = { cut && (ix > 0 || u.thin) ? xa : -1e7, cut && (ix < nx - 1 || u.thin) ? xb : 1e7, ny > 1 && iy > 0 ? ya : -1e7, ny > 1 && iy < ny - 1 ? yb : 1e7,
 								                    nz > 1 && iz > 0 ? za : -1e7, nz > 1 && iz < nz - 1 ? zb : 1e7 };
 							NewPiece(i, b, box, mid, cut);
 							g_chunks.At(b).q = {};  // a fresh piece lies as it was cut, not turned
@@ -3364,8 +3364,9 @@ namespace Cook
 				for (int iy = 0; iy < ny; ++iy) {
 					double ya, yb;
 					u.cut.Strip(iy, ya, yb);
-					// (the outer pieces open on their outer side: the cuts' range can fall short of the thing's own edge)
-					const double box[6] = { nx > 1 && ix > 0 ? a - half : -1e7, nx > 1 && ix < nx - 1 ? b - half : 1e7, ny > 1 && iy > 0 ? ya - w * 0.5 : -1e7,
+					// (the outer pieces open on their outer side: the cuts' range can fall short of the thing's own edge. Not along a leek or
+					// a carrot: its ends - a leek's fanned leaves - are trimmed off where the cutting stops)
+					const double box[6] = { nx > 1 && (ix > 0 || u.thin) ? a - half : -1e7, nx > 1 && (ix < nx - 1 || u.thin) ? b - half : 1e7, ny > 1 && iy > 0 ? ya - w * 0.5 : -1e7,
 						                    ny > 1 && iy < ny - 1 ? yb - w * 0.5 : 1e7, -1e7, 1e7 };
 					const Vec3   c = at + frame.Rotate({ Spread(ix, nx), Spread(iy, ny), 0.0 });
 					PlacePiece(u.segs[ix * ny + iy], u.cores[ix * ny + iy], u, c, frame, box, n > 1);

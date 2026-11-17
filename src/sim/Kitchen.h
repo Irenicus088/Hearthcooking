@@ -353,7 +353,7 @@ namespace hc
 	};
 
 	// Puts the weighted lines together into a tier. Lines with a negative weight are left out (and the rest share it).
-	// a_key is the line that says whether it's done at all: under 0.4 the dish can be no better than Plain, under 0.75
+	// a_key is the line that says whether it's done at all: under 0.4 the dish can be no better than Plain, under 0.97
 	// no better than Hearty, however well the rest went.
 	Result Grade(const Line* a_lines, const double* a_weights, int a_count, int a_key, bool a_burnt, const char* a_burntWhy);
 }

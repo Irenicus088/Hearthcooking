@@ -607,7 +607,7 @@ namespace hc
 			const double k = a_lines[a_key].score;
 			if (k < 0.4 && r.tier > Tier::Plain) {
 				r.tier = Tier::Plain;
-			} else if (k < 0.75 && r.tier > Tier::Hearty) {
+			} else if (k < 0.97 && r.tier > Tier::Hearty) {  // (a masterwork only when it came out done just right, in the gold)
 				r.tier = Tier::Hearty;
 			}
 		}
@@ -675,7 +675,7 @@ namespace hc
 		w[1] = total ? 0.1 : -1.0;
 		// the heat
 		l[2] = { "The heat", _heat.Verdict(), _heat.Score() };
-		w[2] = 0.2;
+		w[2] = -1.0;  // (the heat isn't judged: it shows in what it does to the dish)
 		// the stirring
 		const double stirShare = _cookTime > 0.0 ? m::Min(1.0, _stirTime / _cookTime * 2.0) : 0.0;
 		const double stir = 0.5 * (1.0 - m::Min(1.0, _burn * 1.5)) + 0.5 * stirShare;
@@ -751,7 +751,7 @@ namespace hc
 		l[1] = { "Done", mean < 0.6 ? "Still bloody" : mean < 0.9 ? "Underdone" : mean <= 1.3 ? "Done to a turn" : "Overdone", done };
 		w[1] = 0.3;
 		l[2] = { "The fire", _heat.Verdict(), _heat.Score() };
-		w[2] = 0.2;
+		w[2] = -1.0;  // (the heat isn't judged: it shows in what it does to the dish)
 		l[3] = { "The salt", _salt.Verdict(), _salt.Score() };
 		w[3] = _salt.wanted ? 0.15 : -1.0;
 		const bool burnt = Charred() >= 4 || mean > 1.7;
@@ -852,8 +852,8 @@ namespace hc
 		l[1] = { "The filling", Crimped() < 0.5 ? "The edge left open" : Pick3(fill, "Full to the edge, well sealed", "A bit thin in places", "Sparse"), fill };
 		w[1] = _pie ? 0.15 : -1.0;
 		l[2] = { "The oven", _heat.Verdict(), _heat.Score() };
-		w[2] = 0.15;
-		const double bake = Window(_brown, 0.85, 1.2, 2.5, 2.0) * (_rise < 0.75 ? 0.6 + _rise * 0.5 : 1.0);
+		w[2] = -1.0;  // (the heat isn't judged: it shows in what it does to the dish)
+		const double bake = Window(_brown, 0.85, 1.2, 4.0, 2.0) * (_rise < 0.75 ? 0.6 + _rise * 0.5 : 1.0);
 		l[3] = { "The bake", _brown < 0.5 ? "Pale and doughy" : _brown < 0.85 ? "A shade underbaked" : _brown <= 1.2 ? "Golden brown" : "Dark on top", bake };
 		w[3] = 0.4;
 		l[4] = { "The salt", _salt.Verdict(), _salt.Score() };
