@@ -179,7 +179,7 @@ namespace Cook
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
 			Scene::Id pile[3]{ -1, -1, -1 };
 			std::vector<Scene::Id> butter;  // butter cut into the flour
-			std::vector<Scene::Id> crimps, pieRim, galette;  // (a dumpling's folds; a pie's fluted rim, a scallop a pinch; a crostata's eight pleats)
+			std::vector<Scene::Id> crimps, pieRim, galette, leafBits;  // (a dumpling's folds; a pie's fluted rim, a scallop a pinch; a crostata's eight pleats)
 			std::vector<std::pair<Scene::Id, Vec3>> fill;  // the filling on the pie (disk-local, units)
 			std::array<bool, static_cast<int>(Kit::Role::Count)> game{};  // this one is the game's own mesh (fitted), not ours
 			std::vector<std::pair<Scene::Id, int>> decor;                   // the clutter, and its spot
@@ -1545,7 +1545,7 @@ namespace Cook
 			for (auto& [id, at] : P.fill) {
 				Scene::Hide(id, true);
 			}
-			for (auto* v : { &P.crimps, &P.pieRim, &P.galette }) {
+			for (auto* v : { &P.crimps, &P.pieRim, &P.galette, &P.leafBits }) {
 				for (auto id : *v) {
 					Scene::Hide(id, true);
 				}
@@ -3701,9 +3701,14 @@ namespace Cook
 				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot) {
 					// sunk into it as it thickens, some deeper than others; under the finished stew by the end, and gone
 					const double fade = StewFade();
-					if (fade > 0.05 + 0.55 * Hash(b, 42)) {  // gone one by one under the stew as it comes in
+					// gone one by one as it cooks down - every one of them before the finished stew starts to show
+					const double cookedNow = g_pot ? g_pot->Cooked() : 0.0;
+					if (fade > 0.0 || cookedNow > 0.3 + 0.18 * Hash(b, 42)) {
 						Scene::Hide(pc.prop, true);
 						Scene::Hide(pc.core, true);
+						if (b < static_cast<int>(P.leafBits.size()) && P.leafBits[b] >= 0) {
+							Scene::Hide(P.leafBits[b], true);
+						}
 						continue;
 					}
 					at.z -= 0.45 * broken + 0.35 * broken * Hash(b, 41) + 1.6 * fade;
@@ -3725,8 +3730,8 @@ namespace Cook
 				lk.lift[3] = static_cast<float>(0.18 * boiled);
 				PlacePiece(pc.prop, pc.core, u, c, frame, pc.box, pc.cut, shrink);
 				// a cabbage in the pot: its leaves are open shells, and cut to bits (and sinking, tumbling) they showed as
-				// loose shards - in the pot each bit is drawn as what it is, a solid little block of packed leaf
-				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && pc.core >= 0 && u.name.find("abbage") != std::string::npos) {
+				// loose shards - in the pot each bit is drawn as a torn, crinkled piece of wilted leaf, about its size
+				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && u.name.find("abbage") != std::string::npos) {
 					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
 					double       lo[3], hi[3];
 					for (int ax = 0; ax < 3; ++ax) {
@@ -3734,29 +3739,42 @@ namespace Cook
 						hi[ax] = (std::min)(std::abs(pc.box[ax * 2 + 1]) < 1e6 ? pc.box[ax * 2 + 1] * shrink : R[ax], R[ax]);
 					}
 					Scene::Hide(pc.prop, true);
-					if (hi[0] > lo[0] && hi[1] > lo[1] && hi[2] > lo[2]) {
-						const Vec3 mid{ (lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 };
-						Scene::Place(pc.core, c + frame.Rotate(mid), frame, 1.0f);
-						Scene::Stretch(pc.core, static_cast<float>((hi[0] - lo[0]) * 0.85), static_cast<float>((hi[1] - lo[1]) * 0.85), static_cast<float>((hi[2] - lo[2]) * 0.6));
-						Scene::Hide(pc.core, false);
-						auto& cl = Scene::LookOf(pc.core);
-						std::memset(cl.clips, 0, sizeof(cl.clips));
-						cl.flesh[3] = 0.0f;
-						cl.fleshTex = nullptr;
-						if (auto* tex = FleshTexture(u)) {
-							cl.skin = tex;
-							cl.uv[0] = 0.25f, cl.uv[1] = 0.5f;  // a patch of its section
-							cl.uv[2] = 0.12f + 0.1f * Hash(b, 81), cl.uv[3] = 0.25f + 0.2f * Hash(b, 82);
-						}
-						for (int k = 0; k < 3; ++k) {
-							cl.tint[k] = lk.tint[k];
-							cl.lift[k] = lk.lift[k];
-						}
-						cl.lift[3] = lk.lift[3];
-						cl.shadow = false;
-					} else {
+					if (pc.core >= 0) {
 						Scene::Hide(pc.core, true);
 					}
+					if (static_cast<int>(P.leafBits.size()) <= b) {
+						P.leafBits.resize(b + 1, -1);
+					}
+					auto& leaf = P.leafBits[b];
+					if (leaf < 0) {
+						leaf = Add(fmt::format("LeafBit{}", b % 3).c_str());
+					}
+					if (leaf >= 0 && hi[0] > lo[0] && hi[1] > lo[1] && hi[2] > lo[2]) {
+						const Vec3   mid{ (lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 };
+						const double size = (std::max)({ hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] }) * (1.0 + 0.3 * Hash(b, 83));
+						// floating near flat in the broth, each turned and tipped its own way
+						const Quat q = RotZ(Hash(b, 84) * 6.283 + g_spin) * RotX((Hash(b, 85) - 0.5) * 0.7) * RotY((Hash(b, 86) - 0.5) * 0.5);
+						Scene::Place(leaf, c + frame.Rotate(mid), q, static_cast<float>(size));
+						Scene::Hide(leaf, false);
+						auto& cl = Scene::LookOf(leaf);
+						if (auto* tex = FleshTexture(u)) {
+							cl.skin = tex;  // (the leaves' veins, from its cut face)
+							cl.uv[0] = 0.22f, cl.uv[1] = 0.45f;
+							cl.uv[2] = 0.1f + 0.12f * Hash(b, 81), cl.uv[3] = 0.25f + 0.25f * Hash(b, 82);
+						}
+						// wilted: pale green going to a soft yellow-green as it cooks, a little of the broth in it
+						static constexpr float kLeaf[3] = { 0.78f, 0.84f, 0.56f };
+						for (int k = 0; k < 3; ++k) {
+							cl.tint[k] = lk.tint[k];
+							cl.lift[k] = kLeaf[k] * 0.75f + lk.lift[k] * 0.25f;
+						}
+						cl.lift[3] = 0.35f;
+						cl.shadow = false;
+					} else if (leaf >= 0) {
+						Scene::Hide(leaf, true);
+					}
+				} else if (b < static_cast<int>(P.leafBits.size()) && P.leafBits[b] >= 0) {
+					Scene::Hide(P.leafBits[b], true);
 				}
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam

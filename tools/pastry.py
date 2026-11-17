@@ -168,3 +168,66 @@ def galette_fold(index=0, nt=34, seed=0):
         flat, tris = _cap(flat, ring, cen, np.array([-math.sin(a), math.cos(a), 0.0]) * toward)
         I += tris
     return _finish(flat, I)
+
+
+def leaf_bit(variant=0, rings=7, segs=36):
+    """A torn, crinkled bit of cooked cabbage leaf: a thin curved sheet with a ragged outline, a vein or two raised
+    across it - about one unit across, centred on the origin, lying in x/y."""
+    rng = np.random.default_rng(77 + variant * 13)
+    harm = rng.random((5, 2))
+    def outline(th):
+        r = 0.5
+        for k, (a, ph) in enumerate(harm):
+            r += 0.07 / (k + 1) * math.sin((k + 2) * th + ph * 6.283) * (0.5 + a)
+        return r * (1.0 + 0.25 * math.cos(th) ** 2)  # longer than wide
+    bend = 0.35 + 0.25 * rng.random()
+    tw = 0.3 * (rng.random() - 0.5)
+    half = 0.028
+    def surf(x, y):
+        z = bend * (y * y) + tw * x * y  # cupped across, a little twisted
+        z += 0.035 * math.sin(11 * x + 3 * variant) * math.sin(9 * y + variant)  # crinkled
+        z += 0.05 * math.exp(-((y - 0.15 * x) / 0.05) ** 2)  # the rib
+        return z
+    pts, top, bot = [], [], []
+    for side, store in ((1, top), (-1, bot)):
+        grid = []
+        for i in range(rings + 1):
+            rho = i / rings
+            row = []
+            for j in range(segs):
+                th = 2 * math.pi * j / segs
+                R = outline(th)
+                x, y = rho * R * math.cos(th), rho * R * math.sin(th)
+                z = surf(x, y) + side * half * (1.0 - 0.6 * rho ** 4)
+                row.append(len(pts))
+                pts.append((x, y, z))
+                if i == 0:
+                    break  # the middle: one point
+            grid.append(row)
+        store.append(grid)
+    P = np.array(pts, float)
+    I = []
+    for grid, up in ((top[0], True), (bot[0], False)):
+        c = grid[0][0]
+        for j in range(segs):
+            a, b = grid[1][j], grid[1][(j + 1) % segs]
+            I.append((c, a, b) if up else (c, b, a))
+        for i in range(1, rings):
+            for j in range(segs):
+                a, b = grid[i][j], grid[i][(j + 1) % segs]
+                cc, d = grid[i + 1][(j + 1) % segs], grid[i + 1][j]
+                I += [(a, d, cc), (a, cc, b)] if up else [(a, cc, d), (a, b, cc)]
+    # the torn edge: top rim to bottom rim
+    tr, br = top[0][rings], bot[0][rings]
+    for j in range(segs):
+        a, b = tr[j], tr[(j + 1) % segs]
+        c, d = br[(j + 1) % segs], br[j]
+        I += [(a, b, c), (a, c, d)]
+    I = np.array(I)
+    # wind so the top faces up
+    t = P[I[: segs]]
+    if np.cross(t[0, 1] - t[0, 0], t[0, 2] - t[0, 0])[2] < 0:
+        I = I[:, [0, 2, 1]]
+    N = _normals(P, I)
+    UV = P[:, :2] * 0.9 + 0.5
+    return P, N, UV, I
