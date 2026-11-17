@@ -1261,7 +1261,7 @@ namespace Cook
 							}
 							// (an outer piece is open on its outer side: the cuts' range can fall short of the thing's own edge, which
 							// was cut off flat, its inside showing - a pale band down an apple's side)
-							const double box[6] = { cut && (ix > 0 || u.thin) ? xa : -1e7, cut && (ix < nx - 1 || u.thin) ? xb : 1e7, ny > 1 && iy > 0 ? ya : -1e7, ny > 1 && iy < ny - 1 ? yb : 1e7,
+							const double box[6] = { cut && ix > 0 ? xa : -1e7, cut && ix < nx - 1 ? xb : 1e7, ny > 1 && iy > 0 ? ya : -1e7, ny > 1 && iy < ny - 1 ? yb : 1e7,
 								                    nz > 1 && iz > 0 ? za : -1e7, nz > 1 && iz < nz - 1 ? zb : 1e7 };
 							NewPiece(i, b, box, mid, cut);
 							g_chunks.At(b).q = {};  // a fresh piece lies as it was cut, not turned
@@ -3296,40 +3296,21 @@ namespace Cook
 			float fl[3];
 			Flesh(u, fl);
 			std::copy(fl, fl + 3, lk.flesh);
-			// a leek: its own mesh as it is, only cut where the knife went - its layers and leaves seen from behind are
-			// leaf, not painted over as flesh, and no solid face drawn across its loose layers (both showed as white shards)
-			const bool leek = u.name.find("eek") != std::string::npos;
-			lk.flesh[3] = a_cut && !leek ? 3.0f : 0.0f;  // seen from inside, the skin shows its flesh
+			lk.flesh[3] = a_cut ? 3.0f : 0.0f;  // seen from inside, the skin shows its flesh
 			auto* fleshTex = FleshTexture(u);
 			lk.fleshTex = fleshTex;
 			if (a_core < 0) {
 				return;
 			}
-			// a leek's leafy part (it lies white end left, leaves right: from a little past its middle) has no stalk to cut,
-			// only loose leaves - they're just trimmed where the knife went, no solid face drawn across them
-			bool leafy = false;
-			if (leek && std::abs(a_box[0]) < 1e6 && std::abs(a_box[1]) < 1e6) {
-				const double mid = (a_box[0] + a_box[1]) * 0.5 / (std::max)(a_f, 1e-3);
-				leafy = mid > u.boardLen * 0.05;
-			}
 			// every cut piece is solid: its cut faces are drawn wherever they're inside the thing
-			if (!a_cut || leafy) {
+			if (!a_cut) {
 				Scene::Hide(a_core, true);
 				return;
 			}
 			// the solid: a box round the piece (the cell, within the thing's measured bounds); the renderer draws
 			// its cut faces exactly where they're inside the thing's own mesh
-			double R[3] = { u.boardLen * 0.5 * a_f, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * a_f, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * a_f };
-			if (u.thin && std::abs(a_box[0]) < 1e6 && std::abs(a_box[1]) < 1e6) {
-				// a leek, a carrot: round as thick as it is where this piece was cut (not its widest, loose leaves and all)
-				const auto [cy, cz] = Cross(u, Clamp(0.0, a_box[0] / (std::max)(a_f, 1e-3), a_box[1] / (std::max)(a_f, 1e-3)));
-				// (its measured thickness takes in its fanned leaves: a leek's stalk is far thinner - a sixteenth of its length
-				// across - and its cut faces were drawn as big discs standing out round it)
-				const double stalk = u.name.find("eek") != std::string::npos ? u.boardLen * 0.032 : 1e9;
-				R[1] = (std::max)(0.05, (std::min)(cy * 0.5 * 0.85, stalk)) * a_f;
-				R[2] = (std::max)(0.05, (std::min)(cz * 0.5 * 0.85, stalk)) * a_f;
-			}
-			double lo[3], hi[3];
+			const double R[3] = { u.boardLen * 0.5 * a_f, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * a_f, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * a_f };
+			double       lo[3], hi[3];
 			for (int ax = 0; ax < 3; ++ax) {
 				lo[ax] = (std::max)(a_box[ax * 2], -R[ax]);
 				hi[ax] = (std::min)(a_box[ax * 2 + 1], R[ax]);
@@ -3345,7 +3326,7 @@ namespace Cook
 			auto& cl = Scene::LookOf(a_core);
 			ClipTo(cl, a_c, a_frame, a_box, true);
 			std::copy(fl, fl + 3, cl.flesh);
-			cl.flesh[3] = leek ? 4.5f : 4.0f;  // (a leek: a solid round stalk, its faces drawn without counting its loose layers)
+			cl.flesh[3] = 4.0f;
 			cl.fleshTex = fleshTex;
 			// the thing's bounds as a box (axes over half-sizes), on the face and on the skin that counts for it
 			const Vec3 axv[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / (R[0] * 1.01)), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / (R[1] * 1.01)), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / (R[2] * 1.01)) };
@@ -3392,9 +3373,8 @@ namespace Cook
 				for (int iy = 0; iy < ny; ++iy) {
 					double ya, yb;
 					u.cut.Strip(iy, ya, yb);
-					// (the outer pieces open on their outer side: the cuts' range can fall short of the thing's own edge. Not along a leek or
-					// a carrot: its ends - a leek's fanned leaves - are trimmed off where the cutting stops)
-					const double box[6] = { nx > 1 && (ix > 0 || u.thin) ? a - half : -1e7, nx > 1 && (ix < nx - 1 || u.thin) ? b - half : 1e7, ny > 1 && iy > 0 ? ya - w * 0.5 : -1e7,
+					// (the outer pieces open on their outer side: the cuts' range can fall short of the thing's own edge)
+					const double box[6] = { nx > 1 && ix > 0 ? a - half : -1e7, nx > 1 && ix < nx - 1 ? b - half : 1e7, ny > 1 && iy > 0 ? ya - w * 0.5 : -1e7,
 						                    ny > 1 && iy < ny - 1 ? yb - w * 0.5 : 1e7, -1e7, 1e7 };
 					const Vec3   c = at + frame.Rotate({ Spread(ix, nx), Spread(iy, ny), 0.0 });
 					PlacePiece(u.segs[ix * ny + iy], u.cores[ix * ny + iy], u, c, frame, box, n > 1);
