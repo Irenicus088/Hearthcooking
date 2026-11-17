@@ -322,7 +322,8 @@ namespace Cook
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
 		double g_fold[4]{}, g_foldWant[4]{};
-		double g_flareAt = -10.0, g_flareX = 0.0, g_dripNext = 0.0;  // the spit's fat dripping into the fire, and its flare-up
+		double g_flareAt = -10.0, g_flareX = 0.0, g_dripNext = 0.0;
+		std::unordered_map<Scene::Id, Scene::Id> g_rings;  // a cut leek's pieces drawn as clean slices: the piece's prop -> its slice  // the spit's fat dripping into the fire, and its flare-up
 		double g_flat = 0.0;                 // a dumpling's dough rolled out square (0 a ball .. 1 flat)
 		double g_bowlTip = 0.0;              // the fruit bowl lifted and tipped over the dough
 		bool   g_bowlPoured = false;
@@ -1321,6 +1322,7 @@ namespace Cook
 			g_pinch = 0;
 			g_door = g_doorWant = 1.0;
 			g_doorShut = g_doorReopened = false;
+			g_rings.clear();
 			g_doughParts = 0;
 			g_rolled = false;
 			g_mix = 0.0;
@@ -3265,8 +3267,13 @@ namespace Cook
 		// A piece of a thing: its own mesh (the skin) cut to the box, and inside it the core - a closed egg of its
 		// flesh the thing's size, cut the same, whose cut faces are drawn solid. Laid in the frame (x along it, y
 		// across, z up) with the whole's middle at a_c. Nothing can be seen through.
+		bool LeekSlice(Scene::Id a_id, Scene::Id a_core, Unit& u, const Vec3& a_c, const Quat& a_frame, const double (&a_box)[6], double a_f);
 		void PlacePiece(Scene::Id a_id, Scene::Id a_core, Unit& u, const Vec3& a_c, const Quat& a_frame, const double (&a_boxIn)[6], bool a_cut, double a_f = 1.0)
 		{
+			// a leek cut across: each piece a clean round slice (its own mesh, cut, showed its loose layers as shards)
+			if (a_cut && u.name.find("eek") != std::string::npos && LeekSlice(a_id, a_core, u, a_c, a_frame, a_boxIn, a_f)) {
+				return;
+			}
 			if (!Fit(u)) {
 				Scene::Hide(a_id, true);
 				Scene::Hide(a_core, true);
@@ -3340,6 +3347,37 @@ namespace Cook
 			cl.shadow = false;  // the skin casts the shadow
 		}
 
+		bool LeekSlice(Scene::Id a_id, Scene::Id a_core, Unit& u, const Vec3& a_c, const Quat& a_frame, const double (&a_box)[6], double a_f)
+		{
+			if (std::abs(a_box[0]) > 1e6 || std::abs(a_box[1]) > 1e6) {
+				return false;  // (an end left uncut: drawn as it is)
+			}
+			auto& ring = g_rings[a_id];
+			if (ring < 0 || !Scene::Valid(ring)) {
+				ring = Add("LeekRing");
+			}
+			if (ring < 0) {
+				return false;
+			}
+			const double xa = a_box[0], xb = a_box[1];
+			const auto [cy, cz] = Cross(u, Clamp(0.0, xa, xb));
+			const double r = (std::max)(0.15, (std::min)(cy, cz) * 0.5 * 0.8) * a_f;  // (the stalk, not its loose outer leaves)
+			const double len = (std::max)(0.08, (xb - xa) * a_f);
+			Scene::Place(ring, a_c + a_frame.Rotate({ (xa + xb) * 0.5 * a_f, 0, 0 }), a_frame, 1.0f);
+			Scene::Stretch(ring, static_cast<float>(len), static_cast<float>(r), static_cast<float>(r));
+			Scene::Hide(ring, false);
+			Scene::Hide(a_id, true);
+			Scene::Hide(a_core, true);
+			auto& lk = Scene::LookOf(ring);
+			const auto& pl = Scene::LookOf(a_id);
+			std::copy(std::begin(pl.tint), std::end(pl.tint), lk.tint);
+			std::copy(std::begin(pl.lift), std::end(pl.lift), lk.lift);
+			lk.hollowDepth = pl.hollowDepth;
+			std::copy(std::begin(pl.hollow), std::end(pl.hollow), lk.hollow);
+			lk.shadow = pl.shadow;
+			return true;
+		}
+
 		void PlaceBoardUnit(Unit& u)
 		{
 			const double h = Thick(u, u.boardLen, 2);
@@ -3382,6 +3420,11 @@ namespace Cook
 
 		void Look3D()
 		{
+			for (const auto& [piece, ring] : g_rings) {
+				if (ring >= 0) {
+					Scene::Hide(ring, true);  // (shown again by their pieces as they're placed)
+				}
+			}
 			const double t = g_clock;
 			std::vector<Render3D::Sprite> sp;
 			const double heat = g_fire.Heat();
