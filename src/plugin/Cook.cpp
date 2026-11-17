@@ -2993,8 +2993,8 @@ namespace Cook
 				g_pot->Step(dt * kPotSpeed, g_fire.Heat(), after + g_tossedIn > 0);
 				g_chunks.Cook(dt * kPotSpeed * 0.02 * Clamp(g_pot->Temp() - 0.3, 0.0, 1.0));
 				const double t = g_pot->Temp();
-				Audio::SetLoop("loop_simmer", static_cast<float>(Clamp((t - 0.38) * 3.0, 0.0, 0.7)));
-				Audio::SetLoop("loop_boil", static_cast<float>(Clamp((t - 0.8) * 4.0, 0.0, 0.8)));
+				// the real recording only: it murmurs as the pot warms and comes up to a full boil
+				Audio::SetLoop("loop_boil", static_cast<float>(Clamp((t - 0.38) * 0.6, 0.0, 0.25) + Clamp((t - 0.8) * 2.75, 0.0, 0.55)));
 			}
 			if (g_flow == hc::Flow::Spit && g_spit) {
 				const int m = Mounted();
@@ -5176,7 +5176,6 @@ namespace Cook
 		} else {
 			g_fire.Step(dt);
 			FireLoop(Clamp(g_fire.Heat() * 0.5, 0.0, 0.6));
-			Audio::SetLoop("loop_simmer", 0.0f);
 			Audio::SetLoop("loop_boil", 0.0f);
 			Audio::SetLoop("loop_sizzle", 0.0f);
 		}
