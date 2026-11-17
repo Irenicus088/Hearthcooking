@@ -3246,7 +3246,7 @@ namespace Cook
 				look->shape[0][0] = static_cast<float>(a_c.x);
 				look->shape[0][1] = static_cast<float>(a_c.y);
 				look->shape[0][2] = static_cast<float>(a_c.z);
-				look->shape[0][3] = 2.0f;
+				look->shape[0][3] = u.thin ? 1.0f : 2.0f;  // (a leek, a carrot: a tight round section)
 				for (int j = 0; j < 3; ++j) {
 					look->shape[j + 1][0] = static_cast<float>(axv[j].x);
 					look->shape[j + 1][1] = static_cast<float>(axv[j].y);

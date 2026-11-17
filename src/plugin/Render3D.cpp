@@ -202,6 +202,10 @@ bool CutFace(VSOut i, out float3 q, out float3 n)
 		if (flesh.w > 1.5) {
 			// a core: its cut face is exactly its own section, nothing past it
 			if (lx * lx + ly * ly + lz * lz > 1.02) return false;
+		} else if (shape[0].w < 1.5) {
+			// a long, thin thing (a leek, a carrot): its section is a round, tight to the stalk - its loose outer leaves,
+			// fanned past it and seen from behind, were drawn as flat cut faces (big pale shards)
+			if (ay * ay + az * az > 1.0 || lx > 1.02) return false;
 		} else if (pow(lx, max(shape[0].w, 4.0)) + ay * ay * ay * ay + az * az * az * az > 1.6) {
 			return false;
 		}
@@ -249,7 +253,13 @@ float4 Shade(VSOut i, bool cut, float3 q, float3 cn)
 	float3 N0 = normalize(i.n);
 	float3 albedo = Lin(dif.rgb) * tint.rgb;
 	// a cut piece's skin seen from inside: its flesh, not the back of its peel
-	if (flesh.w > 2.5 && flesh.w < 3.5 && dot(N0, camPos.xyz - i.wpos) < 0) {
+	bool inStalk = true;
+	if (shape[0].w < 1.5 && any(shape[1].xyz != 0)) {
+		float3 r = i.wpos - shape[0].xyz;
+		float  ly = dot(shape[2].xyz, r), lz = dot(shape[3].xyz, r);
+		inStalk = ly * ly + lz * lz <= 1.0;  // (a leek's loose leaf, seen from behind, stays a leaf)
+	}
+	if (flesh.w > 2.5 && flesh.w < 3.5 && inStalk && dot(N0, camPos.xyz - i.wpos) < 0) {
 		albedo = Lin(flesh.rgb) * 0.92 * tint.rgb;
 	}
 	// (a negative amount spares the fruit: red, purple and blue texels keep their colour, the pastry goes doughy)
