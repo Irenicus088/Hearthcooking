@@ -246,6 +246,7 @@ namespace Cook
 		double g_crankPrev = 0, g_crankRun = 0;
 		double g_pinch = 0;
 		double g_door = 1.0, g_doorWant = 1.0;  // the oven door, 0 shut .. 1 open
+		bool   g_doorShut = false, g_doorReopened = false;  // (for the card) shut on the bake, opened again after
 		Vec3   g_doughAt{ L::kBoardX, L::kBoardY, kBoardTop };
 		// the oven's bowls, behind the board: water and flour stirred to a dough; the cut filling waiting
 		const Vec3 kMixAt{ -11.0, 11.5, 0.0 }, kFillAt{ -1.0, 11.5, 0.0 };
@@ -1306,6 +1307,7 @@ namespace Cook
 			g_ladleR = 3.6;
 			g_pinch = 0;
 			g_door = g_doorWant = 1.0;
+			g_doorShut = g_doorReopened = false;
 			g_doughParts = 0;
 			g_rolled = false;
 			g_mix = 0.0;
@@ -3012,6 +3014,12 @@ namespace Cook
 			if (g_flow == hc::Flow::Oven && g_oven) {
 				g_door += Clamp(g_doorWant - g_door, -dt * 3.0, dt * 3.0);
 				g_oven->SetDoor(g_door > 0.5);
+				if (g_oven->InOven() && g_door < 0.3) {
+					g_doorShut = true;
+				}
+				if (g_doorShut && g_door > 0.6 && (g_oven->InOven() || g_oven->Out())) {
+					g_doorReopened = g_doorReopened || g_oven->Brown() >= 0.5 || g_oven->Out();
+				}
 				g_oven->Step(dt * kOvenSpeed, g_fire.Heat());
 				for (int k = 0; k < 4; ++k) {
 					g_fold[k] += Clamp(g_foldWant[k] - g_fold[k], -dt * 3.0, dt * 2.2);
@@ -4559,9 +4567,11 @@ namespace Cook
 					}
 				}
 				s.push_back({ "Firewood into the oven", g_fire.Logs() > 0 || (g_oven && (g_oven->InOven() || g_oven->Out())) });
-				s.push_back({ "Into the oven", g_oven && (g_oven->InOven() || g_oven->Out()) });
+				s.push_back({ "Into the oven with the peel", g_oven && (g_oven->InOven() || g_oven->Out()) });
+				s.push_back({ "Close the oven door", g_doorShut });
 				s.push_back({ "Bake it golden", g_oven && g_oven->Brown() >= 0.85 });
-				s.push_back({ "Out onto the plate", g_served });
+				s.push_back({ "Open the oven door", g_doorReopened });
+				s.push_back({ "Out with the peel onto the plate", g_served });
 			}
 			return s;
 		}
