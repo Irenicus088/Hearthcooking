@@ -637,7 +637,7 @@ namespace Cook
 				P.knife = KitAdd(Kit::Role::Knife);
 				P.pot = KitAdd(Kit::Role::Pot);
 				Scene::LookOf(P.pot).hideFlat = true;  // (a game pot can come with a stew already in it: only ours shows)
-				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2.1 * (L::kPotR + 0.9), 2.1 * (L::kPotR + 0.9), 1.05 * L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
+				Settle(P.pot, Kit::Role::Pot, { L::kPotX, L::kPotY, 0.0 }, { 2.163 * (L::kPotR + 0.9), 2.163 * (L::kPotR + 0.9), 1.0815 * L::kPotRim }, 0.0, true, { L::kPotX, L::kPotY, 0.0 });
 				P.broth = Add("Broth");
 				P.dishRef = AddResult();  // the finished stew's own food (not its bowl), fading in over the broth as it comes together
 				Scene::Hide(P.dishRef, true);
@@ -2110,7 +2110,7 @@ namespace Cook
 					if (g_pot && std::abs(dA) < 1.5) {
 						g_pot->Stir(dA);
 						g_stirred += std::abs(dA);
-						if (g_stirred > 1.4 && Audio::Now() - g_lastStir > 0.25) {
+						if (g_stirred > 3.14 && Audio::Now() - g_lastStir > 0.75) {
 							g_stirred = 0;
 							g_lastStir = Audio::Now();
 							Audio::Take("stir_", 0.5f);
