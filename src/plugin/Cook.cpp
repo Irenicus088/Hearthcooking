@@ -179,7 +179,7 @@ namespace Cook
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
 			Scene::Id pile[3]{ -1, -1, -1 };
 			std::vector<Scene::Id> butter;  // butter cut into the flour
-			std::vector<Scene::Id> crimps, pieRim, galette, leafBits;  // (a dumpling's folds; a pie's fluted rim, a scallop a pinch; a crostata's eight pleats)
+			std::vector<Scene::Id> crimps, pieRim, galette, leafBits, dumpFolds;  // (a dumpling's folds; a pie's fluted rim, a scallop a pinch; a crostata's eight pleats)
 			std::vector<std::pair<Scene::Id, Vec3>> fill;  // the filling on the pie (disk-local, units)
 			std::array<bool, static_cast<int>(Kit::Role::Count)> game{};  // this one is the game's own mesh (fitted), not ours
 			std::vector<std::pair<Scene::Id, int>> decor;                   // the clutter, and its spot
@@ -1545,7 +1545,7 @@ namespace Cook
 			for (auto& [id, at] : P.fill) {
 				Scene::Hide(id, true);
 			}
-			for (auto* v : { &P.crimps, &P.pieRim, &P.galette, &P.leafBits }) {
+			for (auto* v : { &P.crimps, &P.pieRim, &P.galette, &P.leafBits, &P.dumpFolds }) {
 				for (auto id : *v) {
 					Scene::Hide(id, true);
 				}
@@ -3674,7 +3674,7 @@ namespace Cook
 					if (Dumpling() && g_rolled) {
 						const double pa = std::atan2(pc.doughOff.y, pc.doughOff.x);
 						const int    k = static_cast<int>(std::floor(Wrap(pa) / (kPi * 0.5) + 4.0)) % 4;  // (corner k points at pi/4 + k pi/2)
-						if (g_fold[k] > 0.45 || (std::hypot(pc.doughOff.x, pc.doughOff.y) < 0.6 && g_fold[0] + g_fold[1] + g_fold[2] + g_fold[3] > 3.0)) {
+						if (g_fold[k] > 0.45 && std::hypot(pc.doughOff.x, pc.doughOff.y) > 1.1) {  // (the middle of the heap stays, showing between the corners)
 							Scene::Hide(pc.prop, true);
 							Scene::Hide(pc.core, true);
 							continue;
@@ -3682,6 +3682,11 @@ namespace Cook
 					}
 					frame = RotZ(pc.turn) * body.q;
 					at = g_doughAt + pc.doughOff + Vec3{ 0, 0, 0.9 };
+					if (Dumpling() && g_rolled) {
+						// pressed down into the parcel as its corners come over it
+						const double ff = (g_fold[0] + g_fold[1] + g_fold[2] + g_fold[3]) * 0.25;
+						at = g_doughAt + Vec3{ pc.doughOff.x * (1.0 - 0.3 * ff), pc.doughOff.y * (1.0 - 0.3 * ff), pc.doughOff.z * (1.0 - 0.6 * ff) + 0.9 - 0.45 * ff };
+					}
 				}
 				// in the fruit bowl as it tips to pour: they ride with it, not through its side
 				if (!pc.onDough && g_flow == hc::Flow::Oven && body.state == hc::Chunks::State::Pot && g_bowlTip > 0.001 && (g_hold == Hold::Apples || g_bowlTip > 0.01) &&
@@ -4169,45 +4174,32 @@ namespace Cook
 					}
 				}
 				if (g_rolled && Dumpling()) {
-					// the square sheet as five parts: the middle (a diamond through the edges' middles) and the four corner
-					// triangles, each folding over its line onto the filling to meet in the middle (an envelope)
-					while (static_cast<int>(P.crimps.size()) < hc::Oven::kCrimps) {
-						P.crimps.push_back(Add("Hull"));
+					// the square sheet as its four corner flaps (together, the whole sheet), each rolled up the side of the
+					// filling and its corner laid back over the top, by how far it's folded: a parcel, the apple showing
+					// between the corners (each flap drawn at the nearest of nine stages of its fold)
+					constexpr int kStages = 9;
+					while (static_cast<int>(P.dumpFolds.size()) < 4 * kStages) {
+						P.dumpFolds.push_back(Add(fmt::format("DumplingFold{}", P.dumpFolds.size() % kStages).c_str()));
+					}
+					for (auto id : P.crimps) {
+						Scene::Hide(id, true);
 					}
 					const bool sheet = !showDish && g_peelT < 0 && g_hold != Hold::Dough && !g_oven->Out() && !g_oven->InOven();
-					// the middle under the corners: thin, so no layer of dough shows under the folds, and gone once they're all in
-					const bool allIn = g_fold[0] > 0.85 && g_fold[1] > 0.85 && g_fold[2] > 0.85 && g_fold[3] > 0.85;
 					if (P.slab >= 0) {
-						Scene::Hide(P.slab, !sheet || allIn);
-						if (sheet && !allIn) {
-							Scene::Place(P.slab, at + Vec3{ 0, 0, 0.05 }, RotZ(kPi * 0.25), 1.0f);
-							Scene::Stretch(P.slab, 4.75f, 4.75f, 0.08f);  // rolled thin
-							auto& sl = Scene::LookOf(P.slab);
-							DoughLook(sl);
-						}
+						Scene::Hide(P.slab, true);
 					}
-					for (int k = 0; k < hc::Oven::kCrimps; ++k) {
-						const auto id = P.crimps[k];
-						const bool show = k < 4 && sheet;
-						Scene::Hide(id, !show);
-						if (!show) {
-							continue;
+					for (int k = 0; k < 4; ++k) {
+						const int    st = static_cast<int>(std::lround(Clamp(g_fold[k], 0.0, 1.0) * (kStages - 1)));
+						const double a = kPi * 0.25 + k * kPi * 0.5;
+						for (int j = 0; j < kStages; ++j) {
+							const auto id = P.dumpFolds[k * kStages + j];
+							const bool show = sheet && j == st;
+							Scene::Hide(id, !show);
+							if (show) {
+								Scene::Place(id, at + Vec3{ 0, 0, 0.02 }, RotZ(a), 1.0f);
+								DoughLook(Scene::LookOf(id));
+							}
 						}
-						const double f = g_fold[k];
-						const double a = kPi * 0.25 + k * kPi * 0.5, th = f * 2.9;
-						const Vec3   dir{ std::cos(a), std::sin(a), 0.0 };
-						const Vec3   hinge = at + dir * 2.41 + Vec3{ 0, 0, 0.09 + 0.18 * std::sin((std::min)(f, 1.0) * kPi * 0.5) };  // (from the sheet's own edge: one piece of dough, folded)
-						const Vec3   v = dir * std::cos(th) + Vec3{ 0, 0, std::sin(th) };
-						// a corner square standing on its point at the fold line, its inner half cut away: the triangle
-						Scene::Place(id, hinge, RotZ(a) * RotY(-th) * RotZ(kPi * 0.25), 1.0f);
-						Scene::Stretch(id, 3.4f, 3.4f, 0.26f);
-						auto& fl = Scene::LookOf(id);
-						DoughLook(fl);
-						std::memset(fl.clips, 0, sizeof(fl.clips));
-						fl.clips[0][0] = static_cast<float>(-v.x);
-						fl.clips[0][1] = static_cast<float>(-v.y);
-						fl.clips[0][2] = static_cast<float>(-v.z);
-						fl.clips[0][3] = static_cast<float>(-v.Dot(hinge));
 					}
 				} else if (g_rolled) {
 					const bool live = !showDish && g_peelT < 0 && g_hold != Hold::Dough;

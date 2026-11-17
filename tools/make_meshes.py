@@ -1018,6 +1018,10 @@ def pastry_edges():
     nif("PieCrimp", [("Dough", to_mesh(*pastry.pie_crimp()), "dough", (0.3, 25))])
     for j in range(8):
         nif(f"GaletteFold{j}", [("Dough", to_mesh(*pastry.galette_fold(j)), "dough", (0.3, 25))])
+    # a dumpling's corner flap, flat (0) to rolled up and laid over the apple (8), for the square sheet the game rolls
+    # (6.8 a side), the corner on +x
+    for st in range(9):
+        nif(f"DumplingFold{st}", [("Dough", to_mesh(*pastry.dumpling_flap(st / 8, nd=36, ne=30, half_side=3.4, rb=1.43, R=0.67, thick=0.12)), "dough", (0.3, 25))])
     for j in range(9):
         nif(f"LeafBit{j}", [("Leaf", to_mesh(*pastry.leaf_bit(j)), "dough", (0.3, 25))])
 

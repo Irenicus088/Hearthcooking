@@ -247,7 +247,8 @@ def dumpling_flap(f=1.0, index=0, nd=64, ne=56, half_side=3.8, rb=1.6, R=0.75, t
         return min(d, L - d)
     def at(d, frac):
         # the trailing side stops at the square's corner (its ear would only tuck away under the next flap)
-        e = frac * min(width(d), rb + (0.18 if frac > 0 else 0.1))  # (cut square at the parcel's corners: no ears curling round)
+        lim = rb + (0.18 if frac > 0 else 0.1) + 4.0 * (1 - sf) ** 2  # (flat, the whole sheet; rolled up, cut square at the parcel's corners)
+        e = frac * min(width(d), lim)
         if d <= rb:
             x, z = d, 0.0
         else:
