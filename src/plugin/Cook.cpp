@@ -3305,8 +3305,8 @@ namespace Cook
 			if (a_core < 0) {
 				return;
 			}
-			// every cut piece is solid: its cut faces are drawn wherever they're inside the thing (not a leek: above)
-			if (!a_cut || leek) {
+			// every cut piece is solid: its cut faces are drawn wherever they're inside the thing
+			if (!a_cut) {
 				Scene::Hide(a_core, true);
 				return;
 			}
@@ -3335,7 +3335,7 @@ namespace Cook
 			auto& cl = Scene::LookOf(a_core);
 			ClipTo(cl, a_c, a_frame, a_box, true);
 			std::copy(fl, fl + 3, cl.flesh);
-			cl.flesh[3] = 4.0f;
+			cl.flesh[3] = leek ? 4.5f : 4.0f;  // (a leek: a solid round stalk, its faces drawn without counting its loose layers)
 			cl.fleshTex = fleshTex;
 			// the thing's bounds as a box (axes over half-sizes), on the face and on the skin that counts for it
 			const Vec3 axv[3] = { a_frame.Rotate({ 1, 0, 0 }) * (1.0 / (R[0] * 1.01)), a_frame.Rotate({ 0, 1, 0 }) * (1.0 / (R[1] * 1.01)), a_frame.Rotate({ 0, 0, 1 }) * (1.0 / (R[2] * 1.01)) };

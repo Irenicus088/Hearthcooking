@@ -523,6 +523,12 @@ float4 PSSolid(VSOut i, out float depth : SV_Depth) : SV_Target
 	float3 q, n;
 	float  tin;
 	if (!CapPoint(i.wpos, q, n, tin)) discard;
+	if (flesh.w > 4.25) {
+		// drawn without the count: only within the stalk's round
+		float3 r = q - shape[0].xyz;
+		float  ly = dot(shape[2].xyz, r), lz = dot(shape[3].xyz, r);
+		if (ly * ly + lz * lz > 1.0) discard;
+	}
 	float4 cp = mul(viewProj, float4(q, 1));
 	depth = cp.z / cp.w;
 	return Shade(i, true, q, n);
@@ -1711,6 +1717,20 @@ float4 PSComposite(FSOut i) : SV_Target
 			// is drawn on a box round it wherever the count was odd (inside the thing), clearing it as it goes
 			for (const auto& h : g_frame.items) {
 				if (h.flesh[3] <= 3.5f) {
+					continue;
+				}
+				if (h.flesh[3] > 4.25f) {
+					// a solid round (a leek's stalk): its cut faces drawn straight, no count of its skin (a leek's loose
+					// layers and leaves counted wrong, and its faces broke into shards, or none showed and it was hollow)
+					if (bindMesh(h)) {
+						ID3D11ShaderResourceView* t[4] = { h.diffuse, nullptr, nullptr, nullptr };
+						c->PSSetShaderResources(0, 4, t);
+						c->PSSetShaderResources(5, 1, &h.fleshTex);
+						c->OMSetBlendState(g_bsOpaque, nullptr, 0xFFFFFFFF);
+						c->OMSetDepthStencilState(g_dsOn, 0);
+						c->PSSetShader(g_psSolid, nullptr, 0);
+						c->DrawIndexed(h.indexCount, 0, 0);
+					}
 					continue;
 				}
 				c->OMSetBlendState(g_bsNoColor, nullptr, 0xFFFFFFFF);
