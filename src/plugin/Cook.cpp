@@ -3541,7 +3541,7 @@ namespace Cook
 						}
 						// the honey pot on the bowl's left, the bottles on its right
 						const bool honeyPot = u.name.find("oney") != std::string::npos;
-						Stand(u, kSauceAt + (honeyPot ? Vec3{ -5.6, -0.6, 0.0 } : Vec3{ 5.2 + k * 2.6, -1.2 + k * 0.8, 0.0 }), u.boardLen, 0.4 + k);
+						Stand(u, kSauceAt + (honeyPot ? Vec3{ -8.8, -0.8, 0.0 } : Vec3{ 7.4 + k * 2.6, -1.2 + k * 0.8, 0.0 }), u.boardLen, 0.4 + k);  // (clear of the bowl)
 						HideBoardBits(u);
 						break;
 					}
