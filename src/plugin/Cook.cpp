@@ -278,6 +278,9 @@ namespace Cook
 
 		constexpr double kPieRim = 0.9;  // a crimped pie's rim, scaled to the size it comes out of the oven at
 		void ArrangeCloth();
+		// how far round the spoon goes before the next stir is heard: half a turn, a turn, a turn and a half or two, at random
+		double g_stirGap = kPi;
+		void   NextStirGap() { g_stirGap = kPi * (1 + static_cast<int>(Rand01() * 4.0) % 4); }
 		int g_campfire = -1;  // which campfire recording plays at the pot and spit (picked once per cook)
 
 		// The fire's loop: the oven's own roar in its box, a campfire anywhere else (one of two recordings).
@@ -2172,9 +2175,10 @@ namespace Cook
 					if (g_pot && std::abs(dA) < 1.5) {
 						g_pot->Stir(dA);
 						g_stirred += std::abs(dA);
-						if (g_stirred > 3.14 && Audio::Now() - g_lastStir > 0.75) {
+						if (g_stirred > g_stirGap && Audio::Now() - g_lastStir > 0.75) {
 							g_stirred = 0;
 							g_lastStir = Audio::Now();
+							NextStirGap();
 							Audio::Take("stir_", 0.5f);
 						}
 					}
@@ -2229,9 +2233,10 @@ namespace Cook
 					} else if (std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
 						g_mix = (std::min)(1.0, g_mix + std::abs(dA) / (2.0 * kPi * 4.0));  // four turns round
 						g_stirred += std::abs(dA);
-						if (g_stirred > 1.6 && Audio::Now() - g_lastStir > 0.3) {
+						if (g_stirred > g_stirGap && Audio::Now() - g_lastStir > 0.3) {
 							g_stirred = 0;
 							g_lastStir = Audio::Now();
+							NextStirGap();
 							Audio::Take("knead_", 0.35f);
 						}
 						if (g_mix >= 1.0) {
