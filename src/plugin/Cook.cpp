@@ -208,7 +208,7 @@ namespace Cook
 		double               g_clock = 0.0;
 		std::string          g_toast;
 		double               g_toastAt = -10.0;
-		bool                 g_help = false, g_confirm = false;
+		bool                 g_help = false, g_confirm = false, g_soundBox = false;  // (g_soundBox: M's panel of sliders)
 
 		// the dish on the go
 		std::vector<Unit>        g_units;
@@ -1461,6 +1461,7 @@ namespace Cook
 			g_phase = Phase::Cooking;
 			g_served = false;
 			g_help = false;
+			g_soundBox = false;
 			g_confirm = false;
 			Scene::SetCamera({ 0.0, -1.0, 0.0 }, 88.0f);
 			Audio::Play({ "ui_equip", 0.8f });
@@ -4472,7 +4473,11 @@ namespace Cook
 					g_help = !g_help;
 					break;
 				case Act::Mute:
-					Audio::SetMuted(!Audio::Muted());
+					g_soundBox = !g_soundBox;
+					g_help = false;
+					if (!g_soundBox) {
+						Config::Save();
+					}
 					break;
 				case Act::Knife:
 					NextKnife();
@@ -4509,7 +4514,10 @@ namespace Cook
 		{
 			for (int key : Overlay::TakeKeys()) {
 				if (key == 0x01) {  // Esc
-					if (g_help) {
+					if (g_soundBox) {
+						g_soundBox = false;
+						Config::Save();
+					} else if (g_help) {
 						g_help = false;
 					} else if (g_confirm) {
 						g_confirm = false;
@@ -4532,8 +4540,12 @@ namespace Cook
 					NextKnife();
 				} else if (key == 0x23) {  // H
 					g_help = !g_help;
-				} else if (key == 0x32 || key == Overlay::kPadSoundKey) {  // M
-					Audio::SetMuted(!Audio::Muted());
+				} else if (key == 0x32 || key == Overlay::kPadSoundKey) {  // M: the sound panel
+					g_soundBox = !g_soundBox;
+					g_help = false;
+					if (!g_soundBox) {
+						Config::Save();
+					}
 				} else if (g_phase == Phase::Book && (key == 0xC8 || key == 0x11)) {  // up / W
 					g_sel = (std::max)(0, g_sel - 1);
 				} else if (g_phase == Phase::Book && (key == 0xD0 || key == 0x1F)) {  // down / S
@@ -5001,7 +5013,7 @@ namespace Cook
 			const bool pad = Overlay::UsingPad();
 			// the knife can be swapped from here while there's one in the kitchen
 			const bool knife = g_phase == Phase::Cooking && P.knife >= 0;
-			const Key  keys[4] = { { "N", "Knife", Act::Knife }, { pad ? "X" : "H", "How to cook", Act::Help }, { pad ? "Back" : "M", Audio::Muted() ? "Muted" : "Sound", Act::Mute },
+			const Key  keys[4] = { { "N", "Knife", Act::Knife }, { pad ? "X" : "H", "How to cook", Act::Help }, { pad ? "Back" : "M", Audio::Muted() ? "Sound (muted)" : "Sound", Act::Mute },
 				 { pad ? "Y" : "Tab", g_phase == Phase::Cooking ? "Put it aside" : "Leave", g_phase == Phase::Cooking ? Act::Abandon : Act::Leave } };
 			const int first = knife ? 0 : 1, count = 4;
 			float     widths[4]{}, total = 0;
@@ -5132,6 +5144,70 @@ namespace Cook
 			FadeRule(dl, W * 0.5f - w * 0.5f, W * 0.5f + w * 0.5f, y - S(10), 0.62f * a);
 			FadeRule(dl, W * 0.5f - w * 0.5f, W * 0.5f + w * 0.5f, y + F.toastLong->FontSize + S(10), 0.62f * a);
 			TextC(dl, F.toastLong, W * 0.5f, y, Alpha(kWhite, a), text, 0.16f, 0.9f * a);
+		}
+
+		// M: the sounds, each with a slider (0 off, 1 as it comes, 2 twice as loud), and all of them off at once; kept
+		// in Hearthcooking.ini when it's closed
+		void SoundBox(float W, float H)
+		{
+			auto& v = Config::Edit();
+			struct Row
+			{
+				const char* label;
+				float*      value;
+			};
+			std::vector<Row> rows;
+			rows.push_back({ "All the kitchen's sounds", &v.volume });
+			rows.push_back({ "Fire and boiling", &v.ambience });
+			for (std::size_t k = 0; k < std::size(Config::kSoundNames); ++k) {
+				if (!v.soundLevels.count(Config::kSoundNames[k])) {
+					v.soundLevels[Config::kSoundNames[k]] = 1.0f;
+				}
+				rows.push_back({ Config::kSoundLabels[k], &v.soundLevels[Config::kSoundNames[k]] });
+			}
+			const float rowH = S(30), w = S(560), h = S(130) + rowH * (rows.size() + 1), x = W * 0.5f - w * 0.5f, y = (std::max)(S(40), H * 0.5f - h * 0.5f);
+			BeginArea("##sound", ImVec2(x, y), ImVec2(w, h));
+			auto* dl = ImGui::GetWindowDrawList();
+			MsgBox(dl, ImVec2(x, y), ImVec2(x + w, y + h));
+			TextC(dl, F.menu, W * 0.5f, y + S(22), kWhite, "SOUND", 0.26f);
+			float yy = y + S(70);
+			// all off at once
+			{
+				bool hov = false;
+				const bool muted = Audio::Muted();
+				if (Clicked("mute", ImVec2(x + S(32), yy), ImVec2(x + w - S(32), yy + rowH), &hov)) {
+					Audio::SetMuted(!muted);
+				}
+				Text(dl, F.sans, ImVec2(x + S(32), yy + (rowH - F.sans->FontSize) * 0.5f), hov ? kWhite : kGrey, muted ? "Muted: click to hear it again" : "Mute everything", 0.0f, 0.7f);
+				yy += rowH + S(6);
+			}
+			const float bx0 = x + S(300), bx1 = x + w - S(84);
+			for (std::size_t r = 0; r < rows.size(); ++r) {
+				ImGui::PushID(static_cast<int>(r));
+				const float cy = yy + rowH * 0.5f;
+				Text(dl, F.sans, ImVec2(x + S(32), yy + (rowH - F.sans->FontSize) * 0.5f), r < 2 ? kWhite : kGrey, rows[r].label, 0.0f, 0.7f);
+				ImGui::SetCursorScreenPos(ImVec2(bx0 - S(8), yy));
+				ImGui::InvisibleButton("bar", ImVec2(bx1 - bx0 + S(16), rowH));
+				const bool hov = ImGui::IsItemHovered(), act = ImGui::IsItemActive();
+				if (act) {
+					const float f = std::clamp((ImGui::GetIO().MousePos.x - bx0) / (bx1 - bx0), 0.0f, 1.0f);
+					float       val = f * 2.0f;
+					if (std::abs(val - 1.0f) < 0.04f) {
+						val = 1.0f;  // (it catches at "as it comes")
+					}
+					*rows[r].value = val;
+				}
+				const float f = std::clamp(*rows[r].value / 2.0f, 0.0f, 1.0f);
+				dl->AddRectFilled(ImVec2(bx0, cy - S(2)), ImVec2(bx1, cy + S(2)), IM_COL32(255, 255, 255, 40), S(2));
+				dl->AddRectFilled(ImVec2(bx0, cy - S(2)), ImVec2(bx0 + (bx1 - bx0) * f, cy + S(2)), hov || act ? kGold : kGrey, S(2));
+				dl->AddLine(ImVec2((bx0 + bx1) * 0.5f, cy - S(6)), ImVec2((bx0 + bx1) * 0.5f, cy + S(6)), IM_COL32(255, 255, 255, 60), 1.0f * g_ui);  // (1: as it comes)
+				dl->AddCircleFilled(ImVec2(bx0 + (bx1 - bx0) * f, cy), S(act ? 8 : 7), hov || act ? kWhite : kGrey);
+				Text(dl, F.sans, ImVec2(bx1 + S(14), yy + (rowH - F.sans->FontSize) * 0.5f), kGrey, fmt::format("{:.0f}%", *rows[r].value * 100.0f), 0.0f, 0.7f);
+				ImGui::PopID();
+				yy += rowH;
+			}
+			TextC(dl, F.sans, W * 0.5f, y + h - S(34), kDim, "M or Esc to close", 0.1f);
+			ImGui::End();
 		}
 
 		void HelpBox(float W)
@@ -5364,7 +5440,7 @@ namespace Cook
 			return;
 		}
 		HandleKeys();
-		if (g_phase == Phase::Cooking && !g_confirm && !g_help) {
+		if (g_phase == Phase::Cooking && !g_confirm && !g_help && !g_soundBox) {
 			HandleInput(dt);
 		} else {
 			Overlay::TakePresses();  // the buttons are ImGui's
@@ -5423,6 +5499,9 @@ namespace Cook
 		KeyBar(W, H);
 		if (g_help && g_phase == Phase::Cooking) {
 			HelpBox(W);
+		}
+		if (g_soundBox) {
+			SoundBox(W, H);
 		}
 		ToastLine(W, H);
 		DebugMarks();
