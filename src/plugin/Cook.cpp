@@ -179,7 +179,7 @@ namespace Cook
 			Scene::Id fireLogs[hc::Fire::kMaxLogs]{ -1, -1, -1, -1, -1 };
 			Scene::Id pile[3]{ -1, -1, -1 };
 			std::vector<Scene::Id> butter;  // butter cut into the flour
-			std::vector<Scene::Id> crimps;
+			std::vector<Scene::Id> crimps, pieRim, galette;  // (a dumpling's folds; a pie's fluted rim, a scallop a pinch; a crostata's eight pleats)
 			std::vector<std::pair<Scene::Id, Vec3>> fill;  // the filling on the pie (disk-local, units)
 			std::array<bool, static_cast<int>(Kit::Role::Count)> game{};  // this one is the game's own mesh (fitted), not ours
 			std::vector<std::pair<Scene::Id, int>> decor;                   // the clutter, and its spot
@@ -1539,8 +1539,10 @@ namespace Cook
 			for (auto& [id, at] : P.fill) {
 				Scene::Hide(id, true);
 			}
-			for (auto id : P.crimps) {
-				Scene::Hide(id, true);
+			for (auto* v : { &P.crimps, &P.pieRim, &P.galette }) {
+				for (auto id : *v) {
+					Scene::Hide(id, true);
+				}
 			}
 			if (P.bowl >= 0) {
 				Scene::Hide(P.bowl, true);
@@ -4009,8 +4011,10 @@ namespace Cook
 						const float smooth = static_cast<float>(Clamp(g_oven->Dough(), 0.0, 1.0));
 						lk.tint[0] = lk.tint[1] = lk.tint[2] = 0.88f + 0.12f * smooth;
 					} else if (dough) {
-						Scene::Place(P.disk, at + Vec3{ 0, 0, 0.3 }, {}, 5.0f);
-						Scene::Stretch(P.disk, 1.0f, 1.0f, 2.0f);
+						// a pie's sheet drawn in under its fluted rim as the rim's made (the scallops are its edge then)
+						const double r = g_oven->Pie() && !Crostata() && !Dumpling() ? 5.0 - 0.75 * Clamp(g_oven->Crimped(), 0.0, 1.0) : 5.0;
+						Scene::Place(P.disk, at + Vec3{ 0, 0, 0.3 }, {}, static_cast<float>(r));
+						Scene::Stretch(P.disk, 1.0f, 1.0f, static_cast<float>(2.0 * 5.0 / r));
 					}
 				}
 				// the mixing bowl: water clouding with flour as it's stirred, then a ball of dough
@@ -4125,35 +4129,35 @@ namespace Cook
 						fl.clips[0][3] = static_cast<float>(-v.Dot(hinge));
 					}
 				} else if (g_rolled) {
-					while (static_cast<int>(P.crimps.size()) < hc::Oven::kCrimps) {
-						const auto id = Add("Dough");
-						P.crimps.push_back(id);
-					}
-					for (int k = 0; k < hc::Oven::kCrimps; ++k) {
-						const auto id = P.crimps[k];
-						const bool show = g_oven->CrimpedAt(k) && !showDish && g_peelT < 0 && g_hold != Hold::Dough;
-						Scene::Hide(id, !show);
-						if (show) {
-							const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
-							auto&        cl = Scene::LookOf(id);
-							if (Crostata()) {
-								// a rustic fold: the edge lifted up and laid in over the fruit, a broad pleat, each one
-								// overlapping the last all the way round (a galette)
-								// each a broad flap of the rim, from the outside edge (rounded, standing high) laid in over the
-								// outer band of the fruit, its inner edge sloping down onto it: the fruit shows only in the middle
-								const double pleat = (k % 2 ? 0.1 : -0.08) + 0.06 * (Hash(k, 71) - 0.5);
-								const double r = 3.75 + 0.12 * (Hash(k, 72) - 0.5);
-								Scene::Place(id, at + Vec3{ std::cos(a) * r, std::sin(a) * r, 0.82 + 0.07 * (k % 2) }, RotZ(a + 0.05 * (Hash(k, 73) - 0.5)) * RotY(-0.3) * RotX(pleat), 1.0f);
-								Scene::Stretch(id, 1.15f, 0.82f, 0.52f);
-								DoughLook(cl);
-							} else {
-								// a fluted edge: the rim stood up as a thin wall, pinched into a zigzag - each pinch a short slanted
-								// length of it, turned one way then the other, so the wall runs in and out in V's all round
-								const double zig = (k % 2) ? 0.42 : -0.42;
-								const double r = 4.55;
-								Scene::Place(id, at + Vec3{ std::cos(a) * r, std::sin(a) * r, 0.95 }, RotZ(a + zig), 1.0f);
-								Scene::Stretch(id, 0.26f, 0.72f, 0.55f);
-								DoughLook(cl);
+					const bool live = !showDish && g_peelT < 0 && g_hold != Hold::Dough;
+					if (Crostata()) {
+						// a galette: eight broad pleats of the rim, each laid in over the fruit as its three pinches are made
+						while (static_cast<int>(P.galette.size()) < 8) {
+							P.galette.push_back(Add(fmt::format("GaletteFold{}", P.galette.size()).c_str()));
+						}
+						for (int j = 0; j < 8; ++j) {
+							const auto id = P.galette[j];
+							const bool show = live && (g_oven->CrimpedAt(3 * j) || g_oven->CrimpedAt(3 * j + 1) || g_oven->CrimpedAt(3 * j + 2));
+							Scene::Hide(id, !show);
+							if (show) {
+								const double a = (3 * j + 1.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
+								Scene::Place(id, at, RotZ(a), 1.0f);
+								DoughLook(Scene::LookOf(id));
+							}
+						}
+					} else {
+						// a fluted rim: a scallop for each pinch, standing up off the sheet's edge (the sheet drawn in under it)
+						while (static_cast<int>(P.pieRim.size()) < hc::Oven::kCrimps) {
+							P.pieRim.push_back(Add("PieCrimp"));
+						}
+						for (int k = 0; k < hc::Oven::kCrimps; ++k) {
+							const auto id = P.pieRim[k];
+							const bool show = live && g_oven->CrimpedAt(k);
+							Scene::Hide(id, !show);
+							if (show) {
+								const double a = (k + 0.5) / hc::Oven::kCrimps * 2 * kPi - kPi;
+								Scene::Place(id, at, RotZ(a), 1.0f);
+								DoughLook(Scene::LookOf(id));
 							}
 						}
 					}

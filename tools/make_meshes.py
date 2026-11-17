@@ -1003,11 +1003,33 @@ def flesh_textures():
     flesh.all_flesh()
 
 
+# =================================================================== the pastry edges (tools/pastry.py)
+def pastry_edges():
+    import pastry
+
+    def to_mesh(P, N, UV, I):
+        m = Mesh()
+        for p, n, uv in zip(P, N, UV):
+            p, n = tuple(float(x) for x in p), tuple(float(x) for x in n)
+            m.v(p, (float(uv[0]), float(uv[1])), n, (-p[1], p[0], 0.0) if abs(p[0]) + abs(p[1]) > 1e-6 else (1.0, 0.0, 0.0))
+        m.I += [int(x) for x in np.asarray(I).reshape(-1)]
+        return m
+
+    nif("PieCrimp", [("Dough", to_mesh(*pastry.pie_crimp()), "dough", (0.3, 25))])
+    for j in range(8):
+        nif(f"GaletteFold{j}", [("Dough", to_mesh(*pastry.galette_fold(j)), "dough", (0.3, 25))])
+
+
+
 if __name__ == "__main__":
     if "--flesh-only" in sys.argv:
         flesh_textures()
+        sys.exit(0)
+    if "--pastry-only" in sys.argv:
+        pastry_edges()
         sys.exit(0)
     if "--meshes-only" not in sys.argv:
         textures()
         flesh_textures()
     kitchen()
+    pastry_edges()
