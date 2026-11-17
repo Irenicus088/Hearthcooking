@@ -1633,7 +1633,9 @@ namespace Cook
 		bool BreadCut()
 		{
 			const int b = BreadUnit();
-			return b >= 0 && g_units[b].cut.cutCount > 0;
+			// a garlic bread's loaf in five slices (four cuts), one for each it makes
+			const int need = g_recipe && g_recipe->makes > 1 ? (std::min)(g_recipe->makes - 1, hc::Cutting::kMaxCuts) : 1;
+			return b >= 0 && g_units[b].cut.cutCount >= need;
 		}
 		bool OverMix(float mx, float my) { return NearScreen(kMixAt + Vec3{ 0, 0, 1.6 }, mx, my, 4.2, 40.0f); }
 		bool OverFill(float mx, float my) { return NearScreen(kFillAt + Vec3{ 0, 0, 1.4 }, mx, my, 6.0, 70.0f); }
@@ -4543,7 +4545,7 @@ namespace Cook
 						for (const auto& u : g_units) {
 							topped &= !u.dice || u.at == Unit::At::Dough;
 						}
-						s.push_back({ "Cut the bread into slices", BreadCut() });
+						s.push_back({ g_recipe->makes > 1 ? fmt::format("Cut the bread into {} slices", g_recipe->makes) : std::string("Cut the bread into slices"), BreadCut() });
 						s.push_back({ "Butter it", g_buttered });
 						s.push_back({ "The garlic on top", topped });
 					} else {

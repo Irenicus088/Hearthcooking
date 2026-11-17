@@ -214,6 +214,9 @@ namespace Recipes
 				r->name = result->GetName();
 				r->makes = (std::max)(1, static_cast<int>(cobj->data.numConstructed));
 				const auto low = Lower(r->name);
+				if (low.find("garlic bread") != std::string::npos) {
+					r->makes = (std::max)(r->makes, 5);  // a loaf cut into five slices: five of it
+				}
 				// a pie is baked, wherever the game has it made (its Chaurus Pie is a cooking pot's)
 				const bool toOven = isOven || Has(low, { " pie", "pie " }) || low.rfind("pie", 0) == 0 || (low.size() >= 3 && low.compare(low.size() - 3, 3, "pie") == 0);
 				r->oven = toOven;
