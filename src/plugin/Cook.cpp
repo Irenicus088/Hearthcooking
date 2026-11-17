@@ -1149,7 +1149,9 @@ namespace Cook
 				c[0] = 0.95f, c[1] = 0.55f, c[2] = 0.4f;
 			} else if (has({ "crab" })) {
 				c[0] = 0.96f, c[1] = 0.94f, c[2] = 0.9f;  // white inside
-			} else if (has({ "chicken", "pheasant", "fish", "clam" })) {
+			} else if (has({ "clam" })) {
+				c[0] = 0.98f, c[1] = 0.92f, c[2] = 0.84f;  // clam meat: near white, the palest orange
+			} else if (has({ "chicken", "pheasant", "fish" })) {
 				c[0] = 0.95f, c[1] = 0.84f, c[2] = 0.8f;  // pale pink
 			} else if (has({ "carrot" })) {
 				c[0] = 0.98f, c[1] = 0.58f, c[2] = 0.2f;
@@ -1614,6 +1616,18 @@ namespace Cook
 
 		// all done but the baking: it takes the dish's own shape
 		bool FoldedOver();
+		// clam meat: near white, the palest orange (its own texture is a deep orange) - on the cloth, the board, in the pot
+		void ClamLook(const Unit& u, Scene::Look& lk)
+		{
+			if (u.name.find("Clam") == std::string::npos && u.name.find("clam") == std::string::npos) {
+				return;
+			}
+			static constexpr float kClam[3] = { 0.98f, 0.9f, 0.8f };
+			for (int k = 0; k < 3; ++k) {
+				lk.lift[k] = kClam[k] * 0.85f + lk.lift[k] * 0.15f;
+			}
+			lk.lift[3] = (std::max)(lk.lift[3], 0.6f);
+		}
 		// what's chopped for the pot, in the order it goes in: a tomato first (it cooks down), the rest after
 		int ChopRank(const std::string& a_name)
 		{
@@ -3250,6 +3264,7 @@ namespace Cook
 			Scene::Hide(a_id, false);
 			auto& lk = Scene::LookOf(a_id);
 			ClipTo(lk, a_c, a_frame, a_box, a_cut);
+			ClamLook(u, lk);
 			float fl[3];
 			Flesh(u, fl);
 			std::copy(fl, fl + 3, lk.flesh);
@@ -3606,6 +3621,7 @@ namespace Cook
 				}
 				if (u.at != Unit::At::Board) {
 					auto& lk = Scene::LookOf(u.prop);
+					ClamLook(u, lk);
 					std::memset(lk.clips, 0, sizeof(lk.clips));
 					lk.flesh[3] = 0.0f;
 					if (u.at != Unit::At::Pot && u.at != Unit::At::Gone) {
