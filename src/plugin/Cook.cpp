@@ -4282,12 +4282,11 @@ namespace Cook
 					auto& lk = Scene::LookOf(P.result);
 					lk.cookMode = 1;
 					const double br = g_oven->Brown();
-					lk.cook[0] = static_cast<float>(br > 0.6 ? (br - 0.6) * 1.2 : 0.0);  // its own colour is "golden"; burnt past it
+					lk.cook[0] = static_cast<float>(br > 1.2 ? (br - 1.2) * 1.6 : 0.0);  // its own colour is "golden": browner only once it's past done
 					lk.lift[0] = 0.94f;
 					lk.lift[1] = 0.86f;
 					lk.lift[2] = 0.7f;
 					lk.lift[3] = -static_cast<float>(Clamp(0.85 - br * 0.9, 0.0, 0.85));  // pale and doughy at first (its fruit stays fruit)
-					lk.fx[2] = 1.0f;  // its crust: browning unevenly, blistered
 					Scene::Hide(P.result, false);
 					Scene::Hide(P.dough, true);
 					Scene::Hide(P.disk, true);
@@ -4518,14 +4517,14 @@ namespace Cook
 					Scene::Place(P.result, on - q.Rotate(c) * s, q, static_cast<float>(s));
 					auto& lk = Scene::LookOf(P.result);
 					lk.lift[3] = 0.0f;
-					lk.fx[2] = g_flow == hc::Flow::Oven ? 1.0f : 0.0f;  // (a bake's crust, uneven and blistered)
+					lk.fx[2] = 0.0f;
 					lk.cookMode = g_burntLook ? 1 : 0;
 					lk.cook[0] = 1.65f;
 					if (g_flow == hc::Flow::Oven && g_oven && !g_burntLook) {
 						// served as it came out: underdone stays pale (as it looked in the oven)
 						const double br = g_oven->Brown();
 						lk.cookMode = 1;
-						lk.cook[0] = static_cast<float>(br > 0.6 ? (br - 0.6) * 1.2 : 0.0);
+						lk.cook[0] = static_cast<float>(br > 1.2 ? (br - 1.2) * 1.6 : 0.0);  // (golden as it's made, browner only past done)
 						lk.lift[0] = 0.94f, lk.lift[1] = 0.86f, lk.lift[2] = 0.7f;
 						lk.lift[3] = -static_cast<float>(Clamp(0.85 - br * 0.9, 0.0, 0.85));
 					}
