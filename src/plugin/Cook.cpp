@@ -3761,8 +3761,10 @@ namespace Cook
 					if (fade > 0.0 || cookedNow > 0.3 + 0.18 * Hash(b, 42)) {
 						Scene::Hide(pc.prop, true);
 						Scene::Hide(pc.core, true);
-						if (b < static_cast<int>(P.leafBits.size()) && P.leafBits[b] >= 0) {
-							Scene::Hide(P.leafBits[b], true);
+						for (int m = 0; m < 2; ++m) {
+							if (b * 2 + m < static_cast<int>(P.leafBits.size()) && P.leafBits[b * 2 + m] >= 0) {
+								Scene::Hide(P.leafBits[b * 2 + m], true);
+							}
 						}
 						continue;
 					}
@@ -3798,40 +3800,54 @@ namespace Cook
 					if (pc.core >= 0) {
 						Scene::Hide(pc.core, true);
 					}
-					if (static_cast<int>(P.leafBits.size()) <= b) {
-						P.leafBits.resize(b + 1, -1);
+					// each piece as two bits of leaf (a cabbage's worth fills the pot as it should)
+					if (static_cast<int>(P.leafBits.size()) < (b + 1) * 2) {
+						P.leafBits.resize((b + 1) * 2, -1);
 					}
-					auto& leaf = P.leafBits[b];
-					if (leaf < 0) {
-						leaf = Add(fmt::format("LeafBit{}", b % 9).c_str());
-					}
-					if (leaf >= 0 && hi[0] > lo[0] && hi[1] > lo[1] && hi[2] > lo[2]) {
-						const Vec3   mid{ (lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 };
-						// (as big as the piece across, not its height: a cabbage cut only across stays a whole head deep - those drew
-						// far too big)
-						const double size = std::sqrt((hi[0] - lo[0]) * (hi[1] - lo[1])) * 1.1 * (0.85 + 0.3 * Hash(b, 83));  // (a thin slice across a wide head: between the two)
-						// floating near flat in the broth, each turned and tipped its own way
-						const Quat q = RotZ(Hash(b, 84) * 6.283 + g_spin) * RotX((Hash(b, 85) - 0.5) * 0.7) * RotY((Hash(b, 86) - 0.5) * 0.5);
+					for (int m = 0; m < 2; ++m) {
+						const int j = b * 2 + m;
+						auto&     leaf = P.leafBits[j];
+						if (leaf < 0) {
+							leaf = Add(fmt::format("LeafBit{}", j % 9).c_str());
+						}
+						if (leaf < 0) {
+							continue;
+						}
+						if (!(hi[0] > lo[0] && hi[1] > lo[1] && hi[2] > lo[2])) {
+							Scene::Hide(leaf, true);
+							continue;
+						}
+						// the two side by side, across the piece
+						const Vec3 mid{ (lo[0] + hi[0]) * 0.5 + (m - 0.5) * 0.5 * (hi[0] - lo[0]) + (Hash(j, 87) - 0.5) * 0.6,
+							(lo[1] + hi[1]) * 0.5 + (m - 0.5) * 0.5 * (hi[1] - lo[1]) + (Hash(j, 88) - 0.5) * 0.6, (lo[2] + hi[2]) * 0.5 };
+						// (a thin slice across a wide head: sized between the two)
+						const double size = std::sqrt((hi[0] - lo[0]) * (hi[1] - lo[1])) * 1.0 * (0.8 + 0.35 * Hash(j, 83));
+						// floating near flat in the broth, each turned and tipped a little its own way
+						const Quat q = RotZ(Hash(j, 84) * 6.283 + g_spin) * RotX((Hash(j, 85) - 0.5) * 0.45) * RotY((Hash(j, 86) - 0.5) * 0.35);
 						Scene::Place(leaf, c + frame.Rotate(mid), q, static_cast<float>(size));
 						Scene::Hide(leaf, false);
 						auto& cl = Scene::LookOf(leaf);
 						if (auto* tex = Scene::Skin(pc.prop)) {
-							cl.skin = tex;  // (the cabbage's own leaf: green and veined outside, pale toward the heart)
+							cl.skin = tex;  // (the cabbage's own leaf: green and veined)
 							cl.uv[0] = 0.35f, cl.uv[1] = 0.35f;
-							cl.uv[2] = static_cast<float>(Hash(b, 81)), cl.uv[3] = static_cast<float>(Hash(b, 82));
+							cl.uv[2] = static_cast<float>(Hash(j, 81)), cl.uv[3] = static_cast<float>(Hash(j, 82));
 						}
-						// wilting as it cooks, a little of the broth in it
+						// its texture's dark patches lifted to a pale leaf green (they read as shadows on it), wilting
+						// toward the broth's colour as it cooks
+						static constexpr float kLeaf[3] = { 0.8f, 0.88f, 0.62f };
 						for (int k = 0; k < 3; ++k) {
 							cl.tint[k] = lk.tint[k];
-							cl.lift[k] = lk.lift[k];
+							cl.lift[k] = kLeaf[k] * 0.7f + lk.lift[k] * 0.3f;
 						}
-						cl.lift[3] = lk.lift[3];
+						cl.lift[3] = 0.35f + lk.lift[3];
 						cl.shadow = false;
-					} else if (leaf >= 0) {
-						Scene::Hide(leaf, true);
 					}
-				} else if (b < static_cast<int>(P.leafBits.size()) && P.leafBits[b] >= 0) {
-					Scene::Hide(P.leafBits[b], true);
+				} else {
+					for (int m = 0; m < 2; ++m) {
+						if (b * 2 + m < static_cast<int>(P.leafBits.size()) && P.leafBits[b * 2 + m] >= 0) {
+							Scene::Hide(P.leafBits[b * 2 + m], true);
+						}
+					}
 				}
 			}
 			// ---- the pot, the broth, the ladle, bubbles and steam
