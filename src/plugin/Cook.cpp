@@ -1639,6 +1639,15 @@ namespace Cook
 		// clam meat: near white, the palest orange (its own texture is a deep orange) - on the cloth, the board, in the pot
 		void ClamLook(const Unit& u, Scene::Look& lk)
 		{
+			// berries and grapes: no shadow on them or from them (small, dark and glossy, they went black in it)
+			{
+				std::string n = u.name;
+				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				if (n.find("berr") != std::string::npos || n.find("grape") != std::string::npos) {
+					lk.shadow = false;
+					lk.unshadowed = true;
+				}
+			}
 			if (u.name.find("Clam") == std::string::npos && u.name.find("clam") == std::string::npos) {
 				return;
 			}
@@ -4428,6 +4437,8 @@ namespace Cook
 								bn = u.name;
 							}
 						}
+						lk.shadow = false;  // (berries on the dough: no shadow on them or from them)
+						lk.unshadowed = true;
 						lk.uv[0] = lk.uv[1] = 0.12f;
 						lk.uv[2] = 0.45f + Hash(id, 22) * 0.1f;
 						lk.uv[3] = 0.45f + Hash(id, 23) * 0.1f;
