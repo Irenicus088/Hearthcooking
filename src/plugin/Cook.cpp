@@ -1866,6 +1866,14 @@ namespace Cook
 			for (std::size_t k = 0; k < idx.size(); ++k) {
 				g_units[idx[k]].clothAt = spots[k];
 			}
+			// side by side on one row they crowd (a sack of flour against a bowl of butter): the first up above the next
+			if (idx.size() >= 2) {
+				auto&       first = g_units[idx[0]].clothAt;
+				const auto& next = g_units[idx[1]].clothAt;
+				if (std::abs(first.y - next.y) < 1.0) {
+					first.y = next.y + 5.5;
+				}
+			}
 		}
 
 		// What has to go in before this (lower-case name): "" if nothing's waiting
@@ -3801,7 +3809,7 @@ namespace Cook
 						const Vec3   mid{ (lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 };
 						// (as big as the piece across, not its height: a cabbage cut only across stays a whole head deep - those drew
 						// far too big)
-						const double size = (std::min)(hi[0] - lo[0], hi[1] - lo[1]) * 0.75 * (0.85 + 0.3 * Hash(b, 83));
+						const double size = std::sqrt((hi[0] - lo[0]) * (hi[1] - lo[1])) * 1.1 * (0.85 + 0.3 * Hash(b, 83));  // (a thin slice across a wide head: between the two)
 						// floating near flat in the broth, each turned and tipped its own way
 						const Quat q = RotZ(Hash(b, 84) * 6.283 + g_spin) * RotX((Hash(b, 85) - 0.5) * 0.7) * RotY((Hash(b, 86) - 0.5) * 0.5);
 						Scene::Place(leaf, c + frame.Rotate(mid), q, static_cast<float>(size));
