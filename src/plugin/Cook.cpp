@@ -1610,6 +1610,7 @@ namespace Cook
 		}
 
 		// all done but the baking: it takes the dish's own shape
+		bool FoldedOver();
 		bool DoughReady()
 		{
 			if (g_topping) {
@@ -1620,7 +1621,20 @@ namespace Cook
 				return g_oven && g_buttered && BreadCut() && topped && !g_oven->Out();
 			}
 			return g_oven && g_doughOnBoard && g_doughParts > 0 && (g_doughNeeded == 0 || (g_doughParts >= g_doughNeeded && g_oven->Dough() >= 0.9)) &&
-			       (!g_oven->Pie() || (g_rolled && g_oven->Crimped() >= 0.9)) && !g_oven->Out();
+			       (!g_oven->Pie() || (g_rolled && g_oven->Crimped() >= 0.9)) && !g_oven->Out() && FoldedOver();
+		}
+		// a dumpling's last corner well over (three quarters of its fold) before it shows as the dumpling
+		bool FoldedOver()
+		{
+			if (!Dumpling()) {
+				return true;
+			}
+			for (int k = 0; k < 4; ++k) {
+				if (g_fold[k] < 0.75) {
+					return false;
+				}
+			}
+			return true;
 		}
 		int BreadUnit()
 		{
