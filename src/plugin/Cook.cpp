@@ -3897,8 +3897,8 @@ namespace Cook
 						continue;
 					}
 					at.z -= 0.45 * broken + 0.35 * broken * Hash(b, 41) + 1.6 * fade;
-					// bobbing on the simmer, each its own way, turning a little
-					if (g_pot) {
+					// bobbing on the simmer, each its own way, turning a little (a leek as it was in 0.4.8: still)
+					if (g_pot && u.name.find("eek") == std::string::npos) {
 						const double boil = Clamp((g_pot->Temp() - 0.35) / 0.5, 0.0, 1.0);
 						const double ph = g_clock * (1.3 + 0.9 * Hash(b, 43)) + Hash(b, 44) * 6.283;
 						at.z += (0.1 + 0.16 * boil) * std::sin(ph);
