@@ -3925,7 +3925,10 @@ namespace Cook
 				// a cabbage in the pot: its leaves are open shells, and cut to bits (and sinking, tumbling) they showed as
 				// loose shards - in the pot each bit is drawn as what chopped cabbage is: a few thin, curved layers of leaf, cut
 				// square, in strips or wedges, stacked a little apart (about its size)
-				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && u.name.find("abbage") != std::string::npos) {
+				// a cabbage or a leek in the pot: drawn as what they are chopped - thin curved bits of leaf - not their own meshes cut
+				// up (open leaves and loose layers, which floated as shards and fanned strips however they were cut)
+				const bool leekBits = u.name.find("eek") != std::string::npos;
+				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && (u.name.find("abbage") != std::string::npos || leekBits)) {
 					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
 					double       lo[3], hi[3];
 					for (int ax = 0; ax < 3; ++ax) {
@@ -3957,7 +3960,9 @@ namespace Cook
 						const Vec3 mid{ (lo[0] + hi[0]) * 0.5 + (m - 0.5) * 0.5 * (hi[0] - lo[0]) + (Hash(j, 87) - 0.5) * 0.6,
 							(lo[1] + hi[1]) * 0.5 + (m - 0.5) * 0.5 * (hi[1] - lo[1]) + (Hash(j, 88) - 0.5) * 0.6, (lo[2] + hi[2]) * 0.5 };
 						// (a thin slice across a wide head: sized between the two)
-						const double size = std::sqrt((hi[0] - lo[0]) * (hi[1] - lo[1])) * 1.0 * (0.8 + 0.35 * Hash(j, 83));
+						// (a leek's piece: the slice's length along it, about the stalk across - its fanned leaves aren't counted)
+						const double size = leekBits ? Clamp((hi[0] - lo[0]) * 1.4, 0.5, u.boardLen * 0.12) * (0.8 + 0.35 * Hash(j, 83))
+						                             : std::sqrt((hi[0] - lo[0]) * (hi[1] - lo[1])) * 1.0 * (0.8 + 0.35 * Hash(j, 83));
 						// floating near flat in the broth, each turned and tipped a little its own way
 						const Quat q = RotZ(Hash(j, 84) * 6.283 + g_spin) * RotX((Hash(j, 85) - 0.5) * 0.45) * RotY((Hash(j, 86) - 0.5) * 0.35);
 						Scene::Place(leaf, c + frame.Rotate(mid), q, static_cast<float>(size));
@@ -3971,11 +3976,15 @@ namespace Cook
 						// its texture's dark patches lifted to a pale leaf green (they read as shadows on it), wilting
 						// toward the broth's colour as it cooks
 						static constexpr float kLeaf[3] = { 0.8f, 0.88f, 0.62f };
+						// (a leek: pale near the root, green toward the leaves - by where the piece was along it)
+						static constexpr float kLeekWhite[3] = { 0.9f, 0.93f, 0.78f }, kLeekGreen[3] = { 0.45f, 0.62f, 0.3f };
+						const float g = leekBits ? static_cast<float>(Clamp(((lo[0] + hi[0]) * 0.5 / (std::max)(shrink, 1e-3) / u.boardLen + 0.5 - 0.45) / 0.3, 0.0, 1.0)) : 0.0f;
 						for (int k = 0; k < 3; ++k) {
 							cl.tint[k] = lk.tint[k];
-							cl.lift[k] = kLeaf[k] * 0.7f + lk.lift[k] * 0.3f;
+							const float leaf = leekBits ? kLeekWhite[k] * (1.0f - g) + kLeekGreen[k] * g : kLeaf[k];
+							cl.lift[k] = leaf * 0.7f + lk.lift[k] * 0.3f;
 						}
-						cl.lift[3] = 0.35f + lk.lift[3];
+						cl.lift[3] = (leekBits ? 0.6f : 0.35f) + lk.lift[3];
 						cl.shadow = false;
 						PotHollow(cl, true);
 					}
