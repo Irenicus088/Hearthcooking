@@ -1044,6 +1044,14 @@ namespace Cook
 					} else if (!u.model.empty()) {
 						Kit::SetIngredientMesh(u.name, u.model);
 					}
+					// a leek: our own, solid all through (the game's is loose layers and open leaves, which cut into shards)
+					{
+						std::string ln = u.name;
+						std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						if (ln.find("leek") != std::string::npos) {
+							u.model = "Hearthcooking\\Leek.nif";
+						}
+					}
 					{
 						std::string ln = u.name;
 						std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -3927,7 +3935,7 @@ namespace Cook
 				// square, in strips or wedges, stacked a little apart (about its size)
 				// a cabbage or a leek in the pot: drawn as what they are chopped - thin curved bits of leaf - not their own meshes cut
 				// up (open leaves and loose layers, which floated as shards and fanned strips however they were cut)
-				const bool leekBits = u.name.find("eek") != std::string::npos;
+				const bool leekBits = false;  // (a leek is our own solid one now: it cuts cleanly, its pieces are drawn as they are)
 				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && (u.name.find("abbage") != std::string::npos || leekBits)) {
 					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
 					double       lo[3], hi[3];
@@ -5713,7 +5721,7 @@ namespace Cook
 			// the kitchen's own meshes read in now, not as it opens
 			std::vector<std::string> ours;
 			for (const char* n : { "Board", "Bowl", "Broth", "Cap", "Chunk", "Cloth", "Dough", "DoughDisk", "FirePit", "Hull", "Knife", "Ladle", "Log", "OvenBase", "OvenDome",
-					 "OvenDoor", "OvenDoorArch", "Peel", "PieCrimp", "Plate", "Pot", "RollingPin", "Room", "SaltBowl", "SpitCrank", "SpitPosts", "SpitRod", "Spoon", "Worktop" }) {
+					 "OvenDoor", "OvenDoorArch", "Peel", "PieCrimp", "Plate", "Pot", "RollingPin", "Room", "SaltBowl", "SpitCrank", "SpitPosts", "SpitRod", "Spoon", "Worktop", "Leek" }) {
 				ours.push_back(fmt::format("Hearthcooking\\{}.nif", n));
 			}
 			for (int k = 0; k < 9; ++k) {

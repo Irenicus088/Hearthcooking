@@ -256,8 +256,11 @@ bool CutFace(VSOut i, out float3 q, out float3 n)
 		// dark inside of the skin wherever they did; only a leaf or a stem stands this far out
 		float ay = abs(ly), az = abs(lz);
 		if (flesh.w > 1.5) {
-			// a core: its cut face is exactly its own section, nothing past it
-			if (lx * lx + ly * ly + lz * lz > 1.02) return false;
+			// a core: its cut face is exactly its own section, nothing past it - a round all along a leek or a carrot (an
+			// ellipsoid narrows to nothing toward their ends, and the slices from there came out hollow)
+			if (shape[0].w > 0.75 && shape[0].w < 1.5) {
+				if (ly * ly + lz * lz > 1.02 || lx > 1.02) return false;
+			} else if (lx * lx + ly * ly + lz * lz > 1.02) return false;
 		} else if (shape[0].w < 0.75) {
 			// a cabbage: a round head of leaves, its section a tight round too
 			if (lx * lx + ay * ay + az * az > 1.0) return false;

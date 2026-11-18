@@ -308,21 +308,23 @@ def cabbage():
 def leek():
     f1, f2, f3 = (Field(700 + k) for k in range(3))
     u, v = X * 0.5 + 0.5, Y * 0.5 + 0.5
-    # across: tight rings of sheath round the heart, white in, pale green out, a thin line between each
-    rw = R + 0.02 * (f1(u * 3, v * 3) - 0.5) + 0.012 * np.sin(A * 2 + f2(u, v) * 4)
-    t = rw * 9 + 0.3 * (f3(u, v) - 0.5)
+    # across (as a sliced leek): tight rings of sheath round a heart, creamy white outside going to a fresh yellow-green
+    # in the middle, each ring parted from the next by a fine, slightly darker line
+    rw = R + 0.012 * (f1(u * 3, v * 3) - 0.5) + 0.008 * np.sin(A * 2 + f2(u, v) * 4)
+    t = rw * 10.5 + 0.25 * (f3(u, v) - 0.5)
     ring = np.mod(t, 1.0)
-    cross = mix((250, 250, 238), (214, 230, 170), smooth(0.25, 0.95, rw))
-    cross = mix(cross, (168, 196, 120), ridge(ring, 0.06) * (0.4 + 0.5 * smooth(0.2, 1.0, rw)))
-    cross = mix(cross, (236, 244, 214), (1 - smooth(0.04, 0.09, R)))
-    cross = mix(cross, (150, 180, 100), smooth(0.97, 1.0, R))  # its outer skin
+    inner = 1 - smooth(0.12, 0.62, rw)
+    cross = mix((246, 246, 234), (206, 226, 120), inner)
+    cross = mix(cross, (222, 236, 160), (1 - smooth(0.0, 0.1, rw)) * 0.6)  # the very heart, a little paler
+    cross = mix(cross, (172, 190, 120), ridge(ring, 0.05) * (0.35 + 0.35 * smooth(0.1, 0.9, rw)))
+    cross = mix(cross, (236, 238, 214), smooth(0.93, 0.99, R))  # its outer skin, a pale edge
     cross *= (0.97 + 0.06 * f1(u * 18, v * 18))[..., None]
-    # along: the sheaths as long straight stripes
-    ay = np.abs(Y) + 0.01 * (f1(u * 4, v) - 0.5)
-    t2 = ay * 9 + 0.2 * (f3(u * 0.5, v) - 0.5)
-    along = mix((250, 250, 238), (214, 230, 170), smooth(0.25, 0.95, ay))
-    along = mix(along, (168, 196, 120), ridge(np.mod(t2, 1.0), 0.06) * (0.4 + 0.5 * smooth(0.2, 1.0, ay)))
-    along = mix(along, (150, 180, 100), smooth(0.97, 1.0, ay))
+    # along: the sheaths as long straight stripes, yellow-green in the middle
+    ay = np.abs(Y) + 0.008 * (f1(u * 4, v) - 0.5)
+    t2 = ay * 10.5 + 0.2 * (f3(u * 0.5, v) - 0.5)
+    along = mix((246, 246, 234), (206, 226, 120), 1 - smooth(0.12, 0.62, ay))
+    along = mix(along, (172, 190, 120), ridge(np.mod(t2, 1.0), 0.05) * (0.35 + 0.35 * smooth(0.1, 0.9, ay)))
+    along = mix(along, (236, 238, 214), smooth(0.93, 0.99, ay))
     along *= (0.97 + 0.06 * f1(u * 30, v * 6))[..., None]
     save("leek", cross, along)
 
