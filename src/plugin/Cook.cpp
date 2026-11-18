@@ -4,6 +4,7 @@
 
 #include "Audio.h"
 #include "Config.h"
+#include <unordered_set>
 #include "Kit.h"
 #include "Overlay.h"
 #include "Recipes.h"
@@ -322,7 +323,11 @@ namespace Cook
 		bool   g_doughOnBoard = false;     // the dough out on the board (kneaded, filled, folded there)
 		// a dumpling isn't crimped: its four sides are folded up over the filling, one at a time
 		double g_fold[4]{}, g_foldWant[4]{};
-		double g_flareAt = -10.0, g_flareX = 0.0, g_dripNext = 0.0;  // the spit's fat dripping into the fire, and its flare-up
+		double g_flareAt = -10.0, g_flareX = 0.0, g_dripNext = 0.0;
+		// the spit's fat dripping into the fire, and its flare-up (above); pieces of leek in the pot drawn from our own solid
+		// leek (along x, 16 long, its middle at 0)
+		std::unordered_set<Scene::Id> g_ownLeek;
+		constexpr double kOwnLeekThin = 0.6;  // (ours across, to the game's: its stalk a sixteenth of its length across, as the game's is)
 		double g_flat = 0.0;                 // a dumpling's dough rolled out square (0 a ball .. 1 flat)
 		double g_bowlTip = 0.0;              // the fruit bowl lifted and tipped over the dough
 		bool   g_bowlPoured = false;
@@ -1044,14 +1049,6 @@ namespace Cook
 					} else if (!u.model.empty()) {
 						Kit::SetIngredientMesh(u.name, u.model);
 					}
-					// a leek: our own, solid all through (the game's is loose layers and open leaves, which cut into shards)
-					{
-						std::string ln = u.name;
-						std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-						if (ln.find("leek") != std::string::npos) {
-							u.model = "Hearthcooking\\Leek.nif";
-						}
-					}
 					{
 						std::string ln = u.name;
 						std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -1193,7 +1190,16 @@ namespace Cook
 			std::copy(std::begin(a_box), std::end(a_box), p.box);
 			p.mid = a_mid;
 			p.cut = a_cut;
-			p.prop = AddUnitMesh(u);
+			// a leek, into the pot: from our own solid leek (the game's is loose layers and open leaves, which floated as
+			// shards and fanned strips once cut up); on the cloth and the board it's the game's own
+			if (u.name.find("eek") != std::string::npos) {
+				p.prop = Add("Leek");
+				if (p.prop >= 0) {
+					g_ownLeek.insert(p.prop);
+				}
+			} else {
+				p.prop = AddUnitMesh(u);
+			}
 			if (p.prop < 0) {
 				p.prop = Add("Chunk");  // its mesh won't load: a plain piece
 			}
@@ -1329,6 +1335,7 @@ namespace Cook
 			g_pinch = 0;
 			g_door = g_doorWant = 1.0;
 			g_doorShut = g_doorReopened = false;
+			g_ownLeek.clear();
 			g_doughParts = 0;
 			g_rolled = false;
 			g_mix = 0.0;
@@ -3294,9 +3301,13 @@ namespace Cook
 			for (int k = 0; k < 6; ++k) {
 				a_box[k] = std::abs(a_boxIn[k]) < 1e6 ? a_boxIn[k] * a_f : a_boxIn[k];
 			}
-			const double s = u.boardLen / u.dims[0] * a_f;
-			const Quat   q = a_frame * u.lie;
-			Scene::Place(a_id, a_c - q.Rotate(u.center) * s, q, static_cast<float>(s));
+			const bool   own = g_ownLeek.count(a_id) > 0;  // (our leek: already along x, its middle at 0, 16 long)
+			const double s = (own ? u.boardLen / 16.0 : u.boardLen / u.dims[0]) * a_f;
+			const Quat   q = own ? a_frame : a_frame * u.lie;
+			Scene::Place(a_id, a_c - (own ? Vec3{} : q.Rotate(u.center)) * s, q, static_cast<float>(s));
+			if (own) {
+				Scene::Stretch(a_id, 1.0f, static_cast<float>(kOwnLeekThin), static_cast<float>(kOwnLeekThin));  // (as thick as the game's leek)
+			}
 			Scene::Hide(a_id, false);
 			auto& lk = Scene::LookOf(a_id);
 			ClipTo(lk, a_c, a_frame, a_box, a_cut);
@@ -3317,7 +3328,10 @@ namespace Cook
 			}
 			// the solid: a box round the piece (the cell, within the thing's measured bounds); the renderer draws
 			// its cut faces exactly where they're inside the thing's own mesh
-			const double R[3] = { u.boardLen * 0.5 * a_f, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * a_f, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * a_f };
+			double R[3] = { u.boardLen * 0.5 * a_f, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * a_f, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * a_f };
+			if (own) {
+				R[1] = R[2] = 0.95 * kOwnLeekThin * u.boardLen / 16.0 * a_f;  // (our leek's stalk: its rings fill the cut face)
+			}
 			double       lo[3], hi[3];
 			for (int ax = 0; ax < 3; ++ax) {
 				lo[ax] = (std::max)(a_box[ax * 2], -R[ax]);
