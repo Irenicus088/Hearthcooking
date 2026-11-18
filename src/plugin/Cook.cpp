@@ -3956,7 +3956,12 @@ namespace Cook
 				// square, in strips or wedges, stacked a little apart (about its size)
 				// a cabbage or a leek in the pot: drawn as what they are chopped - thin curved bits of leaf - not their own meshes cut
 				// up (open leaves and loose layers, which floated as shards and fanned strips however they were cut)
-				const bool leekBits = false;  // (a leek is our own solid one now: it cuts cleanly, its pieces are drawn as they are)
+				// (a leek's stalk is our own solid one: its slices drawn as they are. Its leafy part - from a third of the way along
+				// from the root - is chopped greens: curved bits of leaf, not the thin flat leaf blades cut short)
+				bool leekBits = false;
+				if (u.name.find("eek") != std::string::npos && std::abs(pc.box[0]) < 1e6 && std::abs(pc.box[1]) < 1e6) {
+					leekBits = (pc.box[0] + pc.box[1]) * 0.5 / u.boardLen + 0.5 > 0.36;
+				}
 				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && (u.name.find("abbage") != std::string::npos || leekBits)) {
 					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
 					double       lo[3], hi[3];
@@ -3990,7 +3995,7 @@ namespace Cook
 							(lo[1] + hi[1]) * 0.5 + (m - 0.5) * 0.5 * (hi[1] - lo[1]) + (Hash(j, 88) - 0.5) * 0.6, (lo[2] + hi[2]) * 0.5 };
 						// (a thin slice across a wide head: sized between the two)
 						// (a leek's piece: the slice's length along it, about the stalk across - its fanned leaves aren't counted)
-						const double size = leekBits ? Clamp((hi[0] - lo[0]) * 1.4, 0.5, u.boardLen * 0.12) * (0.8 + 0.35 * Hash(j, 83))
+						const double size = leekBits ? Clamp((hi[0] - lo[0]) * 1.5, 0.55, u.boardLen * 0.11) * (0.8 + 0.35 * Hash(j, 83))
 						                             : std::sqrt((hi[0] - lo[0]) * (hi[1] - lo[1])) * 1.0 * (0.8 + 0.35 * Hash(j, 83));
 						// floating near flat in the broth, each turned and tipped a little its own way
 						const Quat q = RotZ(Hash(j, 84) * 6.283 + g_spin) * RotX((Hash(j, 85) - 0.5) * 0.45) * RotY((Hash(j, 86) - 0.5) * 0.35);
@@ -4006,8 +4011,8 @@ namespace Cook
 						// toward the broth's colour as it cooks
 						static constexpr float kLeaf[3] = { 0.8f, 0.88f, 0.62f };
 						// (a leek: pale near the root, green toward the leaves - by where the piece was along it)
-						static constexpr float kLeekWhite[3] = { 0.9f, 0.93f, 0.78f }, kLeekGreen[3] = { 0.45f, 0.62f, 0.3f };
-						const float g = leekBits ? static_cast<float>(Clamp(((lo[0] + hi[0]) * 0.5 / (std::max)(shrink, 1e-3) / u.boardLen + 0.5 - 0.45) / 0.3, 0.0, 1.0)) : 0.0f;
+						static constexpr float kLeekWhite[3] = { 0.8f, 0.88f, 0.55f }, kLeekGreen[3] = { 0.5f, 0.66f, 0.3f };
+						const float g = leekBits ? static_cast<float>(0.55 + 0.45 * Clamp(((lo[0] + hi[0]) * 0.5 / (std::max)(shrink, 1e-3) / u.boardLen + 0.5 - 0.36) / 0.3, 0.0, 1.0)) : 0.0f;
 						for (int k = 0; k < 3; ++k) {
 							cl.tint[k] = lk.tint[k];
 							const float leaf = leekBits ? kLeekWhite[k] * (1.0f - g) + kLeekGreen[k] * g : kLeaf[k];
