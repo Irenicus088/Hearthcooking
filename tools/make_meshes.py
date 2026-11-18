@@ -1031,47 +1031,49 @@ def pastry_edges():
 
 
 def leek():
-    """A leek of our own, solid all through (the game's is loose layers and open leaves, which cut into shards): along x,
-    the root end at -8, a white stalk a sixteenth of its length across, paling to green and opening into three broad
-    leaves at the far end, each leaf closed (a flattened blade). Its skin texture runs root (v 0) to tip (v 1)."""
+    """A leek of our own, solid all through (the game's is loose layers and open leaves, which cut into shards), made to
+    look like the game's: along x, the root end at -8, a slim cream stalk to a little before its middle, then a fan of
+    long, narrow dark-green leaves - each a closed, flattened blade. The kitchen draws it a little thinner across (0.6).
+    Its skin texture runs root (v 0) to tip (v 1)."""
     L0, L1 = -8.0, 8.0
+    XS = -1.0  # where the leaves part from the stalk (the game's: about 44% along from the root)
     m = Mesh()
-    # the stalk: a lathe along x from the root's rounded end into the bundle where the leaves part
     prof = []
-    for k in range(0, 7):  # the rounded root end
+    for k in range(0, 7):  # the rounded root end, a touch fuller (the bulb)
         a = math.pi / 2 * k / 6
-        prof.append((0.86 * math.sin(a) * (0.9 + 0.1 * math.sin(a)), L0 + 0.5 * (1 - math.cos(a))))
-    for x in np.linspace(L0 + 0.6, 1.5, 24):
-        t = (x - (L0 + 0.6)) / (1.5 - (L0 + 0.6))
-        prof.append((0.86 + 0.08 * t, float(x)))
-    prof.append((0.94, 1.5))
-    prof.append((0.0, 1.55))
+        prof.append((0.95 * math.sin(a), L0 + 0.6 * (1 - math.cos(a))))
+    for x in np.linspace(L0 + 0.7, XS + 0.4, 26):
+        t = (x - (L0 + 0.7)) / (XS + 0.4 - (L0 + 0.7))
+        prof.append((0.95 - 0.12 * t + 0.05 * t * t, float(x)))
+    prof.append((0.88, XS + 0.45))
+    prof.append((0.0, XS + 0.5))
     lth = Mesh()
     lth.lathe(prof, 32, axis="x", vrep=1.0)
-    # its v as the place along the leek (root 0, tip 1), not along the profile
     for i, (p, uv, n, t, b) in enumerate(lth.V):
         lth.V[i] = (p, (uv[0], (p[0] - L0) / (L1 - L0)), n, t, b)
     base = len(m.V)
     m.V += lth.V
     m.I += [base + k for k in lth.I]
-    # three leaves out of the top, fanning a little apart: each a closed, flattened, tapering blade
-    for j, (yaw, roll) in enumerate(((-0.13, 0.0), (0.0, 1.05), (0.14, 2.1))):
-        nu, nv = 18, 14
+    # the leaves: seven long, narrow blades fanning out flat from the stalk's top, a little longer and shorter
+    blades = [(-0.42, 0.15, 0.96), (-0.27, 0.0, 1.0), (-0.12, 0.3, 0.92), (0.0, -0.1, 1.0), (0.13, 0.25, 0.94), (0.28, -0.05, 0.98), (0.43, 0.2, 0.9)]
+    for j, (yaw, roll, ln) in enumerate(blades):
+        nu, nv = 20, 10
+        x0, x1 = XS, XS + (L1 - XS) * ln
         rows = []
         for i in range(nu + 1):
             s_ = i / nu
-            x = 1.45 + s_ * (L1 - 1.45)
-            w = 0.95 * (1 - s_ ** 2.2) + 0.12        # broad, then to a blunt point
-            th = 0.16 * (1 - s_) + 0.04               # thin
-            off = math.sin(yaw) * (x - 1.45) * (0.6 + 0.6 * s_)  # fanning apart
-            sag = -0.25 * s_ * s_                      # drooping a little
+            x = x0 + s_ * (x1 - x0)
+            w = 0.42 * (1 - s_ ** 3) + 0.05      # narrow, then to a point
+            th = 0.09 * (1 - s_) + 0.03          # thin
+            off = math.sin(yaw) * (x - x0) * (0.4 + 0.8 * s_)  # fanning apart, more toward the tips
+            lift = 0.1 * math.sin(j * 1.7) * s_   # some a little higher than others
             row = []
             for k in range(nv):
                 a = 2 * math.pi * k / nv
-                yy, zz = w * math.cos(a), th * math.sin(a) + 0.06 * math.cos(a) ** 2  # (folded a touch along its middle)
+                yy, zz = w * math.cos(a), th * math.sin(a) + 0.05 * math.cos(a) ** 2
                 cr, sr = math.cos(roll), math.sin(roll)
                 y, z = yy * cr - zz * sr, yy * sr + zz * cr
-                p = (x, y + off, z + sag)
+                p = (x, y + off, z + lift)
                 n = (0.0, math.cos(a) * th * cr - math.sin(a) * w * sr, math.cos(a) * th * sr + math.sin(a) * w * cr)
                 row.append(m.v(p, (k / nv, (x - L0) / (L1 - L0)), n, (1, 0, 0)))
             rows.append(row)
@@ -1079,39 +1081,37 @@ def leek():
             for k in range(nv):
                 a, b, c, d = rows[i][k], rows[i + 1][k], rows[i + 1][(k + 1) % nv], rows[i][(k + 1) % nv]
                 m.I += [a, b, c, a, c, d]
-        # its tip closed
-        tip = m.v((L1 + 0.05, math.sin(yaw) * (L1 - 1.45) * 1.2, -0.25), (0.5, 1.0), (1, 0, 0), (0, 1, 0))
+        tipx = x1 + 0.05
+        tip = m.v((tipx, math.sin(yaw) * (tipx - x0) * 1.2, 0.1 * math.sin(j * 1.7)), (0.5, (tipx - L0) / (L1 - L0)), (1, 0, 0), (0, 1, 0))
         for k in range(nv):
             m.I += [rows[-1][k], tip, rows[-1][(k + 1) % nv]]
-    nif("Leek", [("Leek", m, "leek_skin", (0.35, 30))])
+    nif("Leek", [("Leek", m, "leek_skin", (0.3, 25))])
 
-    # its skin: root (v 0) to tip (v 1) - a pale root end with a tuft, white stalk with fine streaks, paling through
-    # yellow-green into the dark green leaves
+    # its skin, root (v 0) to tip (v 1), as the game's looks: a pale beige root, a cream stalk, a short pale-green
+    # turn where the leaves part, then dark green leaves with fine lengthwise streaks
     H, W = 1024, 256
     v = (np.arange(H)[:, None] + 0.5) / H
-    u = (np.arange(W)[None, :] + 0.5) / W
-    g = np.random.default_rng(11)
-    streak = np.clip(fbm((H, W), 4, 6, 12, (1, 12)) if 'fbm' in globals() else g.random((H, W)), 0, 1)
-    white = np.array([238, 240, 226], float)
-    pale = np.array([214, 228, 168], float)
-    green = np.array([82, 120, 62], float)
-    deep = np.array([58, 92, 52], float)
+    streak = np.clip(fbm((H, W), 4, 6, 12, (1, 12)), 0, 1)
+    cream = np.array([226, 222, 184], float)
+    pale = np.array([196, 206, 140], float)
+    green = np.array([66, 96, 46], float)
+    deep = np.array([50, 74, 38], float)
     def ss(a, b, x):
         t = np.clip((x - a) / (b - a), 0, 1)
         return t * t * (3 - 2 * t)
-    t1 = ss(0.42, 0.56, v)
-    t2 = ss(0.55, 0.66, v)
-    col = white * (1 - t1)[..., None] + pale * t1[..., None]
+    xs = (XS - L0) / (L1 - L0)
+    t1 = ss(xs - 0.1, xs, v)
+    t2 = ss(xs - 0.02, xs + 0.06, v)
+    col = cream * (1 - t1)[..., None] + pale * t1[..., None]
     col = col * (1 - t2)[..., None] + green * t2[..., None]
-    col = col * (1 - ss(0.8, 1.0, v)[..., None] * 0.35) + deep * (ss(0.8, 1.0, v)[..., None] * 0.35)
-    col = col * (0.9 + 0.16 * streak[..., None])
-    root = ss(0.035, 0.0, v)
-    col = col * (1 - root[..., None]) + np.array([196, 182, 150], float) * root[..., None]
+    col = col * (1 - ss(0.75, 1.0, v)[..., None] * 0.4) + deep * (ss(0.75, 1.0, v)[..., None] * 0.4)
+    col = col * (0.88 + 0.18 * streak[..., None])
+    root = ss(0.04, 0.0, v)
+    col = col * (1 - root[..., None]) + np.array([190, 172, 132], float) * root[..., None]
     col = np.broadcast_to(col, (H, W, 3)).copy()
     out = os.path.join(ROOT, "textures", "Hearthcooking")
     dds(os.path.join(out, "leek_skin.dds"), to_img(col), "DXT1")
-    hgt = streak * np.ones((H, W))
-    dds(os.path.join(out, "leek_skin_n.dds"), normal_from_height(hgt, 1.5, 40), "DXT5")
+    dds(os.path.join(out, "leek_skin_n.dds"), normal_from_height(streak, 1.5, 40), "DXT5")
     print("texture leek_skin")
 
 
