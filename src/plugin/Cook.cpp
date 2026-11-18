@@ -160,7 +160,7 @@ namespace Cook
 			bool      onDough = false;  // the oven: set on the dough, here (from its middle)
 			Vec3      doughOff;
 			double    turn = 0.0;
-			Scene::Id alt = -1;  // a leek's piece of our own solid leek, waiting: it takes over once it rolls off the board
+			Scene::Id alt = -1;  // a leek's piece of our own solid leek, waiting: it takes over once it lands in the pot
 		};
 
 		struct Grain
@@ -1195,7 +1195,7 @@ namespace Cook
 			// shards and fanned strips once cut up); on the cloth and the board it's the game's own
 			p.prop = AddUnitMesh(u);
 			if (u.name.find("eek") != std::string::npos) {
-				p.alt = Add("Leek");  // (the game's own while it's on the board; ours once it rolls off)
+				p.alt = Add("Leek");  // (the game's own on the board and falling; ours once it's in the pot)
 				if (p.alt >= 0) {
 					Scene::Hide(p.alt, true);
 					g_ownLeek.insert(p.alt);
@@ -3850,8 +3850,8 @@ namespace Cook
 			for (int b = 0; b < g_chunks.Count() && b < static_cast<int>(g_pieces.size()); ++b) {
 				const auto& body = g_chunks.At(b);
 				auto&       pc = g_pieces[b];
-				// a leek's piece rolling off the board: from here on, our own solid leek's
-				if (pc.alt >= 0 && body.state != hc::Chunks::State::Board && body.state != hc::Chunks::State::None) {
+				// a leek's piece landing in the pot: from here on, our own solid leek's (as the cabbage turns to its bits there)
+				if (pc.alt >= 0 && body.state == hc::Chunks::State::Pot) {
 					Scene::Hide(pc.prop, true);
 					std::swap(pc.prop, pc.alt);
 					pc.alt = -1;
