@@ -5091,7 +5091,16 @@ namespace Cook
 				const auto        best = Recipes::Best(*r, any);
 				const char*       mark = r->flow == hc::Flow::Pot ? "pot" : r->flow == hc::Flow::Spit ? "spit" : "oven";
 				const std::string tag = any ? fmt::format("{} - {}", mark, hc::TierName(best)) : mark;
-				Text(dl, F.bookIt, ImVec2(b.x - Measure(F.bookIt, tag, 0) - S(4), a.y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(any && best == hc::Tier::Masterwork ? kRubric : kInkSoft, can ? 1.0f : 0.6f), tag);
+				const float       tagX = b.x - Measure(F.bookIt, tag, 0) - S(4);
+				Text(dl, F.bookIt, ImVec2(tagX, a.y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(any && best == hc::Tier::Masterwork ? kRubric : kInkSoft, can ? 1.0f : 0.6f), tag);
+				// where it's from, small after the name, when there's room before the tag
+				if (!r->source.empty()) {
+					const std::string src = fmt::format("({})", r->source);
+					const float       sx = a.x + S(14) + Measure(F.book, r->name, 0) + S(8);
+					if (sx + Measure(F.bookIt, src, 0) < tagX - S(10)) {
+						Text(dl, F.bookIt, ImVec2(sx, a.y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(kInkSoft, can ? 0.7f : 0.45f), src);
+					}
+				}
 				y += rowH;
 			}
 			ImGui::End();
@@ -5109,6 +5118,10 @@ namespace Cook
 				                : r->pie                    ? "A pie: dough, filling, a crimped edge, baked"
 				                                            : "Kneaded and baked in the oven";
 				TextC(dl, F.bookIt, rp.x + pw * 0.5f, ry, kInkSoft, how);
+				if (!r->source.empty()) {
+					ry += S(22);
+					TextC(dl, F.bookIt, rp.x + pw * 0.5f, ry, Alpha(kInkSoft, 0.75f), "From " + r->source);
+				}
 				ry += S(34);
 				FadeRule(dl, rp.x + S(40), rp.x + pw - S(40), ry, 0.5f, kInkSoft);
 				ry += S(18);

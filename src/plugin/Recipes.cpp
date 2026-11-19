@@ -44,6 +44,63 @@ namespace Recipes
 			return dh ? dh->LookupForm<RE::AlchemyItem>(EspIds::kFirstDish + static_cast<RE::FormID>(a_k), EspIds::kPlugin) : nullptr;
 		}
 
+		// A plugin's short name: the game and its DLC, Creation Club and the unofficial patches are "Vanilla"; the
+		// well-known food mods by the names people call them; anything else by its file name
+		std::string ShortName(const RE::TESFile* a_f)
+		{
+			if (!a_f) {
+				return "Vanilla";
+			}
+			const std::string file = a_f->GetFilename().data();
+			const std::string low = Lower(file);
+			for (const char* v : { "skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.esm", "dragonborn.esm" }) {
+				if (low == v) {
+					return "Vanilla";
+				}
+			}
+			if ((low.rfind("cc", 0) == 0 && low.find("sse0") != std::string::npos) || low.find("unofficial skyrim") != std::string::npos) {
+				return "Vanilla";
+			}
+			static const std::pair<const char*, const char*> kKnown[] = { { "complete alchemy & cooking overhaul", "CACO" }, { "gourmet", "Gourmet" },
+				{ "legacyofthedragonborn", "LotD" }, { "hunterborn", "Hunterborn" }, { "bsheartland", "Bruma" }, { "bsassets", "Bruma" },
+				{ "campfire", "Campfire" }, { "frostfall", "Frostfall" }, { "sunhelm", "SunHelm" }, { "ineed", "iNeed" },
+				{ "realisticneeds", "RND" }, { "hearthcooking", "Hearthcooking" } };
+			for (const auto& [k, v] : kKnown) {
+				if (low.find(k) != std::string::npos) {
+					return v;
+				}
+			}
+			const auto dot = file.find_last_of('.');
+			return dot == std::string::npos ? file : file.substr(0, dot);
+		}
+
+		// Merged patches made by tools: they carry everything, so they don't count as an edit
+		bool IsMergePatch(const RE::TESFile* a_f)
+		{
+			const std::string low = a_f ? Lower(a_f->GetFilename().data()) : std::string();
+			return low.find("bashed patch") != std::string::npos || low.find("smashed patch") != std::string::npos ||
+			       low.find("synthesis") != std::string::npos || low == "zpatch.esp";
+		}
+
+		// Where a recipe is from, and the last mod that changed it, if one did
+		std::string SourceOf(const RE::TESForm* a_form)
+		{
+			const auto* files = a_form ? a_form->sourceFiles.array : nullptr;
+			const std::string origin = ShortName(a_form ? a_form->GetFile(0) : nullptr);
+			if (!files || files->size() < 2) {
+				return origin;
+			}
+			for (auto i = static_cast<std::int64_t>(files->size()) - 1; i >= 1; --i) {
+				const auto* f = (*files)[static_cast<std::uint32_t>(i)];
+				if (!f || IsMergePatch(f)) {
+					continue;
+				}
+				const std::string by = ShortName(f);
+				return by == origin ? origin : fmt::format("{}, edited by {}", origin, by);
+			}
+			return origin;
+		}
+
 		float ValueMult(hc::Tier t) { return t == hc::Tier::Burnt ? 0.25f : t == hc::Tier::Hearty ? 1.5f : t == hc::Tier::Masterwork ? 2.5f : 1.0f; }
 		float MagMult(hc::Tier t) { return t == hc::Tier::Burnt ? 0.5f : t == hc::Tier::Hearty ? 1.5f : t == hc::Tier::Masterwork ? 2.0f : 1.0f; }
 		float DurMult(hc::Tier t) { return t == hc::Tier::Burnt ? 0.5f : t == hc::Tier::Hearty ? 1.5f : t == hc::Tier::Masterwork ? 2.0f : 1.0f; }
@@ -238,6 +295,7 @@ namespace Recipes
 				r->cobj = cobj;
 				r->result = result;
 				r->name = result->GetName();
+				r->source = SourceOf(cobj);
 				r->makes = (std::max)(1, static_cast<int>(cobj->data.numConstructed));
 				const auto low = Lower(r->name);
 				if (low.find("garlic bread") != std::string::npos) {
@@ -341,6 +399,7 @@ namespace Recipes
 		std::vector<std::string> out;
 		for (const auto& r : g_recipes) {
 			out.push_back(r->name);
+			out.push_back(r->source);
 			for (const auto& in : r->ings) {
 				out.push_back(in.name);
 			}

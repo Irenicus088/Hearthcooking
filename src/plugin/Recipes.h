@@ -36,6 +36,7 @@ namespace Recipes
 		RE::BGSConstructibleObject* cobj = nullptr;
 		RE::TESBoundObject*         result = nullptr;
 		std::string                 name;
+		std::string                 source;  // where it's from: "Vanilla", "CACO", "Vanilla, edited by CACO"...
 		int                         makes = 1;
 		hc::Flow                    flow = hc::Flow::Pot;
 		bool                        oven = false;    // made at the oven (else the pot and spit)
