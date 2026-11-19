@@ -46,6 +46,7 @@ namespace Recipes
 	};
 
 	void OnDataLoaded();
+	std::vector<std::string> AllNames();  // every recipe's and ingredient's name (for the fonts' letters)
 
 	// The recipes made at this kind of station, cookable ones first, then by name
 	std::vector<const Recipe*> ForStation(bool a_oven);

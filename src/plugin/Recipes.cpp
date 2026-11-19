@@ -335,6 +335,19 @@ namespace Recipes
 		}
 	}
 
+	std::vector<std::string> AllNames()
+	{
+		std::lock_guard          lk(g_mtx);
+		std::vector<std::string> out;
+		for (const auto& r : g_recipes) {
+			out.push_back(r->name);
+			for (const auto& in : r->ings) {
+				out.push_back(in.name);
+			}
+		}
+		return out;
+	}
+
 	std::vector<const Recipe*> ForStation(bool a_oven)
 	{
 		std::lock_guard            lk(g_mtx);

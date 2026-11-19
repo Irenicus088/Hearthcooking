@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <set>
 #include <atomic>
 #include <chrono>
 #include <cmath>

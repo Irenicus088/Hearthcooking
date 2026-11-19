@@ -5,6 +5,7 @@
 #include "Audio.h"
 #include "Config.h"
 #include "Overlay.h"
+#include "Recipes.h"
 
 namespace Ui
 {
@@ -45,8 +46,78 @@ namespace Ui
 		const std::string ours = "Data\\SKSE\\Plugins\\Hearthcooking\\Fonts\\";
 		const std::string sys = std::string(windir) + "\\Fonts\\";
 		std::error_code   ec;
-		static const ImWchar kCaps[] = { 0x0020, 0x007E, 0 };
 		static const ImWchar kText[] = { 0x0020, 0x00FF, 0x2018, 0x201E, 0x2026, 0x2026, 0 };
+		static const ImWchar* kCaps = kText;
+		// The game's names in any language (translations keep them as UTF-8): the letters beyond Latin-1 they use,
+		// drawn from a Windows font that has them, merged into each of ours. Only the letters in use are built, so
+		// even Chinese or Korean names cost a few hundred glyphs, not tens of thousands.
+		std::vector<ImWchar>     extra;
+		{
+			std::set<ImWchar> cps;
+			for (const auto& n : Recipes::AllNames()) {
+				const char* p = n.c_str();
+				const char* e = p + n.size();
+				while (p < e) {
+					unsigned int c = 0;
+					const int    len = ImTextCharFromUtf8(&c, p, e);
+					if (len <= 0) {
+						break;
+					}
+					p += len;
+					if (c > 0xFF && c <= 0xFFFF && !(c >= 0x2018 && c <= 0x201E) && c != 0x2026) {
+						cps.insert(static_cast<ImWchar>(c));
+					}
+				}
+			}
+			extra.assign(cps.begin(), cps.end());
+		}
+		// a Windows font for each script: Korean, Chinese and Japanese, Thai, and the rest (Cyrillic, Greek, Latin Extended,
+		// Arabic, Hebrew...) from Arial / Segoe UI
+		struct Fallback
+		{
+			std::vector<const char*> files;
+			ImVector<ImWchar>        ranges;
+		};
+		std::vector<Fallback> fallbacks;
+		{
+			auto script = [](ImWchar c) -> int {
+				if ((c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x1100 && c <= 0x11FF) || (c >= 0x3130 && c <= 0x318F)) {
+					return 0;  // Hangul
+				}
+				if ((c >= 0x2E80 && c <= 0x9FFF) || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF00 && c <= 0xFFEF)) {
+					return 1;  // CJK, kana, full-width forms
+				}
+				if (c >= 0x0E00 && c <= 0x0E7F) {
+					return 2;  // Thai
+				}
+				return 3;
+			};
+			const std::vector<const char*> files[4] = { { "malgun.ttf", "gulim.ttc" },
+				{ "msyh.ttc", "YuGothM.ttc", "meiryo.ttc", "simsun.ttc", "msgothic.ttc" }, { "tahoma.ttf", "leelawui.ttf" },
+				{ "arial.ttf", "segoeui.ttf", "tahoma.ttf" } };
+			ImFontGlyphRangesBuilder b[4];
+			bool                     any[4]{};
+			for (const ImWchar c : extra) {
+				const int k = script(c);
+				b[k].AddChar(c);
+				any[k] = true;
+			}
+			for (int k = 0; k < 4; ++k) {
+				if (any[k]) {
+					Fallback f;
+					f.files = files[k];
+					b[k].BuildRanges(&f.ranges);
+					fallbacks.push_back(std::move(f));
+				}
+			}
+		}
+		static std::vector<ImVector<ImWchar>> s_ranges;  // the atlas reads the ranges when it builds
+		s_ranges.clear();
+		s_ranges.reserve(fallbacks.size());
+		for (auto& f : fallbacks) {
+			s_ranges.push_back(f.ranges);
+		}
+		int merged = 0;
 		auto load = [&](const char* a_file, const char* a_fallback, float a_size, const ImWchar* a_ranges) -> ImFont* {
 			std::string p = ours + a_file;
 			if (!std::filesystem::exists(p, ec)) {
@@ -58,7 +129,27 @@ namespace Ui
 			ImFontConfig fc;
 			fc.OversampleH = 2;
 			fc.OversampleV = 1;
-			return io.Fonts->AddFontFromFileTTF(p.c_str(), a_size * g_ui, &fc, a_ranges);
+			ImFont* font = io.Fonts->AddFontFromFileTTF(p.c_str(), a_size * g_ui, &fc, a_ranges);
+			if (font) {
+				for (size_t i = 0; i < fallbacks.size(); ++i) {
+					for (const char* file : fallbacks[i].files) {
+						const std::string fp = sys + file;
+						if (!std::filesystem::exists(fp, ec)) {
+							continue;
+						}
+						ImFontConfig mc;
+						mc.MergeMode = true;
+						mc.OversampleH = 1;
+						mc.OversampleV = 1;
+						mc.PixelSnapH = true;
+						if (io.Fonts->AddFontFromFileTTF(fp.c_str(), a_size * g_ui, &mc, s_ranges[i].Data)) {
+							++merged;
+						}
+						break;
+					}
+				}
+			}
+			return font;
 		};
 		F.sans = load("BarlowCondensed-Medium.ttf", "arialn.ttf", 20.0f, kText);
 		F.sansSemi = load("BarlowCondensed-SemiBold.ttf", "arialnb.ttf", 13.0f, kText);
@@ -88,7 +179,9 @@ namespace Ui
 		st.WindowPadding = ImVec2(0, 0);
 		st.Colors[ImGuiCol_WindowBg] = ImVec4(0, 0, 0, 0);
 		st.Colors[ImGuiCol_Text] = ImVec4(0.945f, 0.933f, 0.91f, 1.0f);
-		spdlog::info("Interface: scale {:.2f}, fonts {}", g_ui, std::filesystem::exists(ours + "BarlowCondensed-Medium.ttf", ec) ? "ours" : "Windows'");
+		spdlog::info("Interface: scale {:.2f}, fonts {}; {} letters beyond Latin-1 in the game's names, from {} Windows font(s)", g_ui,
+			std::filesystem::exists(ours + "BarlowCondensed-Medium.ttf", ec) ? "ours" : "Windows'", extra.size(), fallbacks.size());
+		(void)merged;
 	}
 
 	void LoadArt()
