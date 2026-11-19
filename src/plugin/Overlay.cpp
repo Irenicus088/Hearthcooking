@@ -47,7 +47,8 @@ namespace Overlay
 		// the game's own pointer (vanilla or a cursor mod's) is the one shown: ours follows it while the mouse is in use
 		std::atomic<bool> g_gameCur{ false };
 		float             g_lastGame[2]{ -1.0f, -1.0f };
-		bool              g_drewInMenu = false;  // drawn under the game's cursor this frame (from the menu), not at Present
+		bool              g_drewInMenu = false;
+		ID3D11Texture2D*  g_target = nullptr;  // the interface layer this frame is drawn into, when not the back buffer  // drawn under the game's cursor this frame (from the menu), not at Present
 		std::atomic<float> g_screenW{ 1920.0f }, g_screenH{ 1080.0f };
 		std::atomic<bool>  g_center{ true };
 		HWND               g_hwnd = nullptr;
@@ -648,10 +649,24 @@ namespace Overlay
 		}
 		ID3D11Resource*  res = nullptr;
 		ID3D11Texture2D* back = nullptr;
+		ID3D11Texture2D* layer = nullptr;
 		bound->GetResource(&res);
 		bound->Release();
 		g_sc->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back));
 		const bool same = res && back && res == back;
+		if (res && !same) {
+			// the interface draws into a layer of its own (Community Shaders' upscaling and frame generation
+			// composite it over the world themselves): the kitchen goes into that layer, or it would be painted over
+			res->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&layer));
+			if (layer) {
+				D3D11_TEXTURE2D_DESC d{};
+				layer->GetDesc(&d);
+				if (!(d.BindFlags & D3D11_BIND_RENDER_TARGET) || d.Width < 320 || d.Height < 200 || d.ArraySize != 1) {
+					layer->Release();
+					layer = nullptr;
+				}
+			}
+		}
 		if (res) {
 			res->Release();
 		}
@@ -659,18 +674,33 @@ namespace Overlay
 			back->Release();
 		}
 		static int s_logged = -1;
-		if (s_logged != static_cast<int>(same)) {
-			s_logged = static_cast<int>(same);
-			spdlog::info(same ? "Drawing the kitchen inside the interface (under the game's cursor)" :
-			                    "The interface draws off the back buffer: the kitchen is drawn at Present");
+		const int  how = same ? 1 : layer ? 2 : 0;
+		if (s_logged != how) {
+			s_logged = how;
+			if (how == 2) {
+				D3D11_TEXTURE2D_DESC d{};
+				layer->GetDesc(&d);
+				spdlog::info("The interface draws into its own layer ({}x{}, format {}): the kitchen is drawn into it", d.Width, d.Height,
+					static_cast<int>(d.Format));
+			} else {
+				spdlog::info(how == 1 ? "Drawing the kitchen inside the interface (under the game's cursor)" :
+				                        "The interface draws somewhere else: the kitchen is drawn at Present");
+			}
 		}
-		if (!same) {
+		if (!same && !layer) {
 			return;
 		}
+		g_target = layer;
+		Render3D::SetTarget(layer);
 		StateBackup st;
 		st.Save(g_ctx);
 		Frame();
 		st.Restore(g_ctx);
+		Render3D::SetTarget(nullptr);
+		g_target = nullptr;
+		if (layer) {
+			layer->Release();
+		}
 		g_drewInMenu = true;
 	}
 
@@ -695,7 +725,10 @@ namespace Overlay
 		}
 
 		ID3D11Texture2D* back = nullptr;
-		if (FAILED(sc->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back))) || !back) {
+		if (g_target) {
+			back = g_target;
+			back->AddRef();
+		} else if (FAILED(sc->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back))) || !back) {
 			return;
 		}
 		D3D11_TEXTURE2D_DESC bd{};
@@ -793,8 +826,27 @@ namespace Overlay
 		ImGui::Render();
 
 		Render3D::Draw(sc, g_dev, g_ctx);  // the kitchen, under the interface
-		ID3D11RenderTargetView* rtv = nullptr;
-		g_dev->CreateRenderTargetView(back, nullptr, &rtv);
+		ID3D11RenderTargetView*       rtv = nullptr;
+		D3D11_RENDER_TARGET_VIEW_DESC rvd{};
+		switch (bd.Format) {  // a typeless buffer needs its view typed
+		case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+			rvd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			break;
+		case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+			rvd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+			break;
+		case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+			rvd.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+			break;
+		case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+			rvd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			break;
+		default:
+			rvd.Format = bd.Format;
+			break;
+		}
+		rvd.ViewDimension = bd.SampleDesc.Count > 1 ? D3D11_RTV_DIMENSION_TEXTURE2DMS : D3D11_RTV_DIMENSION_TEXTURE2D;
+		g_dev->CreateRenderTargetView(back, &rvd, &rtv);
 		back->Release();
 		if (rtv) {
 			g_ctx->OMSetRenderTargets(1, &rtv, nullptr);

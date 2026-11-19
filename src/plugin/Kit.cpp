@@ -231,6 +231,16 @@ namespace Kit
 			while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) {
 				s.erase(s.begin());
 			}
+			// knives that don't work in the kitchen (a weapon's mesh, its parts cut wrongly): a saved choice of one
+			// is dropped, back to the usual knife
+			if (std::string_view(a_key) == "Knife") {
+				std::string low = s;
+				std::transform(low.begin(), low.end(), low.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+				if (low.find("morrowglass") != std::string::npos || low.find("mwgknife") != std::string::npos) {
+					spdlog::info("Kitchen: the saved knife {} isn't used (it doesn't cut right); back to the usual one", s);
+					return {};
+				}
+			}
 			return s;
 		}
 		double IniNum(const char* a_key, double a_def)
@@ -322,7 +332,8 @@ namespace Kit
 			std::set<std::string> seen;
 			for (const auto& f : forms) {
 				// not offered: draw knives, cleavers, Dwemer and ruins knives (not a cook's knife)
-				const bool notCook = Any(f.file, { "draw", "cleaver", "dwe", "ruins" }) || Any(f.name, { "draw", "cleaver", "dwemer", "embalm" });
+				const bool notCook = Any(f.file, { "draw", "cleaver", "dwe", "ruins", "morrowglass", "mwgknife" }) ||
+				                     Any(f.name, { "draw", "cleaver", "dwemer", "embalm" });
 				if ((Any(f.file, { "knife", "cleaver" }) || Any(f.name, { "knife", "cleaver" })) && seen.insert(f.path).second) {
 					if (!notCook) {
 						g_knives.push_back(f.shown);

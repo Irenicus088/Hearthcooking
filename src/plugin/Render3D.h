@@ -117,4 +117,7 @@ namespace Render3D
 
 	// Render thread (Present), before the interface draws.
 	void Draw(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11DeviceContext* a_ctx);
+	// Where Draw draws: the swap chain's buffer (null, the default), or the game's interface layer (Community Shaders
+	// and the like composite the interface themselves): there the world behind isn't in the picture, so it's veiled
+	void SetTarget(ID3D11Texture2D* a_target);
 }

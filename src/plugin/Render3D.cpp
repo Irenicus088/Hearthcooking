@@ -1477,10 +1477,17 @@ float4 PSComposite(FSOut i) : SV_Target
 		return true;
 	}
 
+	namespace
+	{
+		ID3D11Texture2D* g_target = nullptr;  // the interface layer, when drawing into it (not held)
+	}
+
+	void SetTarget(ID3D11Texture2D* a_target) { g_target = a_target; }
+
 	void Draw(IDXGISwapChain* a_sc, ID3D11Device* a_dev, ID3D11DeviceContext* c)
 	{
 		std::lock_guard lk(g_mtx);
-		if (g_failed || !a_sc || !a_dev || !c) {
+		if (g_failed || (!a_sc && !g_target) || !a_dev || !c) {
 			return;
 		}
 		if (!g_ready) {
@@ -1511,7 +1518,11 @@ float4 PSComposite(FSOut i) : SV_Target
 			return;
 		}
 		ID3D11Texture2D* back = nullptr;
-		if (FAILED(a_sc->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back))) || !back) {
+		const bool       layer = g_target != nullptr;
+		if (layer) {
+			back = g_target;
+			back->AddRef();
+		} else if (FAILED(a_sc->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back))) || !back) {
 			return;
 		}
 		D3D11_TEXTURE2D_DESC bdsc{};
@@ -1544,7 +1555,12 @@ float4 PSComposite(FSOut i) : SV_Target
 		c->PSSetSamplers(0, 3, smp);
 
 		// 1. the world behind: blurred and darkened, as Skyrim's menus do
-		if (g_frame.blur > 0.001f && bdsc.SampleDesc.Count == 1) {
+		if (layer) {
+			// the interface layer holds no world to blur: the menus under ours are wiped and the world, composited
+			// under the layer afterwards, darkened by it
+			const float veil[4] = { 0.0f, 0.0f, 0.0f, (std::min)(0.85f, 0.35f + g_frame.blur) };
+			c->ClearRenderTargetView(backRTV, veil);
+		} else if (g_frame.blur > 0.001f && bdsc.SampleDesc.Count == 1) {
 			c->CopyResource(g_bg, back);
 			const UINT  qw = (std::max)(1u, g_w / 4), qh = (std::max)(1u, g_h / 4);
 			const float down[4] = { 1.0f / g_w, 1.0f / g_h, 0, 0 };
