@@ -75,9 +75,10 @@ namespace Recipes
 				delete e;
 			}
 			slot.ours.clear();
-			// (burnt: none of them - it fills the belly, nothing more)
+			// (burnt: half as strong and half as long. Never none: the game's item card reads a potion's strongest
+			// effect without checking, and a dish with no effects crashes the inventory)
 			for (auto* e : a_base->effects) {
-				if (!e || a_tier == hc::Tier::Burnt) {
+				if (!e || !e->baseEffect) {
 					continue;
 				}
 				auto* n = new RE::Effect();
