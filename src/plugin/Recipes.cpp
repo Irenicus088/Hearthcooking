@@ -90,6 +90,31 @@ namespace Recipes
 				s->effects.push_back(n);
 				slot.ours.push_back(n);
 			}
+			if (s->effects.empty()) {
+				// a dish from a food mod with no effect the game can read: borrow the first food's that has one, weak
+				// and short, so the item card never meets an empty list
+				static RE::Effect* s_any = [] {
+					if (auto* dh = RE::TESDataHandler::GetSingleton()) {
+						for (auto* f : dh->GetFormArray<RE::AlchemyItem>()) {
+							if (f && f->IsFood() && !f->effects.empty() && f->effects[0] && f->effects[0]->baseEffect) {
+								return f->effects[0];
+							}
+						}
+					}
+					return static_cast<RE::Effect*>(nullptr);
+				}();
+				if (s_any) {
+					auto* n = new RE::Effect();
+					n->effectItem = s_any->effectItem;
+					n->effectItem.magnitude = (std::max)(1.0f, s_any->effectItem.magnitude * 0.25f);
+					n->effectItem.duration = 0;
+					n->baseEffect = s_any->baseEffect;
+					n->cost = 0.0f;
+					s->effects.push_back(n);
+					slot.ours.push_back(n);
+					spdlog::warn("Dish {:03}: {} has no effects; gave it a small one so the inventory can show it", a_k, a_base->GetName());
+				}
+			}
 			s->hostileCount = a_base->hostileCount;
 			s->avEffectSetting = a_base->avEffectSetting;
 			// its keywords (VendorItemFood and the rest), so merchants and other mods see food
