@@ -44,6 +44,10 @@ namespace Overlay
 		std::atomic<float> g_orbitC[2]{}, g_orbitR{ 0.0f };
 		std::atomic<bool>  g_ltHeld{ false };
 		std::atomic<float> g_mx{ 0.0f }, g_my{ 0.0f };
+		// the game's own pointer (vanilla or a cursor mod's) is the one shown: ours follows it while the mouse is in use
+		std::atomic<bool> g_gameCur{ false };
+		float             g_lastGame[2]{ -1.0f, -1.0f };
+		bool              g_drewInMenu = false;  // drawn under the game's cursor this frame (from the menu), not at Present
 		std::atomic<float> g_screenW{ 1920.0f }, g_screenH{ 1080.0f };
 		std::atomic<bool>  g_center{ true };
 		HWND               g_hwnd = nullptr;
@@ -72,6 +76,10 @@ namespace Overlay
 				if (e->GetEventType() == RE::INPUT_EVENT_TYPE::kMouseMove) {
 					auto*       mm = static_cast<RE::MouseMoveEvent*>(e);
 					const float s = Config::Get().mouseSpeed;
+					g_usingPad = false;
+					if (g_gameCur.load()) {
+						continue;  // the game moves its cursor; the frame picks up where it went
+					}
 					// the pointer itself lives here, so the kitchen and ImGui agree on where it is
 					g_mx = std::clamp(g_mx.load() + mm->mouseInputX * s, 0.0f, g_screenW.load() - 1.0f);
 					g_my = std::clamp(g_my.load() + mm->mouseInputY * s, 0.0f, g_screenH.load() - 1.0f);
@@ -292,6 +300,155 @@ namespace Overlay
 			Cook::SetupUi(g_screenH.load());
 			return ImGui_ImplDX11_Init(g_dev, g_ctx);
 		}
+
+		// The game's cursor: where it is (in back-buffer pixels), if it's up and showing
+		bool ReadGameCursor(float a_w, float a_h, float& a_x, float& a_y)
+		{
+			auto* ui = RE::UI::GetSingleton();
+			auto* mc = RE::MenuCursor::GetSingleton();
+			if (!ui || !mc) {
+				return false;
+			}
+			auto m = ui->GetMenu(RE::CursorMenu::MENU_NAME);
+			if (!m || !m->uiMovie || !m->uiMovie->GetVisible() || !ui->IsMenuOpen(RE::CursorMenu::MENU_NAME)) {
+				return false;
+			}
+			const auto& d = mc->GetRuntimeData();
+			const float sw = d.screenWidthX > 1.0f ? d.screenWidthX : a_w;
+			const float sh = d.screenWidthY > 1.0f ? d.screenWidthY : a_h;
+			static bool s_logged = false;
+			if (!s_logged) {
+				s_logged = true;
+				spdlog::info("Game cursor at {:.0f},{:.0f} of {:.0f}x{:.0f} (shown {}), back buffer {:.0f}x{:.0f}", d.cursorPosX, d.cursorPosY, d.screenWidthX,
+					d.screenWidthY, d.showCursorCount, a_w, a_h);
+			}
+			a_x = std::clamp(d.cursorPosX / sw * a_w, 0.0f, a_w - 1.0f);
+			a_y = std::clamp(d.cursorPosY / sh * a_h, 0.0f, a_h - 1.0f);
+			return true;
+		}
+
+		void WriteGameCursor(float a_w, float a_h, float a_x, float a_y)
+		{
+			if (auto* mc = RE::MenuCursor::GetSingleton()) {
+				auto&       d = mc->GetRuntimeData();
+				const float sw = d.screenWidthX > 1.0f ? d.screenWidthX : a_w;
+				const float sh = d.screenWidthY > 1.0f ? d.screenWidthY : a_h;
+				d.cursorPosX = a_x / a_w * sw;
+				d.cursorPosY = a_y / a_h * sh;
+			}
+		}
+
+		// The device state, kept across our drawing when we draw in the middle of the game's interface
+		struct StateBackup
+		{
+			static constexpr UINT kSrv = 16, kCb = 14, kSmp = 16, kVb = 4;
+			ID3D11RenderTargetView*   rtv[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT]{};
+			ID3D11DepthStencilView*   dsv = nullptr;
+			UINT                      nVp = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE, nSc = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+			D3D11_VIEWPORT            vp[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]{};
+			D3D11_RECT                sc[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]{};
+			ID3D11RasterizerState*    rs = nullptr;
+			ID3D11BlendState*         bs = nullptr;
+			FLOAT                     bf[4]{};
+			UINT                      mask = 0;
+			ID3D11DepthStencilState*  ds = nullptr;
+			UINT                      sref = 0;
+			ID3D11ShaderResourceView* psSrv[kSrv]{}, *vsSrv[kSrv]{};
+			ID3D11SamplerState*       psSmp[kSmp]{}, *vsSmp[kSmp]{};
+			ID3D11Buffer*             psCb[kCb]{}, *vsCb[kCb]{};
+			ID3D11PixelShader*        ps = nullptr;
+			ID3D11VertexShader*       vs = nullptr;
+			ID3D11GeometryShader*     gs = nullptr;
+			ID3D11HullShader*         hs = nullptr;
+			ID3D11DomainShader*       dsh = nullptr;
+			D3D11_PRIMITIVE_TOPOLOGY  topo{};
+			ID3D11InputLayout*        il = nullptr;
+			ID3D11Buffer*             vb[kVb]{};
+			UINT                      stride[kVb]{}, offset[kVb]{};
+			ID3D11Buffer*             ib = nullptr;
+			DXGI_FORMAT               ibFmt{};
+			UINT                      ibOff = 0;
+
+			void Save(ID3D11DeviceContext* c)
+			{
+				c->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtv, &dsv);
+				c->RSGetViewports(&nVp, vp);
+				c->RSGetScissorRects(&nSc, sc);
+				c->RSGetState(&rs);
+				c->OMGetBlendState(&bs, bf, &mask);
+				c->OMGetDepthStencilState(&ds, &sref);
+				c->PSGetShaderResources(0, kSrv, psSrv);
+				c->VSGetShaderResources(0, kSrv, vsSrv);
+				c->PSGetSamplers(0, kSmp, psSmp);
+				c->VSGetSamplers(0, kSmp, vsSmp);
+				c->PSGetConstantBuffers(0, kCb, psCb);
+				c->VSGetConstantBuffers(0, kCb, vsCb);
+				c->PSGetShader(&ps, nullptr, nullptr);
+				c->VSGetShader(&vs, nullptr, nullptr);
+				c->GSGetShader(&gs, nullptr, nullptr);
+				c->HSGetShader(&hs, nullptr, nullptr);
+				c->DSGetShader(&dsh, nullptr, nullptr);
+				c->IAGetPrimitiveTopology(&topo);
+				c->IAGetInputLayout(&il);
+				c->IAGetVertexBuffers(0, kVb, vb, stride, offset);
+				c->IAGetIndexBuffer(&ib, &ibFmt, &ibOff);
+			}
+
+			template <class T>
+			static void Rel(T*& a_p)
+			{
+				if (a_p) {
+					a_p->Release();
+					a_p = nullptr;
+				}
+			}
+
+			void Restore(ID3D11DeviceContext* c)
+			{
+				c->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtv, dsv);
+				c->RSSetViewports(nVp, vp);
+				c->RSSetScissorRects(nSc, sc);
+				c->RSSetState(rs);
+				c->OMSetBlendState(bs, bf, mask);
+				c->OMSetDepthStencilState(ds, sref);
+				c->PSSetShaderResources(0, kSrv, psSrv);
+				c->VSSetShaderResources(0, kSrv, vsSrv);
+				c->PSSetSamplers(0, kSmp, psSmp);
+				c->VSSetSamplers(0, kSmp, vsSmp);
+				c->PSSetConstantBuffers(0, kCb, psCb);
+				c->VSSetConstantBuffers(0, kCb, vsCb);
+				c->PSSetShader(ps, nullptr, 0);
+				c->VSSetShader(vs, nullptr, 0);
+				c->GSSetShader(gs, nullptr, 0);
+				c->HSSetShader(hs, nullptr, 0);
+				c->DSSetShader(dsh, nullptr, 0);
+				c->IASetPrimitiveTopology(topo);
+				c->IASetInputLayout(il);
+				c->IASetVertexBuffers(0, kVb, vb, stride, offset);
+				c->IASetIndexBuffer(ib, ibFmt, ibOff);
+				for (auto*& p : rtv) Rel(p);
+				Rel(dsv);
+				Rel(rs);
+				Rel(bs);
+				Rel(ds);
+				for (auto*& p : psSrv) Rel(p);
+				for (auto*& p : vsSrv) Rel(p);
+				for (auto*& p : psSmp) Rel(p);
+				for (auto*& p : vsSmp) Rel(p);
+				for (auto*& p : psCb) Rel(p);
+				for (auto*& p : vsCb) Rel(p);
+				Rel(ps);
+				Rel(vs);
+				Rel(gs);
+				Rel(hs);
+				Rel(dsh);
+				Rel(il);
+				for (auto*& p : vb) Rel(p);
+				Rel(ib);
+			}
+		};
+
+		void Frame();
 	}
 
 	void* CreateTexture(int a_w, int a_h, const void* a_rgba)
@@ -446,7 +603,61 @@ namespace Overlay
 		if (sc != g_sc) {
 			return;
 		}
-		if (!g_open) {
+		if (g_drewInMenu) {
+			g_drewInMenu = false;  // already drawn this frame, under the game's cursor
+			return;
+		}
+		Frame();
+	}
+
+	bool GameCursorShown() { return g_gameCur.load(); }
+
+	void OnMenuDisplay()
+	{
+		// drawn from our menu, in the middle of the game's interface, so the menus above ours (the game's cursor) draw
+		// over the kitchen; only when the interface is drawing straight into the back buffer, else at Present as before
+		if (!g_sc || !g_ctx || !g_open || g_imguiFailed) {
+			return;
+		}
+		ID3D11RenderTargetView* bound = nullptr;
+		g_ctx->OMGetRenderTargets(1, &bound, nullptr);
+		if (!bound) {
+			return;
+		}
+		ID3D11Resource*  res = nullptr;
+		ID3D11Texture2D* back = nullptr;
+		bound->GetResource(&res);
+		bound->Release();
+		g_sc->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back));
+		const bool same = res && back && res == back;
+		if (res) {
+			res->Release();
+		}
+		if (back) {
+			back->Release();
+		}
+		static int s_logged = -1;
+		if (s_logged != static_cast<int>(same)) {
+			s_logged = static_cast<int>(same);
+			spdlog::info(same ? "Drawing the kitchen inside the interface (under the game's cursor)" :
+			                    "The interface draws off the back buffer: the kitchen is drawn at Present");
+		}
+		if (!same) {
+			return;
+		}
+		StateBackup st;
+		st.Save(g_ctx);
+		Frame();
+		st.Restore(g_ctx);
+		g_drewInMenu = true;
+	}
+
+	namespace
+	{
+	void Frame()
+	{
+		IDXGISwapChain* sc = g_sc;
+		if (!sc || !g_open) {
 			return;
 		}
 		if (!g_imguiReady && !g_imguiFailed) {
@@ -476,7 +687,20 @@ namespace Overlay
 		const float dt = g_lastFrame.time_since_epoch().count() ? std::chrono::duration<float>(now - g_lastFrame).count() : 1.0f / 60.0f;
 		g_lastFrame = now;
 		io.DeltaTime = std::clamp(dt, 1.0f / 1000.0f, 0.5f);
-		if (g_center.exchange(false)) {
+		// the game's cursor: shown while the mouse is in use, and ours goes where it is (with a controller, ours shows)
+		float      gx = 0.0f, gy = 0.0f;
+		const bool game = ReadGameCursor(io.DisplaySize.x, io.DisplaySize.y, gx, gy);
+		const bool follow = game && !g_usingPad.load();
+		if (follow && (!g_gameCur.load() || gx != g_lastGame[0] || gy != g_lastGame[1])) {
+			g_mx = gx;
+			g_my = gy;
+			Push({ InputMsg::Kind::MouseMove, gx, gy });
+			io.AddMousePosEvent(gx, gy);
+		}
+		g_gameCur = follow;
+		g_lastGame[0] = gx;
+		g_lastGame[1] = gy;
+		if (g_center.exchange(false) && !follow) {
 			g_mx = io.DisplaySize.x * 0.5f;
 			g_my = io.DisplaySize.y * 0.6f;
 			io.AddMousePosEvent(g_mx.load(), g_my.load());
@@ -512,6 +736,12 @@ namespace Overlay
 				g_mx = std::clamp(g_mx.load() + dx, 0.0f, io.DisplaySize.x - 1.0f);
 				g_my = std::clamp(g_my.load() + dy, 0.0f, io.DisplaySize.y - 1.0f);
 				Push({ InputMsg::Kind::MouseMove, g_mx.load(), g_my.load() });
+			}
+			if (game) {
+				// the game's cursor kept where ours is, so picking the mouse back up carries on from here
+				WriteGameCursor(io.DisplaySize.x, io.DisplaySize.y, g_mx.load(), g_my.load());
+				g_lastGame[0] = g_mx.load();
+				g_lastGame[1] = g_my.load();
 			}
 		}
 		DrainInput();
@@ -549,5 +779,6 @@ namespace Overlay
 			ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 			rtv->Release();
 		}
+	}
 	}
 }

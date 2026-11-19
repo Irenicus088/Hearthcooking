@@ -5847,12 +5847,9 @@ namespace Cook
 		}
 		ToastLine(W, H);
 		DebugMarks();
-		// the pointer: shown over the book, the result, the panels and the buttons; while cooking with something in hand
-		// (the knife, the ladle, the dough...) the thing itself is the pointer, and the arrow is hidden
-		const bool inHand = g_phase == Phase::Cooking && (g_hold != Hold::None || g_knifeOn);
-		const bool panel = g_help || g_soundBox || g_confirm || io.WantCaptureMouse;
-		if (!inHand || panel) {
-			Ui::Cursor(IM_COL32(241, 238, 232, 245));
+		// the pointer: the game's own cursor (or a cursor mod's) when it's up; ours, tinted while carrying, with a controller
+		if (!Overlay::GameCursorShown()) {
+			Ui::Cursor(g_hold != Hold::None ? IM_COL32(255, 226, 170, 245) : IM_COL32(241, 238, 232, 245));
 		}
 	}
 

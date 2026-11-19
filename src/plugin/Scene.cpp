@@ -380,18 +380,11 @@ namespace Scene
 			g_placed = true;
 		}
 
-		// the game's own pointer (the cursor menu the crafting menu under us keeps up): hidden while the kitchen is
-		// open, so only our arrow shows; put back as we close
-		void GameCursor(bool a_visible)
+		void SafeMenuDisplay()
 		{
-			auto* ui = RE::UI::GetSingleton();
-			if (!ui) {
-				return;
-			}
-			if (auto m = ui->GetMenu(RE::CursorMenu::MENU_NAME); m && m->uiMovie) {
-				if (m->uiMovie->GetVisible() != a_visible) {
-					m->uiMovie->SetVisible(a_visible);
-				}
+			__try {
+				Overlay::OnMenuDisplay();
+			} __except (Overlay::SehFilter(GetExceptionInformation(), "MenuDisplay")) {
 			}
 		}
 
@@ -425,7 +418,6 @@ namespace Scene
 					if (g_shown) {
 						g_shown = false;
 						HushGame(false);
-						GameCursor(true);
 						Render3D::Clear();
 					}
 					break;
@@ -438,7 +430,6 @@ namespace Scene
 			void AdvanceMovie(float a_interval, std::uint32_t a_currentTime) override
 			{
 				// menus keep advancing while the game is paused: the kitchen runs here, before the frame draws
-				GameCursor(false);  // every frame: the game shows it again when the menus under us refresh
 				__try {
 					Cook::Tick(a_interval);
 					Scene::Update(a_interval);
@@ -450,6 +441,12 @@ namespace Scene
 					Cook::Abort();
 				}
 				RE::IMenu::AdvanceMovie(a_interval, a_currentTime);
+			}
+
+			void PostDisplay() override
+			{
+				RE::IMenu::PostDisplay();
+				SafeMenuDisplay();  // the kitchen drawn here, so the game's cursor (a menu above ours) draws over it
 			}
 
 		private:
