@@ -50,7 +50,7 @@ namespace Ui
 	void  Vignette(ImDrawList* a_dl, float a_w, float a_h);
 	void  Cursor(ImU32 a_fill = IM_COL32(241, 238, 232, 245));
 
-	bool BeginArea(const char* a_id, ImVec2 a_pos, ImVec2 a_size);  // an invisible window: its buttons take the mouse
+	bool BeginArea(const char* a_id, ImVec2 a_pos, ImVec2 a_size, ImGuiWindowFlags a_extra = 0);  // an invisible window: its buttons take the mouse
 	bool Clicked(const char* a_id, ImVec2 a_min, ImVec2 a_max, bool* a_hovered = nullptr, bool a_enabled = true);
 	bool MenuButton(const char* a_id, const std::string& a_label, float a_cx, float a_y, bool a_danger = false, bool a_enabled = true);
 	int  MenuButtons(const char* a_id, std::initializer_list<std::pair<std::string, bool>> a_items, float a_cx, float a_y);

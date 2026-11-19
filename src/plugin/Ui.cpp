@@ -373,13 +373,13 @@ namespace Ui
 		                               ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus;
 	}
 
-	bool BeginArea(const char* a_id, ImVec2 a_pos, ImVec2 a_size)
+	bool BeginArea(const char* a_id, ImVec2 a_pos, ImVec2 a_size, ImGuiWindowFlags a_extra)
 	{
 		ImGui::SetNextWindowPos(a_pos);
 		ImGui::SetNextWindowSize(a_size);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-		const bool open = ImGui::Begin(a_id, nullptr, kBare);
+		const bool open = ImGui::Begin(a_id, nullptr, kBare | a_extra);
 		ImGui::PopStyleVar(2);
 		return open;
 	}

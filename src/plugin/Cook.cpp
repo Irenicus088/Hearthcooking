@@ -5180,26 +5180,54 @@ namespace Cook
 
 		void RecipeCard(float W, float H)
 		{
-			(void)H;
-			(void)W;
 			const auto steps = Steps();
-			const float w = S(380), rowH = S(26);
-			const float h = S(30) + S(44) + S(14) + rowH * static_cast<float>(steps.size()) + S(26);
+			const float w = (std::min)(S(380), W * 0.36f), rowH = S(26);
+			const float head = S(30) + S(44) + S(14), foot = S(26);
+			// never more than about two fifths of the screen, however large the interface: the steps from the current
+			// one on, with the done ones counted above and the rest below
+			const int n = static_cast<int>(steps.size());
+			int       cur = n;
+			for (int i = 0; i < n; ++i) {
+				if (!steps[i].done) {
+					cur = i;
+					break;
+				}
+			}
+			const int fit = (std::max)(3, static_cast<int>((H * 0.42f - head - foot) / rowH));
+			int       from = 0, to = n;
+			if (n > fit) {
+				from = (std::max)(0, (std::min)(cur - 1, n - (fit - 2)));
+				to = (std::min)(n, from + fit - 2);
+				if (from == 0) {
+					to = (std::min)(n, fit - 1);
+				}
+			}
+			const bool  above = from > 0, below = to < n;
+			const float h = head + rowH * static_cast<float>(to - from + (above ? 1 : 0) + (below ? 1 : 0)) + foot;
 			const ImVec2 pos(S(22), S(22));
-			BeginArea("##card", pos, ImVec2(w, h));
-			auto* dl = ImGui::GetWindowDrawList();
+			// it's only to read: clicks go through it to the table, and it fades while the pointer is over it
+			static float s_fade = 1.0f;
+			const ImVec2 m = ImGui::GetIO().MousePos;
+			const bool   over = m.x >= pos.x && m.x <= pos.x + w && m.y >= pos.y && m.y <= pos.y + h;
+			s_fade += ((over ? 0.22f : 1.0f) - s_fade) * (std::min)(1.0f, ImGui::GetIO().DeltaTime * 10.0f);
+			BeginArea("##card", pos, ImVec2(w, h), ImGuiWindowFlags_NoInputs);
+			auto*     dl = ImGui::GetWindowDrawList();
+			const int v0 = dl->VtxBuffer.Size;
+			dl->PushClipRect(pos, ImVec2(pos.x + w, pos.y + h), true);
 			Sheet(dl, pos, ImVec2(w, h), 0);
 			float y = pos.y + S(24);
 			Text(dl, F.bookSC, ImVec2(pos.x + S(30), y), kInk, g_recipe ? g_recipe->name : "", 0.02f);
 			y += S(42);
 			FadeRule(dl, pos.x + S(26), pos.x + w - S(26), y, 0.45f, kInkSoft);
 			y += S(12);
-			bool first = true;
-			for (const auto& st : steps) {
-				const bool now = !st.done && first;
-				if (!st.done) {
-					first = false;
-				}
+			if (above) {
+				Text(dl, F.bookIt, ImVec2(pos.x + S(54), y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(kInkSoft, 0.7f),
+					from == 1 ? std::string("1 step done") : fmt::format("{} steps done", from));
+				y += rowH;
+			}
+			for (int i = from; i < to; ++i) {
+				const auto& st = steps[i];
+				const bool  now = i == cur;
 				const ImVec2 c(pos.x + S(38), y + rowH * 0.5f);
 				if (st.done) {
 					dl->AddLine(ImVec2(c.x - S(5), c.y), ImVec2(c.x - S(1), c.y + S(4)), kGreenInk, S(2));
@@ -5209,6 +5237,18 @@ namespace Cook
 				}
 				Text(dl, now ? F.book : F.bookIt, ImVec2(pos.x + S(54), y + (rowH - F.book->FontSize) * 0.5f), st.done ? Alpha(kInkSoft, 0.7f) : now ? kInk : kInkSoft, st.text);
 				y += rowH;
+			}
+			if (below) {
+				Text(dl, F.bookIt, ImVec2(pos.x + S(54), y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(kInkSoft, 0.7f),
+					n - to == 1 ? std::string("1 more") : fmt::format("{} more", n - to));
+			}
+			dl->PopClipRect();
+			if (s_fade < 0.995f) {
+				for (int i = v0; i < dl->VtxBuffer.Size; ++i) {
+					auto&      col = dl->VtxBuffer[i].col;
+					const auto a = static_cast<ImU32>(((col >> IM_COL32_A_SHIFT) & 0xFF) * s_fade);
+					col = (col & ~IM_COL32_A_MASK) | (a << IM_COL32_A_SHIFT);
+				}
 			}
 			ImGui::End();
 		}
