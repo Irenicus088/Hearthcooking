@@ -212,9 +212,31 @@ namespace Overlay
 				SafeHandleInput(a_events);
 			}
 			if (g_open) {
-				static RE::InputEvent* s_none[1] = { nullptr };
-				s_none[0] = nullptr;
-				g_origDispatch(a_dispatcher, s_none);
+				// only the mouse's movement gets through, so the game's own cursor (the one shown) moves; clicks, keys
+				// and the controller stay ours. The events are relinked for the call and put back as they were.
+				std::array<std::pair<RE::InputEvent*, RE::InputEvent*>, 16> saved{};
+				std::size_t                                                 n = 0;
+				RE::InputEvent*                                             first = nullptr;
+				RE::InputEvent*                                             last = nullptr;
+				for (auto* e = a_events ? *a_events : nullptr; e && n < saved.size(); e = e->next) {
+					saved[n++] = { e, e->next };
+				}
+				for (std::size_t i = 0; i < n; ++i) {
+					auto* e = saved[i].first;
+					if (e->GetEventType() == RE::INPUT_EVENT_TYPE::kMouseMove) {
+						(last ? last->next : first) = e;
+						last = e;
+					}
+				}
+				if (last) {
+					last->next = nullptr;
+				}
+				static RE::InputEvent* s_list[1] = { nullptr };
+				s_list[0] = first;
+				g_origDispatch(a_dispatcher, s_list);
+				for (std::size_t i = 0; i < n; ++i) {
+					saved[i].first->next = saved[i].second;
+				}
 				return;
 			}
 			g_origDispatch(a_dispatcher, a_events);
