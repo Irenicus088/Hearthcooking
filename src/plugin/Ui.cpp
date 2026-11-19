@@ -55,16 +55,14 @@ namespace Ui
 		{
 			std::set<ImWchar> cps;
 			for (const auto& n : Recipes::AllNames()) {
-				const char* p = n.c_str();
-				const char* e = p + n.size();
-				while (p < e) {
-					unsigned int c = 0;
-					const int    len = ImTextCharFromUtf8(&c, p, e);
-					if (len <= 0) {
-						break;
-					}
-					p += len;
-					if (c > 0xFF && c <= 0xFFFF && !(c >= 0x2018 && c <= 0x201E) && c != 0x2026) {
+				const int wn = ::MultiByteToWideChar(CP_UTF8, 0, n.data(), static_cast<int>(n.size()), nullptr, 0);
+				if (wn <= 0) {
+					continue;
+				}
+				std::wstring w(static_cast<size_t>(wn), L'\0');
+				::MultiByteToWideChar(CP_UTF8, 0, n.data(), static_cast<int>(n.size()), w.data(), wn);
+				for (const wchar_t c : w) {
+					if (c > 0xFF && !(c >= 0xD800 && c <= 0xDFFF) && !(c >= 0x2018 && c <= 0x201E) && c != 0x2026) {
 						cps.insert(static_cast<ImWchar>(c));
 					}
 				}
