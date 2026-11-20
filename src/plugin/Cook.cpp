@@ -5828,6 +5828,12 @@ namespace Cook
 	{
 		std::lock_guard lk(g_mtx);
 		const double    dt = std::clamp(static_cast<double>(a_dt), 0.001, 0.05);
+		if (g_phase != Phase::Idle && Overlay::Away()) {
+			// the Steam overlay is up or the game is in the background: the kitchen waits, its clock stopped -
+			// nothing cooks or burns
+			Overlay::TakePresses();
+			return;
+		}
 		g_clock += dt;
 		ProcessActs();
 		if (g_phase == Phase::Idle) {

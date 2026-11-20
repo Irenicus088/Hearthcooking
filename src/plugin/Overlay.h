@@ -36,7 +36,9 @@ namespace Overlay
 	bool InstallInputSink();
 	void OnPresent(IDXGISwapChain* a_swapChain);
 	void OnMenuDisplay();     // from the kitchen menu's turn in the interface's drawing
-	bool GameCursorShown();   // the game's own cursor (or a cursor mod's) is up and ours follows it
+	bool GameCursorShown();
+	bool Away();              // the player is elsewhere: the Steam overlay is up, or the game's window isn't in front
+	void WatchSteamOverlay();  // (once, after the game has started Steam)   // the game's own cursor (or a cursor mod's) is up and ours follows it
 	int  SehFilter(EXCEPTION_POINTERS* a_info, const char* a_where);
 	std::string ToUtf8(const std::wstring& a_w);
 }

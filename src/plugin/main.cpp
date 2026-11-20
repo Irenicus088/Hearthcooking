@@ -111,6 +111,7 @@ namespace
 		case SKSE::MessagingInterface::kDataLoaded:
 			Render3D::Prewarm();  // (the kitchen's shaders, compiled in the background)
 			Cook::OnDataLoaded();
+			Overlay::WatchSteamOverlay();
 			if (SafeInstallPresentHook()) {
 				spdlog::info("Present hook installed");
 			} else {

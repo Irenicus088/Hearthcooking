@@ -635,6 +635,56 @@ namespace Overlay
 
 	bool GameCursorShown() { return g_gameCur.load(); }
 
+	namespace
+	{
+		std::atomic<bool> g_steamOverlay{ false };
+
+		// Steam's callback object, laid out as its SDK declares it (Steam calls it from SteamAPI_RunCallbacks, which
+		// the game runs each frame): GameOverlayActivated_t, callback 331, whose first byte says whether it's up
+		class SteamOverlayWatch
+		{
+		public:
+			virtual void Run(void* a_param) { g_steamOverlay = a_param && *static_cast<const std::uint8_t*>(a_param) != 0; }
+			virtual void Run(void* a_param, bool, std::uint64_t) { Run(a_param); }
+			virtual int  GetCallbackSizeBytes() { return 16; }
+
+			std::uint8_t flags = 0;
+			int          callback = 331;
+		};
+	}
+
+	void WatchSteamOverlay()
+	{
+		static bool s_done = false;
+		if (s_done) {
+			return;
+		}
+		s_done = true;
+		HMODULE steam = ::GetModuleHandleW(L"steam_api64.dll");
+		if (!steam) {
+			spdlog::info("Steam overlay: no Steam here (the kitchen still pauses when the game isn't in front)");
+			return;
+		}
+		using Register = void (*)(void*, int);
+		const auto reg = reinterpret_cast<Register>(::GetProcAddress(steam, "SteamAPI_RegisterCallback"));
+		if (!reg) {
+			spdlog::info("Steam overlay: can't listen for it");
+			return;
+		}
+		static SteamOverlayWatch s_watch;
+		reg(&s_watch, 331);
+		spdlog::info("Steam overlay: the kitchen pauses while it's up");
+	}
+
+	bool Away()
+	{
+		if (g_steamOverlay.load()) {
+			return true;
+		}
+		const HWND fg = ::GetForegroundWindow();
+		return g_hwnd && fg && fg != g_hwnd && ::GetAncestor(fg, GA_ROOTOWNER) != g_hwnd;
+	}
+
 	void OnMenuDisplay()
 	{
 		// drawn from our menu, in the middle of the game's interface, so the menus above ours (the game's cursor) draw
