@@ -3,6 +3,7 @@
 #include "Recipes.h"
 
 #include "EspIds.h"
+#include "Lang.h"
 
 namespace Recipes
 {
@@ -96,7 +97,7 @@ namespace Recipes
 					continue;
 				}
 				const std::string by = ShortName(f);
-				return by == origin ? origin : fmt::format("{}, edited by {}", origin, by);
+				return by == origin ? origin : fmt::format("{}, modificada por {}", origin, by);
 			}
 			return origin;
 		}
@@ -113,7 +114,7 @@ namespace Recipes
 				return false;
 			}
 			auto& slot = g_slots[a_k];
-			const std::string name = fmt::format("{} {}", hc::TierName(a_tier), a_base->GetName());
+			const std::string name = fmt::format("{} ({})", a_base->GetName(), hc::Es(hc::TierName(a_tier)));
 			s->fullName = name.c_str();
 			s->SetModel(a_base->GetModel());
 			s->alternateTextures = a_base->alternateTextures;
@@ -269,7 +270,7 @@ namespace Recipes
 				{
 					char buf[1024]{};
 					::GetPrivateProfileStringA("Recipes", "Skip", "Cookie,Muffin", buf, sizeof(buf), "Data\\SKSE\\Plugins\\Hearthcooking.ini");
-					const std::string skip = Lower(buf), name = Lower(result->GetName());
+					const std::string skip = Lower(buf), name = hc::Canon(result->GetName());
 					bool skipped = false;
 					std::size_t from = 0;
 					while (from <= skip.size()) {
@@ -284,7 +285,7 @@ namespace Recipes
 						while (!w.empty() && (w.back() == ' ' || w.back() == ';')) {
 							w.pop_back();
 						}
-						skipped |= !w.empty() && name == w;
+						skipped |= !w.empty() && name == hc::Canon(w);
 						from = to + 1;
 					}
 					if (skipped) {
@@ -377,7 +378,7 @@ namespace Recipes
 				SKSE::GetTaskInterface()->AddTask([] {
 					if (auto* pc = RE::PlayerCharacter::GetSingleton()) {
 						pc->AsActorValueOwner()->DamageActorValue(RE::ActorValue::kStamina, 20.0f);
-						RE::SendHUDMessage::ShowHUDMessage("That was burnt.");
+						RE::SendHUDMessage::ShowHUDMessage("Eso estaba quemado.");
 					}
 				});
 				return RE::BSEventNotifyControl::kContinue;
@@ -416,7 +417,7 @@ namespace Recipes
 			}
 			words += (c == '_' || c == '-' || std::isdigit(c)) ? ' ' : static_cast<char>(std::tolower(c));
 		}
-		return Lower(a_name) + " | " + words;
+		return hc::Canon(a_name) + " | " + words;
 	}
 
 	std::vector<std::string> AllNames()

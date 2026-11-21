@@ -28,22 +28,22 @@ namespace Menu
 		{
 			auto& v = Config::Edit();
 			UI::SeparatorText("Hearthcooking");
-			Changed(UI::Checkbox("Cook by hand at pots and ovens", &v.enabled));
-			Hint("Off: the cooking pot and the oven open the game's own menu.");
-			UI::SeparatorText("The kitchen");
-			Changed(UI::SliderFloat("Tilt", &v.tiltDeg, 30.0f, 80.0f, "%.0f degrees"));
-			Hint("How far you look down on it.");
+			Changed(UI::Checkbox("Cocinar a mano en ollas y hornos", &v.enabled));
+			Hint("Desactivado: la olla y el horno abren el menú del juego.");
+			UI::SeparatorText("La cocina");
+			Changed(UI::SliderFloat("Inclinación", &v.tiltDeg, 30.0f, 80.0f, "%.0f grados"));
+			Hint("Cuánto se mira desde arriba.");
 			Changed(UI::SliderFloat("Zoom", &v.zoom, 0.6f, 1.6f, "%.2f"));
 			{
 				// the knife, from every one the game has (for trying them)
 				const auto&  knives = Kit::Knives();
 				const auto&  now = Kit::Get(Kit::Role::Knife);
-				const std::string shown = now.vanilla ? now.path : std::string("Hearthcooking's own");
-				if (UI::BeginCombo("Knife", shown.c_str())) {
-					if (UI::Selectable("The one it finds by itself", false)) {
+				const std::string shown = now.vanilla ? now.path : std::string("El de Hearthcooking");
+				if (UI::BeginCombo("Cuchillo", shown.c_str())) {
+					if (UI::Selectable("El que encuentre automáticamente", false)) {
 						Kit::SetMesh(Kit::Role::Knife, "");
 					}
-					if (UI::Selectable("Hearthcooking's own", !now.vanilla)) {
+					if (UI::Selectable("El de Hearthcooking", !now.vanilla)) {
 						Kit::SetMesh(Kit::Role::Knife, "ours");
 					}
 					for (const auto& k : knives) {
@@ -53,17 +53,17 @@ namespace Menu
 					}
 					UI::EndCombo();
 				}
-				Hint("Takes effect the next time the kitchen opens; kept in Hearthcooking.ini.");
+				Hint("Se aplica la próxima vez que se abra la cocina; se guarda en Hearthcooking.ini.");
 			}
-			UI::SeparatorText("Controls and sound");
-			Changed(UI::SliderFloat("Mouse speed", &v.mouseSpeed, 0.2f, 3.0f, "%.2f"));
-			Changed(UI::SliderFloat("Interface size", &v.uiScale, 0.6f, 1.6f, "%.2f"));
-			Changed(UI::Checkbox("Sound", &v.sound));
-			Changed(UI::SliderFloat("Kitchen sounds", &v.volume, 0.0f, 2.0f, "%.2f"));
-			Changed(UI::SliderFloat("Fire and simmer", &v.ambience, 0.0f, 2.0f, "%.2f"));
-			Changed(UI::SliderFloat("Menu clicks", &v.effectsVolume, 0.0f, 2.0f, "%.2f"));
-			if (UI::CollapsingHeader("Each sound on its own")) {
-				Hint("1 is as it comes, 0 is off. On top of the sliders above.");
+			UI::SeparatorText("Controles y sonido");
+			Changed(UI::SliderFloat("Velocidad del cursor", &v.mouseSpeed, 0.2f, 3.0f, "%.2f"));
+			Changed(UI::SliderFloat("Tamaño de la interfaz", &v.uiScale, 0.6f, 1.6f, "%.2f"));
+			Changed(UI::Checkbox("Sonido", &v.sound));
+			Changed(UI::SliderFloat("Sonidos de la cocina", &v.volume, 0.0f, 2.0f, "%.2f"));
+			Changed(UI::SliderFloat("Fuego y hervor", &v.ambience, 0.0f, 2.0f, "%.2f"));
+			Changed(UI::SliderFloat("Clics del menú", &v.effectsVolume, 0.0f, 2.0f, "%.2f"));
+			if (UI::CollapsingHeader("Cada sonido por separado")) {
+				Hint("1 es el volumen original y 0 lo apaga. Se suma a los controles de arriba.");
 				for (std::size_t k = 0; k < std::size(Config::kSoundNames); ++k) {
 					const std::string name = Config::kSoundNames[k];
 					float lv = v.soundLevels.count(name) ? v.soundLevels[name] : 1.0f;
@@ -73,10 +73,10 @@ namespace Menu
 					}
 				}
 			}
-			Changed(UI::Checkbox("Show what to do next", &v.hints));
+			Changed(UI::Checkbox("Mostrar el siguiente paso", &v.hints));
 			{
 				const char* styles[] = { "Xbox", "PlayStation" };
-				if (UI::BeginCombo("Controller buttons", styles[v.padStyle == 1 ? 1 : 0])) {
+				if (UI::BeginCombo("Botones del control", styles[v.padStyle == 1 ? 1 : 0])) {
 					for (int k = 0; k < 2; ++k) {
 						if (UI::Selectable(styles[k], v.padStyle == k)) {
 							v.padStyle = k;
@@ -86,21 +86,21 @@ namespace Menu
 					UI::EndCombo();
 				}
 			}
-			Changed(UI::Checkbox("Debug: mark what the mouse can grab", &v.debugOverlay));
+			Changed(UI::Checkbox("Depuración: marcar lo que se puede tomar", &v.debugOverlay));
 			UI::Spacing();
 			UI::Separator();
-			if (UI::Button("Save to Hearthcooking.ini")) {
+			if (UI::Button("Guardar en Hearthcooking.ini")) {
 				Config::Save();
 				g_dirty = false;
 			}
 			UI::SameLine();
-			if (UI::Button("Undo changes")) {
+			if (UI::Button("Deshacer cambios")) {
 				Config::Load();
 				g_dirty = false;
 			}
 			if (g_dirty) {
 				UI::SameLine();
-				UI::TextDisabled("(not saved yet: changes last until you quit)");
+				UI::TextDisabled("(sin guardar: los cambios duran hasta que salgas del juego)");
 			}
 		}
 	}
@@ -112,7 +112,7 @@ namespace Menu
 			return;
 		}
 		SKSEMenuFramework::SetSection("Hearthcooking");
-		SKSEMenuFramework::AddSectionItem("Settings", Settings);
+		SKSEMenuFramework::AddSectionItem("Opciones", Settings);
 		spdlog::info("Settings page added to SKSE Menu Framework");
 	}
 }

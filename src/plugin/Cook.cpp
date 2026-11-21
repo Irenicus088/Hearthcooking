@@ -12,6 +12,7 @@
 #include "Ui.h"
 
 #include "../sim/Kitchen.h"
+#include "Lang.h"
 
 namespace Cook
 {
@@ -333,7 +334,7 @@ namespace Cook
 		bool Crostata()
 		{
 			std::string n = g_recipe ? g_recipe->key : std::string();
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			return n.find("crostata") != std::string::npos;
 		}
 		bool BreadCuts() { return g_recipe && g_recipe->oven && !g_recipe->pie && !g_topping; }
@@ -360,7 +361,7 @@ namespace Cook
 				return false;
 			}
 			std::string n = g_recipe->key;
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			return n.find("dumpling") != std::string::npos;
 		}
 		int    g_doughParts = 0, g_doughNeeded = 0;
@@ -408,7 +409,7 @@ namespace Cook
 		double BakeSize()
 		{
 			std::string n = g_recipe ? g_recipe->key : std::string();
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			if (n.find("dumpling") != std::string::npos) {
 				return 5.1;  // a little parcel
 			}
@@ -793,7 +794,7 @@ namespace Cook
 			a_u.cut.width = Thick(a_u, a_u.boardLen, 1) * 0.96;
 			{
 				std::string n = KeyOf(a_u);
-				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				n = hc::Canon(n);
 				// (by name only: everything else diced is cut both ways, whatever its shape)
 				a_u.thin = n.find("leek") != std::string::npos || n.find("carrot") != std::string::npos ||
 				           n.find("garlic") != std::string::npos || n.find("root") != std::string::npos || n.find("stalk") != std::string::npos;
@@ -821,13 +822,13 @@ namespace Cook
 		bool SauceBowl()
 		{
 			std::string n = g_recipe ? g_recipe->key : std::string();
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			return g_flow == hc::Flow::Pot && n.find("sauce") != std::string::npos;
 		}
 		bool Liquid(const Unit& a_u)
 		{
 			std::string n = KeyOf(a_u);
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			for (const char* w : { "ale", "mead", "wine", "milk", "honey", "vinegar", "brandy", "rum", "cider", "oil" }) {
 				if (n.find(w) != std::string::npos && n.find("kale") == std::string::npos) {
 					return true;
@@ -841,7 +842,7 @@ namespace Cook
 		bool Upright(const Unit& a_u)
 		{
 			std::string n = KeyOf(a_u);
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			for (const char* w : { "ale", "mead", "wine", "milk", "jug", "bottle", "vinegar", "brandy", "rum", "flin", "sujamma", "cider" }) {
 				if (n.find(w) != std::string::npos && n.find("kale") == std::string::npos) {
 					return true;
@@ -965,7 +966,7 @@ namespace Cook
 			bool flour = false, butter = false;
 			for (const auto& u : g_units) {
 				std::string n = KeyOf(u);
-				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				n = hc::Canon(n);
 				flour |= u.at == Unit::At::Dough && n.find("flour") != std::string::npos;
 				butter |= u.at == Unit::At::Dough && n.find("butter") != std::string::npos;
 			}
@@ -1074,7 +1075,7 @@ namespace Cook
 					}
 					{
 						std::string ln = u.name;
-						std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						ln = hc::Canon(ln);
 						u.bulb = ln.find("garlic") != std::string::npos && ln.find("bread") == std::string::npos;
 					}
 					u.prop = AddUnitMesh(u);
@@ -1131,19 +1132,19 @@ namespace Cook
 		std::string DiceLine(const std::string& a_name, int a_count)
 		{
 			std::string l = a_name;
-			std::transform(l.begin(), l.end(), l.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			l = hc::Canon(l);
 			const std::string n = a_count > 1 ? fmt::format(" ({})", a_count) : "";
 			if (l.find("garlic") != std::string::npos && l.find("bread") == std::string::npos) {
-				return fmt::format("{}{}: break apart the cloves, then dice", a_name, n);
+				return fmt::format("{}{}: separa los dientes y córtalos en dados", a_name, n);
 			}
-			return fmt::format("Dice the {}{}", a_name, n);
+			return fmt::format("Corta en dados: {}{}", a_name, n);
 		}
 
 		// What it looks like inside, where there's a texture for it: an atlas of its section across and along
 		ID3D11ShaderResourceView* FleshTexture(const Unit& u)
 		{
 			std::string n = KeyOf(u);
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			static const std::pair<const char*, const char*> kBy[] = {
 				{ "venison", "venison" }, { "pheasant", "pheasant" }, { "chicken", "chicken" }, { "beef", "beef" }, { "horker", "beef" },
 				{ "mammoth", "beef" }, { "goat", "beef" }, { "horse", "beef" }, { "carrot", "carrot" }, { "potato", "potato" },
@@ -1161,7 +1162,7 @@ namespace Cook
 		void Flesh(const Unit& u, float (&a_out)[3])
 		{
 			std::string n = KeyOf(u);
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			auto has = [&](std::initializer_list<const char*> ws) {
 				for (const char* w : ws) {
 					if (n.find(w) != std::string::npos) {
@@ -1216,7 +1217,7 @@ namespace Cook
 			// a leek, into the pot: from our own solid leek (the game's is loose layers and open leaves, which floated as
 			// shards and fanned strips once cut up); on the cloth and the board it's the game's own
 			p.prop = AddUnitMesh(u);
-			if (u.name.find("eek") != std::string::npos) {
+			if (hc::Canon(u.name).find("eek") != std::string::npos) {
 				p.alt = Add("Leek");  // (the game's own on the board and falling; ours once it's in the pot)
 				if (p.alt >= 0) {
 					Scene::Hide(p.alt, true);
@@ -1321,7 +1322,7 @@ namespace Cook
 			for (const auto& in : g_recipe->ings) {
 				s += " " + in.key;
 			}
-			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			s = hc::Canon(s);
 			auto has = [&](const char* w) { return s.find(w) != std::string::npos; };
 			const float* c = nullptr;
 			static const float tomato[3] = { 0.72f, 0.24f, 0.12f }, green[3] = { 0.55f, 0.52f, 0.26f }, cream[3] = { 0.86f, 0.78f, 0.6f },
@@ -1453,7 +1454,7 @@ namespace Cook
 			if (g_flow == hc::Flow::Oven) {
 				for (auto& u : g_units) {
 					std::string n = KeyOf(u);
-					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					n = hc::Canon(n);
 					const bool soft = n.find("honey") != std::string::npos || n.find("sugar") != std::string::npos || n.find("butter") != std::string::npos ||
 					                  n.find("milk") != std::string::npos || n.find("egg") != std::string::npos || n.find("jug") != std::string::npos ||
 					                  n.find("sack") != std::string::npos || n.find("bread") != std::string::npos || n.find("jazbay") != std::string::npos ||
@@ -1465,9 +1466,9 @@ namespace Cook
 				bool flour = false;
 				for (auto& u : g_units) {
 					std::string n = KeyOf(u);
-					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					n = hc::Canon(n);
 					flour |= n.find("flour") != std::string::npos;
-					g_topping |= Lower(u.name) == "bread";
+					g_topping |= hc::Canon(u.name) == "bread";
 				}
 				g_topping = g_topping && !flour && !g_recipe->pie;
 				if (g_topping) {
@@ -1479,8 +1480,8 @@ namespace Cook
 					g_oven->Knead(5.0, 0.0);
 					for (auto& u : g_units) {
 						std::string n = KeyOf(u);
-						std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-						if (Lower(u.name) == "bread") {
+						n = hc::Canon(n);
+						if (hc::Canon(u.name) == "bread") {
 							u.thin = true;  // cut one way, into slices
 						}
 					}
@@ -1489,7 +1490,7 @@ namespace Cook
 				g_bowlWater = true;
 				for (const auto& u : g_units) {
 					std::string n = KeyOf(u);
-					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					n = hc::Canon(n);
 					if (u.role == Role::Dough && n.find("milk") != std::string::npos) {
 						g_bowlWater = false;  // the milk is the wet: an empty bowl, the dry things first
 					}
@@ -1678,13 +1679,13 @@ namespace Cook
 			// berries and grapes: no shadow on them or from them (small, dark and glossy, they went black in it)
 			{
 				std::string n = KeyOf(u);
-				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				n = hc::Canon(n);
 				if (n.find("berr") != std::string::npos || n.find("grape") != std::string::npos) {
 					lk.shadow = false;
 					lk.unshadowed = true;
 				}
 			}
-			if (u.name.find("Clam") == std::string::npos && u.name.find("clam") == std::string::npos) {
+			if (hc::Canon(u.name).find("clam") == std::string::npos) {
 				return;
 			}
 			static constexpr float kClam[3] = { 0.98f, 0.9f, 0.8f };
@@ -1697,7 +1698,7 @@ namespace Cook
 		int ChopRank(const std::string& a_name)
 		{
 			std::string n = a_name;
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			// (a tomato cooks down first; a chowder's clam goes in before its potato)
 			return n.find("tomato") != std::string::npos ? 0 : n.find("clam") != std::string::npos ? 1 : 2;
 		}
@@ -1730,8 +1731,8 @@ namespace Cook
 		{
 			for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
 				std::string n = KeyOf(g_units[i]);
-				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-				if (Lower(g_units[i].name) == "bread") {
+				n = hc::Canon(n);
+				if (hc::Canon(g_units[i].name) == "bread") {
 					return i;
 				}
 			}
@@ -1874,7 +1875,7 @@ namespace Cook
 		std::vector<std::vector<std::string>> DoughOrder()
 		{
 			std::string n = g_recipe ? g_recipe->key : std::string();
-			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			n = hc::Canon(n);
 			if (n.find("potato bread") != std::string::npos) {
 				return { { "milk" }, { "egg" }, { "flour", "butter" } };  // (then the potato poured in, the salt, and stirred)
 			}
@@ -1919,7 +1920,7 @@ namespace Cook
 			}
 			auto rank = [&](const Unit& a_u) {
 				std::string n = KeyOf(a_u);
-				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				n = hc::Canon(n);
 				for (int g = 0; g < static_cast<int>(order.size()); ++g) {
 					for (std::size_t w = 0; w < order[g].size(); ++w) {
 						if (n.find(order[g][w]) != std::string::npos) {
@@ -1976,7 +1977,7 @@ namespace Cook
 			}
 			for (const auto& u : g_units) {
 				std::string n = KeyOf(u);
-				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				n = hc::Canon(n);
 				const int g = group(n);
 				if (g >= 0 && g < mine && u.at != Unit::At::Dough && u.at != Unit::At::Pot) {
 					return u.name;
@@ -1989,7 +1990,7 @@ namespace Cook
 		void PourOnDough()
 		{
 			if (g_topping && !g_buttered) {
-				Toast("Butter the bread first");
+				Toast("Primero unta el pan con mantequilla");
 				return;
 			}
 			if (g_topping) {
@@ -2014,11 +2015,11 @@ namespace Cook
 				return;
 			}
 			if (g_doughNeeded > 0 && g_oven->Dough() < 0.9) {
-				Toast("Knead the dough first");
+				Toast("Primero amasa");
 				return;
 			}
 			if (g_oven->Pie() && g_flat < 1.0) {
-				Toast(Dumpling() ? "Roll the dough out square first" : "Roll the dough out first");
+				Toast(Dumpling() ? "Primero estira la masa en forma cuadrada" : "Primero estira la masa");
 				return;
 			}
 			g_bowlPoured = true;
@@ -2089,11 +2090,11 @@ namespace Cook
 					// diced, not sliced: whatever isn't long and thin is cut both ways before the board lifts
 					for (const auto& u : g_units) {
 						if (any && u.at == Unit::At::Board && (u.bulb || (u.thin && u.cut.cutCount == 0))) {
-							Toast(u.bulb ? "Knock it apart into its cloves with the knife, then dice them" : "Cut it first");
+							Toast(u.bulb ? "Sepáralo en dientes con el cuchillo y luego córtalos en dados" : "Primero córtalo");
 							return;
 						}
 						if (any && u.at == Unit::At::Board && !u.thin && (u.cut.cutCount == 0 || u.cut.alongCount == 0)) {
-							Toast(u.cut.cutCount == 0 ? "Cut it, then right-click to turn the knife and cut it the other way" : "Now right-click to turn the knife and cut it the other way");
+							Toast(u.cut.cutCount == 0 ? "Córtalo y luego haz clic derecho para girar el cuchillo y cortar en el otro sentido" : "Ahora haz clic derecho para girar el cuchillo y cortar en el otro sentido");
 							return;
 						}
 					}
@@ -2131,7 +2132,7 @@ namespace Cook
 			// the oven: its door, what's in it, the dough
 			if (oven) {
 				if (g_oven->InOven() && g_peelT < 0 && NearScreen(BreadAt() + Vec3{ 0, 0, 1.5 }, mx, my, 4.0, 30.0f)) {
-					Toast(g_door > 0.6 ? "Too hot for hands: take it out with the peel" : "Open the door, then take it out with the peel");
+					Toast(g_door > 0.6 ? "Quema demasiado para tocarlo: sácalo con la pala" : "Abre la puerta y luego sácalo con la pala");
 					return;
 				}
 				if (g_peelBread && g_peelT < 0 && P.peel >= 0) {
@@ -2184,7 +2185,7 @@ namespace Cook
 							fillingOff |= u.role == Role::Filling && u.at != Unit::At::Dough;
 						}
 						if (g_rolled && fillingOff && r > 2.6 && r < R + 1.2) {
-							Toast(Dumpling() ? "All the filling on first, then fold" : Crostata() ? "All the fruit on first, then fold the edge" : "All the filling on first, then crimp");
+							Toast(Dumpling() ? "Primero pon todo el relleno y luego dobla" : Crostata() ? "Primero pon toda la fruta y luego dobla el borde" : "Primero pon todo el relleno y luego sella el borde");
 							return;
 						}
 						if (g_rolled && Dumpling() && r > 2.6 && r < R + 1.2) {
@@ -2224,7 +2225,7 @@ namespace Cook
 					if (ready) {
 						g_pinHeld = true;
 					} else {
-						Toast(g_flat >= 1.0 || g_rolled ? "It's rolled out already" : "Knead the dough first, then roll it out");
+						Toast(g_flat >= 1.0 || g_rolled ? "Ya está estirada" : "Primero amasa y luego estira la masa");
 					}
 					return;
 				}
@@ -2347,12 +2348,12 @@ namespace Cook
 					if (CutsWaiting() && std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
 						if (Audio::Now() - g_lastStir > 1.5) {
 							g_lastStir = Audio::Now();
-							Toast("Pour in what's in the right bowl first");
+							Toast("Primero vierte lo que hay en el cuenco derecho");
 						}
 					} else if (g_recipe->salted && g_oven->Seasoning().amount < 0.3 && std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
 						if (Audio::Now() - g_lastStir > 1.5) {
 							g_lastStir = Audio::Now();
-							Toast("A pinch of salt first");
+							Toast("Primero una pizca de sal");
 						}
 					} else if (std::abs(dA) < 1.5 && g_doughParts >= (std::max)(1, g_doughNeeded)) {
 						g_mix = (std::min)(1.0, g_mix + std::abs(dA) / (2.0 * kPi * 4.0));  // four turns round
@@ -2366,11 +2367,11 @@ namespace Cook
 						if (g_mix >= 1.0) {
 							g_ball = true;
 							g_hold = Hold::None;
-							Toast("A ball of dough: lift it onto the board");
+							Toast("Una bola de masa: súbela a la tabla");
 						}
 					} else if (g_doughParts < (std::max)(1, g_doughNeeded) && Audio::Now() - g_lastStir > 1.5) {
 						g_lastStir = Audio::Now();
-						Toast("Everything for the dough goes in the bowl first");
+						Toast("Primero va al cuenco todo lo de la masa");
 					}
 				}
 				break;
@@ -2415,7 +2416,7 @@ namespace Cook
 						if (g_doughNeeded > 0 && g_doughParts < g_doughNeeded) {
 							if (Audio::Now() - g_lastStir > 1.5) {
 								g_lastStir = Audio::Now();
-								Toast("The dough isn't all in yet");
+								Toast("Aún faltan ingredientes para la masa");
 							}
 						} else {
 							g_peelLoaded = true;
@@ -2545,7 +2546,7 @@ namespace Cook
 					double lx = 0, ly = 0;
 					if (g_flow == hc::Flow::Pot) {
 						if (u.role == Role::Chop && P.board >= 0 && g_tip < 0.05 && OverBoard(mx, my, lx, ly) && OneOnBoard()) {
-							Toast("One at a time: into the pot with what's on the board first");
+							Toast("Uno a la vez: primero echa a la olla lo que hay en la tabla");
 							PutBack(ui);
 							break;
 						}
@@ -2556,19 +2557,19 @@ namespace Cook
 								u.lane = lane;
 								break;
 							}
-							Toast("The board is full");
+							Toast("La tabla está llena");
 						} else if (SauceBowl() && Liquid(u) && OverSauceBowl(mx, my)) {
 							// poured into the sauce's bowl (the ale before the honey), the bottle stood beside it
 							bool aleWaiting = false;
 							std::string ln = u.name;
-							std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							ln = hc::Canon(ln);
 							for (const auto& o : g_units) {
 								std::string on = o.name;
-								std::transform(on.begin(), on.end(), on.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+								on = hc::Canon(on);
 								aleWaiting |= on.find("ale") != std::string::npos && on.find("kale") == std::string::npos && !o.byBowl && o.at != Unit::At::Pot;
 							}
 							if (ln.find("honey") != std::string::npos && aleWaiting) {
-								Toast("The ale goes in first");
+								Toast("Primero va la cerveza");
 								PutBack(ui);
 								break;
 							}
@@ -2578,7 +2579,7 @@ namespace Cook
 							Audio::Play({ ln.find("honey") != std::string::npos ? "splash_0" : "pour", 0.6f });
 							break;
 						} else if (SauceBowl() && Liquid(u) && OverPot(mx, my, 1.0)) {
-							Toast("Into the bowl first, then the bowl into the pot");
+							Toast("Primero al cuenco y luego el cuenco a la olla");
 							PutBack(ui);
 							break;
 						} else if (OverPot(mx, my, 1.0)) {
@@ -2595,10 +2596,10 @@ namespace Cook
 								}
 							} else {
 								++g_tossedIn;
-								const bool milk = u.role == Role::Toss && u.name.find("Milk") != std::string::npos;  // (milk: no sound)
+								const bool milk = u.role == Role::Toss && hc::Canon(u.name).find("milk") != std::string::npos;  // (milk: no sound)
 								if (!milk)
 								Audio::Play({ u.role == Role::Toss && (u.name.find("Ale") != std::string::npos ||
-																	u.name.find("Wine") != std::string::npos || u.name.find("Mead") != std::string::npos)
+																	hc::Canon(u.name).find("wine") != std::string::npos || hc::Canon(u.name).find("mead") != std::string::npos)
 												  ? "pour"
 												  : "splash_0",
 									0.525f });  // (a quarter quieter)
@@ -2612,12 +2613,12 @@ namespace Cook
 						if (u.role == Role::Meat && NearScreen(SpitAxis(0.0), mx, my, 11.0, 60.0f)) {
 							// salted first, and a fire laid under the spit, then it goes on
 							if (g_recipe->salted && Mounted() == 0 && g_spit->Seasoning().amount < 0.7) {
-								Toast("Salt the meat first");
+								Toast("Primero sala la carne");
 								PutBack(ui);
 								break;
 							}
 							if (g_fire.Logs() == 0) {
-								Toast("Put firewood on the fire first");
+								Toast("Primero pon leña en el fuego");
 								PutBack(ui);
 								break;
 							}
@@ -2644,7 +2645,7 @@ namespace Cook
 								waiting |= d.dice && d.at != Unit::At::Pot && d.at != Unit::At::Dough;
 							}
 							if (waiting) {
-								Toast("Cut the garlic first, and into its bowl");
+								Toast("Primero corta el ajo y ponlo en su cuenco");
 								PutBack(ui);
 								break;
 							}
@@ -2660,7 +2661,7 @@ namespace Cook
 						if (u.dice) {
 							// cut on the board first (while the board's free of dough)
 							if (P.board >= 0 && OverBoard(mx, my, lx, ly) && !g_doughOnBoard && OneOnBoard()) {
-								Toast("One at a time: into its bowl with what's on the board first");
+								Toast("Uno a la vez: primero pon en su cuenco lo que hay en la tabla");
 								PutBack(ui);
 								break;
 							}
@@ -2671,9 +2672,9 @@ namespace Cook
 									u.lane = lane;
 									break;
 								}
-								Toast(g_doughOnBoard ? "The dough has the board: cut it first next time" : "The board is full");
+								Toast(g_doughOnBoard ? "La masa ocupa la tabla: la próxima vez córtalo antes" : "La tabla está llena");
 							} else {
-								Toast(fmt::format("Cut the {} on the board first", u.name));
+								Toast(fmt::format("Primero corta en la tabla: {}", u.name));
 							}
 							PutBack(ui);
 							break;
@@ -2685,7 +2686,7 @@ namespace Cook
 								g_buttered = true;
 								Audio::Take("knead_", 0.45f);
 							} else {
-								Toast(BreadOnBoard() ? "Cut the bread first, then butter it" : "Butter goes on the cut bread");
+								Toast(BreadOnBoard() ? "Primero corta el pan y luego úntalo con mantequilla" : "La mantequilla va sobre el pan cortado");
 								PutBack(ui);
 							}
 							break;
@@ -2700,15 +2701,15 @@ namespace Cook
 								}
 							}
 							if (waiting) {
-								Toast(fmt::format("Cut the {} first, and into its bowl", what));
+								Toast(fmt::format("Primero córtalo y ponlo en su cuenco: {}", what));
 								PutBack(ui);
 								break;
 							}
 							// some doughs go together in an order (a sweet roll's milk last; a potato bread's milk before its flour)
 							std::string ln = u.name;
-							std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							ln = hc::Canon(ln);
 							if (const auto before = MustGoFirst(ln); !before.empty()) {
-								Toast(fmt::format("The {} goes in first", before));
+								Toast(fmt::format("Primero va: {}", before));
 								PutBack(ui);
 								break;
 							}
@@ -2733,7 +2734,7 @@ namespace Cook
 							break;
 						}
 						if (u.role == Role::Dough) {
-							Toast(g_bowlWater ? "Into the bowl of water, to make the dough" : "Into the mixing bowl, to make the dough");
+							Toast(g_bowlWater ? "Al cuenco con agua, para hacer la masa" : "Al cuenco de mezclar, para hacer la masa");
 							PutBack(ui);
 							break;
 						}
@@ -2781,13 +2782,13 @@ namespace Cook
 			case Hold::Log:
 				if (g_flow == hc::Flow::Pot && OverFire(mx, my) && g_fire.Logs() == 0 &&
 					(!AllInPot() || (g_recipe && g_recipe->salted && g_pot && g_pot->Seasoning().amount < 0.7))) {
-					Toast(!AllInPot() ? "Everything into the pot first, then the firewood under it" : "Salt it first, then the firewood under it");
+					Toast(!AllInPot() ? "Primero todo a la olla y luego la leña debajo" : "Primero sálalo y luego pon la leña debajo");
 				} else if (OverFire(mx, my) && g_fire.AddLog()) {
 					Audio::Take("log_", 0.8f);
 					static const float spark[4] = { 1.0f, 0.55f, 0.15f, 1.0f };
 					Spray(FireCenter() + Vec3{ 0, 0, 1.0 }, 18, spark, 4.0, 12.0, 0.12f, false, Render3D::Sprite::Kind::Ember, 1.2);
 				} else if (OverFire(mx, my)) {
-					Toast("The fire can't take another log");
+					Toast("El fuego no admite otro tronco");
 				}
 				break;
 			case Hold::FireLog:
@@ -2809,7 +2810,7 @@ namespace Cook
 					double lx = 0, ly = 0;
 					if (P.board >= 0 && OverBoard(mx, my, lx, ly)) {
 						if (AnyOnBoard()) {
-							Toast("Clear the board first");
+							Toast("Primero vacía la tabla");
 						} else {
 							g_doughOnBoard = true;
 							Flour(g_doughAt);
@@ -2825,7 +2826,7 @@ namespace Cook
 						Audio::Take("splash_", 0.6f);
 						Serve();
 					} else {
-						Toast("There's nothing in the pot yet");
+						Toast("Todavía no hay nada en la olla");
 					}
 				}
 				break;
@@ -2846,7 +2847,7 @@ namespace Cook
 						g_spit->Seasoning().amount += g_pinch;
 						hit = true;
 					} else if (g_flow == hc::Flow::Oven && P.mixBowl >= 0 && !g_doughOnBoard && OverMix(mx, my) && CutsWaiting()) {
-						Toast("Pour in what's in the right bowl first, then the salt");
+						Toast("Primero vierte lo del cuenco derecho y luego la sal");
 						target = { g_carry.x, g_carry.y, 0.0 };
 						hit = false;
 						g_pinch = 0;
@@ -2895,10 +2896,10 @@ namespace Cook
 				}
 				if (g_peelLoaded && NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
 					if (g_fire.Logs() == 0) {
-						Toast("Put firewood in the oven first");
+						Toast("Primero pon leña en el horno");
 						g_peelLoaded = false;
 					} else if (g_door < 0.6) {
-						Toast("Open the oven door first");
+						Toast("Primero abre la puerta del horno");
 						g_peelLoaded = false;  // the dough slides back onto the board
 					} else {
 						g_peelFrom = g_peelAt;
@@ -2907,7 +2908,7 @@ namespace Cook
 					}
 				} else if (g_peelLoaded) {
 					g_peelLoaded = false;  // put down: the dough back on the board
-					Toast("Carry it into the open oven");
+					Toast("Llévalo al horno abierto");
 				}
 				g_peelLoaded = g_peelLoaded && g_peelT >= 0;
 				break;
@@ -2916,9 +2917,9 @@ namespace Cook
 					double x = 0, y = 0;
 					const bool board = OnPlane(mx, my, kBoardTop + 1.0, x, y) && std::abs(x - L::kBoardX) < L::kBoardW * 0.5 + 1.0 && std::abs(y - L::kBoardY) < L::kBoardD * 0.5 + 1.0;
 					if (NearScreen(MouthAt(), mx, my, 6.0, 50.0f)) {
-						Toast("Use the peel: drag it under the dough, then into the oven");
+						Toast("Usa la pala: deslízala bajo la masa y luego al horno");
 					} else if (board && g_strokeLen > 1.2 && !g_rolled && g_doughParts > 0 && g_oven->Pie() && g_oven->Dough() >= 0.9) {
-						Toast("Pick up the rolling pin to roll it out");
+						Toast("Toma el rodillo para estirarla");
 					} else if (board && g_strokeLen > 1.2) {
 						DoughPush(g_strokeLen);  // a push: kneaded
 					}
@@ -2956,7 +2957,7 @@ namespace Cook
 				}
 				g_flat = (std::min)(1.0, g_flat + a_len / 30.0);
 				if (g_flat >= 1.0) {
-					Toast("Rolled out: now the filling");
+					Toast("Estirada: ahora el relleno");
 					g_pinHeld = false;  // the pin back on the table
 					if (g_hold == Hold::Roll) {
 						g_hold = Hold::None;
@@ -3086,16 +3087,16 @@ namespace Cook
 							u.segs.clear();
 							u.fitted = false;
 							Fit(u);
-							Toast("Broken into its cloves: now dice them");
+							Toast("Separado en dientes: ahora córtalos en dados");
 							Audio::Take("knead_", 0.6f);
 							continue;
 						}
 						if (g_knifeAlong && u.thin) {
-							Toast(fmt::format("A {} is only cut across", u.name));
+							Toast(fmt::format("Esto solo se corta de través: {}", u.name));
 							continue;
 						}
 						if ((g_knifeAlong ? u.cut.alongCount : u.cut.cutCount) >= hc::Cutting::kMaxCuts) {
-							Toast(g_knifeAlong ? "Six cuts along is enough" : "Six cuts across is enough");
+							Toast(g_knifeAlong ? "Seis cortes a lo largo bastan" : "Seis cortes de través bastan");
 							continue;
 						}
 						if (g_knifeAlong) {
@@ -3209,7 +3210,7 @@ namespace Cook
 					                                       : std::hypot(g_carry.x - g_doughAt.x, g_carry.y - g_doughAt.y) < 4.5 && (g_doughOnBoard || BreadOnBoard()));
 					g_bowlTip += Clamp((over && !g_bowlPoured ? 1.0 : 0.0) - g_bowlTip, -dt * 3.0, dt * 2.0);
 					if (g_bowlTip > 0.6 && !g_bowlPoured && BreadCuts() && g_doughParts < (std::max)(1, g_doughNeeded)) {
-						Toast("The milk, egg and flour go in first, then this");
+						Toast("Primero van la leche, el huevo y la harina; luego esto");
 						g_hold = Hold::None;  // the bowl goes back
 					} else if (g_bowlTip > 0.6 && !g_bowlPoured && BreadCuts()) {
 						g_cutInMix = true;  // into the mixing bowl, after the dough's things, before the salt
@@ -3264,7 +3265,7 @@ namespace Cook
 						if (g_peelIn) {
 							g_oven->Load();
 							if (g_flow == hc::Flow::Oven) {
-								Toast("Shut the door, and let it bake");
+								Toast("Cierra la puerta y deja que se hornee");
 							}
 						}
 					}
@@ -3380,7 +3381,7 @@ namespace Cook
 				look->shape[0][1] = static_cast<float>(a_c.y);
 				look->shape[0][2] = static_cast<float>(a_c.z);
 				// (a leek, a carrot: a tight round section; a cabbage: a tight ball - their loose outer leaves stay leaves)
-				look->shape[0][3] = u.thin ? 1.0f : u.name.find("abbage") != std::string::npos ? 0.5f : 2.0f;
+				look->shape[0][3] = u.thin ? 1.0f : hc::Canon(u.name).find("abbage") != std::string::npos ? 0.5f : 2.0f;
 				for (int j = 0; j < 3; ++j) {
 					look->shape[j + 1][0] = static_cast<float>(axv[j].x);
 					look->shape[j + 1][1] = static_cast<float>(axv[j].y);
@@ -3464,7 +3465,7 @@ namespace Cook
 						auto& sl = Scene::LookOf(P.sauceIn);
 						bool honey = false;
 						for (const auto& o : g_units) {
-							honey |= o.byBowl && o.at == Unit::At::Gone && o.name.find("oney") != std::string::npos;
+							honey |= o.byBowl && o.at == Unit::At::Gone && hc::Canon(o.name).find("oney") != std::string::npos;
 						}
 						// ale, amber; the honey stirring a deeper gold into it
 						sl.lift[0] = honey ? 0.78f : 0.62f, sl.lift[1] = honey ? 0.48f : 0.38f, sl.lift[2] = honey ? 0.12f : 0.12f, sl.lift[3] = 0.92f;
@@ -3713,7 +3714,7 @@ namespace Cook
 						{
 							// red meat darkens on the spit; chicken browns golden
 							std::string ln = u.name;
-							std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							ln = hc::Canon(ln);
 							lk.sear = ln.find("chicken") == std::string::npos;
 						}
 						for (int b = 0; b < hc::Spit::kBands; ++b) {
@@ -3767,7 +3768,7 @@ namespace Cook
 							k += g_units[j].byBowl;
 						}
 						// the honey pot on the bowl's left, the bottles on its right
-						const bool honeyPot = u.name.find("oney") != std::string::npos;
+						const bool honeyPot = hc::Canon(u.name).find("oney") != std::string::npos;
 						Stand(u, kSauceAt + (honeyPot ? Vec3{ -8.8, -0.8, 0.0 } : Vec3{ 7.4 + k * 2.6, -1.2 + k * 0.8, 0.0 }), u.boardLen, 0.4 + k);  // (clear of the bowl)
 						HideBoardBits(u);
 						break;
@@ -3949,7 +3950,7 @@ namespace Cook
 					}
 					at.z -= 0.45 * broken + 0.35 * broken * Hash(b, 41) + 1.6 * fade;
 					// bobbing on the simmer, each its own way, turning a little (a leek as it was in 0.4.8: still)
-					if (g_pot && u.name.find("eek") == std::string::npos) {
+					if (g_pot && hc::Canon(u.name).find("eek") == std::string::npos) {
 						const double boil = Clamp((g_pot->Temp() - 0.35) / 0.5, 0.0, 1.0);
 						const double ph = g_clock * (1.3 + 0.9 * Hash(b, 43)) + Hash(b, 44) * 6.283;
 						at.z += (0.1 + 0.16 * boil) * std::sin(ph);
@@ -3981,10 +3982,10 @@ namespace Cook
 				// (a leek's stalk is our own solid one: its slices drawn as they are. Its leafy part - from a third of the way along
 				// from the root - is chopped greens: curved bits of leaf, not the thin flat leaf blades cut short)
 				bool leekBits = false;
-				if (u.name.find("eek") != std::string::npos && std::abs(pc.box[0]) < 1e6 && std::abs(pc.box[1]) < 1e6) {
+				if (hc::Canon(u.name).find("eek") != std::string::npos && std::abs(pc.box[0]) < 1e6 && std::abs(pc.box[1]) < 1e6) {
 					leekBits = (pc.box[0] + pc.box[1]) * 0.5 / u.boardLen + 0.5 > 0.36;
 				}
-				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && (u.name.find("abbage") != std::string::npos || leekBits)) {
+				if (g_flow == hc::Flow::Pot && body.state == hc::Chunks::State::Pot && (hc::Canon(u.name).find("abbage") != std::string::npos || leekBits)) {
 					const double R[3] = { u.boardLen * 0.5 * shrink, (std::max)(0.05, Thick(u, u.boardLen, 1) * 0.5) * shrink, (std::max)(0.05, Thick(u, u.boardLen, 2) * 0.5) * shrink };
 					double       lo[3], hi[3];
 					for (int ax = 0; ax < 3; ++ax) {
@@ -4464,7 +4465,7 @@ namespace Cook
 						lk.uv[2] = 0.45f + Hash(id, 22) * 0.1f;
 						lk.uv[3] = 0.45f + Hash(id, 23) * 0.1f;
 						// the berries' own colour (their mesh's texture is as much leaf and stalk as berry)
-						std::transform(bn.begin(), bn.end(), bn.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						bn = hc::Canon(bn);
 						const float* col = nullptr;
 						static const float kSnow[3] = { 0.36f, 0.035f, 0.05f }, kJuniper[3] = { 0.16f, 0.19f, 0.34f }, kJazbay[3] = { 0.2f, 0.06f, 0.24f };
 						col = bn.find("snowberr") != std::string::npos ? kSnow : bn.find("juniper") != std::string::npos ? kJuniper : bn.find("jazbay") != std::string::npos ? kJazbay : nullptr;
@@ -4643,7 +4644,7 @@ namespace Cook
 						if (Recipes::CanMake(*r) > 0) {
 							StartCooking(r);
 						} else {
-							Toast("You don't have what it takes");
+							Toast("No tienes los ingredientes necesarios");
 						}
 					}
 					break;
@@ -4722,8 +4723,8 @@ namespace Cook
 			Kit::SetMesh(Kit::Role::Knife, next);
 			Scene::Remove(P.knife);
 			P.knife = KitAdd(Kit::Role::Knife);
-			std::string shown = next == "ours" ? std::string("Hearthcooking's own") : next.substr(next.find_last_of("\\/") + 1);
-			Toast(fmt::format("Knife: {}", shown));
+			std::string shown = next == "ours" ? std::string("El de Hearthcooking") : next.substr(next.find_last_of("\\/") + 1);
+			Toast(fmt::format("Cuchillo: {}", shown));
 		}
 
 		void HandleKeys()
@@ -4809,7 +4810,7 @@ namespace Cook
 					const auto order = DoughOrder();
 					auto rank = [&](const std::string& a_n) {
 						std::string l = a_n;
-						std::transform(l.begin(), l.end(), l.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+						l = hc::Canon(l);
 						for (int g = 0; g < static_cast<int>(order.size()); ++g) {
 							for (const auto& w : order[g]) {
 								if (l.find(w) != std::string::npos) {
@@ -4852,7 +4853,7 @@ namespace Cook
 								in += u.at == Unit::At::Pot;
 							}
 						}
-						s.push_back({ fmt::format("Tip in the {}{}", name, n > 1 ? fmt::format(" ({})", n) : ""), in >= n });
+						s.push_back({ fmt::format("Echa: {}{}", name, n > 1 ? fmt::format(" ({})", n) : ""), in >= n });
 					}
 				}
 				if (SauceBowl()) {
@@ -4861,36 +4862,36 @@ namespace Cook
 					for (const auto& u : g_units) {
 						if (u.role == Role::Toss && Liquid(u)) {
 							anyL = true;
-							s.push_back({ fmt::format("Into the bowl: the {}", u.name), u.byBowl });
+							s.push_back({ fmt::format("Al cuenco: {}", u.name), u.byBowl });
 							allIn &= u.at == Unit::At::Pot;
 						}
 					}
 					if (anyL) {
-						s.push_back({ "Pour the bowl into the pot", allIn });
+						s.push_back({ "Vierte el cuenco en la olla", allIn });
 					}
 					for (const auto& u : g_units) {
 						if (u.role == Role::Toss && !Liquid(u)) {
-							s.push_back({ fmt::format("Add the {}", u.name), u.at == Unit::At::Pot });
+							s.push_back({ fmt::format("Añade: {}", u.name), u.at == Unit::At::Pot });
 						}
 					}
 				} else {
-					unitsDone(Role::Toss, { Unit::At::Pot }, "Add the ", "");
+					unitsDone(Role::Toss, { Unit::At::Pot }, "Añade: ", "");
 				}
 				if (g_recipe->salted) {
-					s.push_back({ "A pinch of salt", g_pot && g_pot->Seasoning().amount >= 0.7 });
+					s.push_back({ "Una pizca de sal", g_pot && g_pot->Seasoning().amount >= 0.7 });
 				}
-				s.push_back({ "Firewood under the pot", g_fire.Logs() > 0 || (g_pot && g_pot->Cooked() > 0.05) });
-				s.push_back({ "Keep it at a simmer, and stir", g_pot && g_pot->Cooked() >= 0.92 });
-				s.push_back({ "Ladle it into the bowl", g_served });
+				s.push_back({ "Leña bajo la olla", g_fire.Logs() > 0 || (g_pot && g_pot->Cooked() > 0.05) });
+				s.push_back({ "Mantén un hervor suave y revuelve", g_pot && g_pot->Cooked() >= 0.92 });
+				s.push_back({ "Sírvelo en el cuenco con el cucharón", g_served });
 			} else if (g_flow == hc::Flow::Spit) {
 				if (g_recipe->salted) {
-					s.push_back({ "Salt the meat", g_spit && g_spit->Seasoning().amount >= 0.7 });
+					s.push_back({ "Sala la carne", g_spit && g_spit->Seasoning().amount >= 0.7 });
 				}
-				s.push_back({ "Firewood onto the fire", g_fire.Logs() > 0 || Mounted() > 0 });
-				unitsDone(Role::Meat, { Unit::At::Spit }, "Put the ", " on the spit");
-				unitsDone(Role::Toss, { Unit::At::Gone }, "Rub in the ", "");
-				s.push_back({ "Turn it over the fire", g_spit && g_spit->Mean() >= 0.9 });
-				s.push_back({ "Take it off onto the plate", g_served });
+				s.push_back({ "Leña al fuego", g_fire.Logs() > 0 || Mounted() > 0 });
+				unitsDone(Role::Meat, { Unit::At::Spit }, "Al asador: ", "");
+				unitsDone(Role::Toss, { Unit::At::Gone }, "Frota con: ", "");
+				s.push_back({ "Gíralo sobre el fuego", g_spit && g_spit->Mean() >= 0.9 });
+				s.push_back({ "Retíralo al plato", g_served });
 			} else {
 				// a pie's fruit is cut first and waits in a bowl
 				bool anyDice = false, allInBowl = true, allOnDough = true;
@@ -4910,38 +4911,38 @@ namespace Cook
 					s.push_back({ DiceLine(name, c.first), c.second >= c.first });
 				}
 				if (anyDice) {
-					s.push_back({ BreadCuts() ? "Sweep it into the right bowl" : "Sweep it into the bowl", allInBowl });
+					s.push_back({ BreadCuts() ? "Échalo al cuenco derecho" : "Échalo al cuenco", allInBowl });
 				}
 				if (g_doughNeeded > 0) {
 					const std::size_t from = s.size();
-					unitsDone(Role::Dough, { Unit::At::Dough }, g_bowlWater ? "Into the water: the " : "Into the bowl: the ", g_bowlWater ? "" : "");
+					unitsDone(Role::Dough, { Unit::At::Dough }, g_bowlWater ? "Al agua: " : "Al cuenco: ", g_bowlWater ? "" : "");
 					if (anyDice && BreadCuts()) {
 						// a bread's cut things (a potato bread's potato) poured in after the flour
 						std::size_t at = s.size();
 						for (std::size_t k = from; k < s.size(); ++k) {
 							std::string l = s[k].text;
-							std::transform(l.begin(), l.end(), l.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							l = hc::Canon(l);
 							if (l.find("flour") != std::string::npos) {
 								at = k + 1;
 							}
 						}
-						s.insert(s.begin() + static_cast<std::ptrdiff_t>(at), CardLine{ "Pour the right bowl into the left bowl", g_cutInMix });
+						s.insert(s.begin() + static_cast<std::ptrdiff_t>(at), CardLine{ "Vierte el cuenco derecho en el izquierdo", g_cutInMix });
 					}
 				}
 				if (g_recipe->salted) {
-					s.push_back({ "A pinch of salt", g_oven && g_oven->Seasoning().amount >= 0.7 });
+					s.push_back({ "Una pizca de sal", g_oven && g_oven->Seasoning().amount >= 0.7 });
 				}
 				if (g_doughNeeded > 0) {
-					s.push_back({ "Stir it into a dough", g_ball });
-					s.push_back({ "Onto the board", g_doughOnBoard });
-					s.push_back({ "Knead the dough", g_oven && g_oven->Dough() >= 0.9 });
+					s.push_back({ "Revuelve hasta formar una masa", g_ball });
+					s.push_back({ "A la tabla", g_doughOnBoard });
+					s.push_back({ "Amasa", g_oven && g_oven->Dough() >= 0.9 });
 					if (g_recipe->pie) {
-						s.push_back({ "Pick up rolling pin and flatten to shape", g_flat >= 1.0 });
+						s.push_back({ "Toma el rodillo y estira la masa", g_flat >= 1.0 });
 					}
 				}
 				if (g_recipe->pie) {
 					if (anyDice) {
-						s.push_back({ "Heap the filling on the dough", allOnDough });
+						s.push_back({ "Pon el relleno sobre la masa", allOnDough });
 					}
 					bool other = false;
 					for (const auto& u : g_units) {
@@ -4950,35 +4951,35 @@ namespace Cook
 					if (other) {
 						for (const auto& u : g_units) {
 							if (u.role == Role::Filling && !u.dice) {
-								s.push_back({ fmt::format("Add the {}", u.name), u.at == Unit::At::Dough });
+								s.push_back({ fmt::format("Añade: {}", u.name), u.at == Unit::At::Dough });
 							}
 						}
 						(void)anyDice;  // (no spreading: the filling covers the inside as it goes in)
 					}
-					s.push_back({ Dumpling() ? "Fold the four corners in over it" : Crostata() ? "Fold the edge in over the fruit" : "Crimp the edge", g_oven && g_oven->Crimped() >= 0.9 });
+					s.push_back({ Dumpling() ? "Dobla las cuatro esquinas sobre el relleno" : Crostata() ? "Dobla el borde sobre la fruta" : "Sella el borde", g_oven && g_oven->Crimped() >= 0.9 });
 				} else {
 					if (g_topping) {
 						bool topped = true;
 						for (const auto& u : g_units) {
 							topped &= !u.dice || u.at == Unit::At::Dough;
 						}
-						s.push_back({ g_recipe->makes > 1 ? fmt::format("Cut the bread into {} slices", g_recipe->makes) : std::string("Cut the bread into slices"), BreadCut() });
-						s.push_back({ "Butter it", g_buttered });
-						s.push_back({ "The garlic on top", topped });
+						s.push_back({ g_recipe->makes > 1 ? fmt::format("Corta el pan en {} rebanadas", g_recipe->makes) : std::string("Corta el pan en rebanadas"), BreadCut() });
+						s.push_back({ "Úntalo con mantequilla", g_buttered });
+						s.push_back({ "El ajo por encima", topped });
 					} else {
 						for (const auto& u : g_units) {
 							if (u.role == Role::Filling && !u.dice) {
-								s.push_back({ fmt::format("Work in the {}", u.name), u.at == Unit::At::Dough });
+								s.push_back({ fmt::format("Incorpora: {}", u.name), u.at == Unit::At::Dough });
 							}
 						}
 					}
 				}
-				s.push_back({ "Firewood into the oven", g_fire.Logs() > 0 || (g_oven && (g_oven->InOven() || g_oven->Out())) });
-				s.push_back({ "Into the oven with the peel", g_oven && (g_oven->InOven() || g_oven->Out()) });
-				s.push_back({ "Close the oven door", g_doorShut });
-				s.push_back({ "Bake it golden", g_oven && g_oven->Brown() >= 0.85 });
-				s.push_back({ "Open the oven door", g_doorReopened });
-				s.push_back({ "Out with the peel onto the plate", g_served });
+				s.push_back({ "Leña al horno", g_fire.Logs() > 0 || (g_oven && (g_oven->InOven() || g_oven->Out())) });
+				s.push_back({ "Al horno con la pala", g_oven && (g_oven->InOven() || g_oven->Out()) });
+				s.push_back({ "Cierra la puerta del horno", g_doorShut });
+				s.push_back({ "Hornéalo hasta que esté dorado", g_oven && g_oven->Brown() >= 0.85 });
+				s.push_back({ "Abre la puerta del horno", g_doorReopened });
+				s.push_back({ "Sácalo con la pala al plato", g_served });
 			}
 			return s;
 		}
@@ -4990,48 +4991,48 @@ namespace Cook
 			}
 			switch (g_hold) {
 			case Hold::Ingredient:
-				return g_flow == hc::Flow::Pot ? "Onto the board to chop it, or into the pot as it is" : g_flow == hc::Flow::Spit ? "Onto the spit, or rub it on what's there" : "Onto the board";
+				return g_flow == hc::Flow::Pot ? "A la tabla para cortarlo, o entero a la olla" : g_flow == hc::Flow::Spit ? "Al asador, o frótalo sobre lo que haya" : "A la tabla";
 			case Hold::Log:
-				return "Into the fire for more heat";
+				return "Al fuego para dar más calor";
 			case Hold::FireLog:
-				return "Drop it anywhere to take the heat down (back on the fire to keep it)";
+				return "Suéltalo en cualquier parte para bajar el calor (al fuego para mantenerlo)";
 			case Hold::Board:
-				return g_flow == hc::Flow::Oven ? "Its right end over the empty bowl: it tips in" : "Drag right to tip it into the pot; up and down to line it up";
+				return g_flow == hc::Flow::Oven ? "Su extremo derecho sobre el cuenco vacío: se vuelca" : "Arrastra a la derecha para volcarla en la olla; arriba y abajo para alinearla";
 			case Hold::Ladle:
-				return Overlay::UsingPad() ? "Circle the right stick to stir. Left stick lifts it out to the bowl when it's done" : "Round and round. Lift it out to the bowl when it's done";
+				return Overlay::UsingPad() ? "Gira el stick derecho para revolver. El stick izquierdo lo saca al cuenco cuando esté listo" : "Revuelve en círculos. Sácalo al cuenco cuando esté listo";
 			case Hold::LadleOut:
-				return "Over the bowl to serve, or back into the pot";
+				return "Sobre el cuenco para servir, o de vuelta a la olla";
 			case Hold::Salt:
-				return "Hold for a bigger pinch. Let go over the dish";
+				return "Mantén para una pizca mayor. Suelta sobre el plato";
 			case Hold::Crank:
-				return Overlay::UsingPad() ? "Circle the right stick to turn it: a quarter turn every few seconds is plenty" : "Turn it round: a quarter turn every few seconds is plenty";
+				return Overlay::UsingPad() ? "Gira el stick derecho para girarlo: un cuarto de vuelta cada pocos segundos basta" : "Hazlo girar: un cuarto de vuelta cada pocos segundos basta";
 			case Hold::Meat:
-				return "Onto the plate to serve, or back on the spit";
+				return "Al plato para servir, o de vuelta al asador";
 			case Hold::Dough:
-				return g_oven && g_oven->Pie() && g_oven->Dough() >= 0.9 ? "Roll it out with the rolling pin" : "A long push to knead";
+				return g_oven && g_oven->Pie() && g_oven->Dough() >= 0.9 ? "Estírala con el rodillo" : "Empuja largo para amasar";
 			case Hold::Roll:
-				return Dumpling() ? "Hold and roll it about over the dough, out square" : "Hold and roll it about over the dough, out round";
+				return Dumpling() ? "Mantén y pásalo sobre la masa, en forma cuadrada" : "Mantén y pásalo sobre la masa, en forma redonda";
 			case Hold::Mix:
-				return Overlay::UsingPad() ? "Circle the right stick, round and round until it comes together" : "Round and round until it comes together";
+				return Overlay::UsingPad() ? "Gira el stick derecho, en círculos, hasta que se una" : "En círculos hasta que se una";
 			case Hold::Ball:
-				return "Onto the board";
+				return "A la tabla";
 			case Hold::Apples:
-				return "Over the dough: it tips and pours";
+				return "Sobre la masa: se vuelca y se vierte";
 			case Hold::Peel:
-				return g_peelBread ? "Onto the plate" : g_peelLoaded ? "Into the open oven" : g_oven && g_oven->InOven() ? "Into the open oven to take it out" : "Slide it under the dough";
+				return g_peelBread ? "Al plato" : g_peelLoaded ? "Al horno abierto" : g_oven && g_oven->InOven() ? "Al horno abierto para sacarlo" : "Deslízala bajo la masa";
 			case Hold::Spread:
-				return "Spread it out to the edge";
+				return "Extiéndelo hasta el borde";
 			case Hold::Crimp:
-				return g_foldSide >= 0 ? "Draw the corner in, over the filling" : "Pinch your way all round the edge";
+				return g_foldSide >= 0 ? "Lleva la esquina hacia dentro, sobre el relleno" : "Pellizca todo el borde";
 			case Hold::Door:
-				return "Left to open, right to shut";
+				return "A la izquierda abre, a la derecha cierra";
 			case Hold::Bread:
-				return "Onto the plate";
+				return "Al plato";
 			default:
 				break;
 			}
 			if (g_flow == hc::Flow::Pot && g_pot && !g_served && g_hold == Hold::None && g_pot->Cooked() >= 0.92) {
-				return "It's ready: drag the ladle out of the pot and let go over the bowl";
+				return "Está listo: saca el cucharón de la olla y suéltalo sobre el cuenco";
 			}
 			if (g_flow == hc::Flow::Oven && g_hold == Hold::None && AnyOnBoard()) {
 				bool cut = true;
@@ -5039,19 +5040,19 @@ namespace Cook
 					cut &= u.at != Unit::At::Board || u.cut.cutCount + u.cut.alongCount > 0;
 				}
 				if (cut && !g_knifeOn) {
-					return "Lift the board by its left end and carry it over the empty bowl";
+					return "Levanta la tabla por el extremo izquierdo y llévala sobre el cuenco vacío";
 				}
 				if (cut) {
-					return "Cut more, or lift the board by its left end and carry it over the empty bowl";
+					return "Corta más, o levanta la tabla por el extremo izquierdo y llévala sobre el cuenco vacío";
 				}
 			}
 			if (g_knifeOn) {
 				if (Overlay::UsingPad()) {
-					return g_knifeAlong ? fmt::format("{} to cut along it. {} turns the knife back across", Btn("A"), Btn("RB"))
-					                    : fmt::format("{} to chop across. {} turns the knife to cut along: both ways makes dice", Btn("A"), Btn("RB"));
+					return g_knifeAlong ? fmt::format("{} para cortar a lo largo. {} vuelve a girar el cuchillo de través", Btn("A"), Btn("RB"))
+					                    : fmt::format("{} para cortar de través. {} gira el cuchillo para cortar a lo largo: en ambos sentidos salen dados", Btn("A"), Btn("RB"));
 				}
-				return g_knifeAlong ? "Click to cut along it. Right-click (or R) turns the knife back across"
-				                    : "Click to chop across. Right-click (or R) turns the knife to cut along: both ways makes dice";
+				return g_knifeAlong ? "Clic para cortar a lo largo. Clic derecho (o R) vuelve a girar el cuchillo de través"
+				                    : "Clic para cortar de través. Clic derecho (o R) gira el cuchillo para cortar a lo largo: en ambos sentidos salen dados";
 			}
 			for (const auto& st : Steps()) {
 				if (!st.done) {
@@ -5072,7 +5073,7 @@ namespace Cook
 			auto* dl = ImGui::GetWindowDrawList();
 			Sheet(dl, lp, ImVec2(pw, ph), 0);
 			float y = lp.y + S(28);
-			TextC(dl, F.bookSC, lp.x + pw * 0.5f, y, kInk, g_ovenStation ? "The Oven" : "The Cooking Pot");
+			TextC(dl, F.bookSC, lp.x + pw * 0.5f, y, kInk, g_ovenStation ? "El horno" : "La olla");
 			y += S(42);
 			FadeRule(dl, lp.x + S(40), lp.x + pw - S(40), y, 0.5f, kInkSoft);
 			y += S(12);
@@ -5090,7 +5091,7 @@ namespace Cook
 			}
 			s_first = std::clamp(s_first, 0, (std::max)(0, static_cast<int>(g_book.size()) - visible));
 			if (g_book.empty()) {
-				Para(dl, F.bookIt, lp.x + S(40), y + S(10), pw - S(80), kInkSoft, "You know no recipes for this, yet.");
+				Para(dl, F.bookIt, lp.x + S(40), y + S(10), pw - S(80), kInkSoft, "Todavía no conoces recetas para esto.");
 			}
 			for (int i = s_first; i < static_cast<int>(g_book.size()) && i < s_first + visible; ++i) {
 				const auto*  r = g_book[i];
@@ -5111,8 +5112,8 @@ namespace Cook
 				Text(dl, F.book, ImVec2(a.x + S(14), a.y + (rowH - F.book->FontSize) * 0.5f), can ? kInk : Alpha(kInkSoft, 0.6f), r->name);
 				bool              any = false;
 				const auto        best = Recipes::Best(*r, any);
-				const char*       mark = r->flow == hc::Flow::Pot ? "pot" : r->flow == hc::Flow::Spit ? "spit" : "oven";
-				const std::string tag = any ? fmt::format("{} - {}", mark, hc::TierName(best)) : mark;
+				const char*       mark = r->flow == hc::Flow::Pot ? "olla" : r->flow == hc::Flow::Spit ? "asador" : "horno";
+				const std::string tag = any ? fmt::format("{} - {}", mark, hc::Es(hc::TierName(best))) : mark;
 				const float       tagX = b.x - Measure(F.bookIt, tag, 0) - S(4);
 				Text(dl, F.bookIt, ImVec2(tagX, a.y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(any && best == hc::Tier::Masterwork ? kRubric : kInkSoft, can ? 1.0f : 0.6f), tag);
 				// where it's from, small after the name, when there's room before the tag
@@ -5136,49 +5137,49 @@ namespace Cook
 				float       ry = rp.y + S(30);
 				TextC(dl, F.bookSC, rp.x + pw * 0.5f, ry, kInk, r->name);
 				ry += S(40);
-				const char* how = r->flow == hc::Flow::Pot ? "In the pot: chopped, simmered and stirred" : r->flow == hc::Flow::Spit ? "On the spit, turned over the fire"
-				                : r->pie                    ? "A pie: dough, filling, a crimped edge, baked"
-				                                            : "Kneaded and baked in the oven";
+				const char* how = r->flow == hc::Flow::Pot ? "En la olla: cortado, a fuego lento y revuelto" : r->flow == hc::Flow::Spit ? "En el asador, girado sobre el fuego"
+				                : r->pie                    ? "Un pastel: masa, relleno, borde sellado y horneado"
+				                                            : "Amasado y horneado en el horno";
 				TextC(dl, F.bookIt, rp.x + pw * 0.5f, ry, kInkSoft, how);
 				if (!r->source.empty()) {
 					ry += S(22);
-					TextC(dl, F.bookIt, rp.x + pw * 0.5f, ry, Alpha(kInkSoft, 0.75f), "From " + r->source);
+					TextC(dl, F.bookIt, rp.x + pw * 0.5f, ry, Alpha(kInkSoft, 0.75f), "Origen: " + r->source);
 				}
 				ry += S(34);
 				FadeRule(dl, rp.x + S(40), rp.x + pw - S(40), ry, 0.5f, kInkSoft);
 				ry += S(18);
-				Text(dl, F.bookSCsm, ImVec2(rp.x + S(44), ry), kRubric, "You will need", 0.06f);
+				Text(dl, F.bookSCsm, ImVec2(rp.x + S(44), ry), kRubric, "Necesitarás", 0.06f);
 				ry += S(28);
 				for (const auto& in : r->ings) {
 					const int   have = Recipes::Held(in.form);
 					const bool  ok = have >= in.count;
 					const auto  t = in.count > 1 ? fmt::format("{} x{}", in.name, in.count) : in.name;
 					Text(dl, F.book, ImVec2(rp.x + S(52), ry), ok ? kInk : kRubric, t);
-					const auto h = fmt::format("{} carried", have);
+					const auto h = fmt::format("Tienes {}", have);
 					Text(dl, F.bookIt, ImVec2(rp.x + pw - S(44) - Measure(F.bookIt, h, 0), ry + S(2)), ok ? kGreenInk : kRubric, h);
 					ry += S(27);
 				}
 				ry += S(10);
 				if (r->makes > 1) {
-					Text(dl, F.bookIt, ImVec2(rp.x + S(52), ry), kInkSoft, fmt::format("Makes {}", r->makes));
+					Text(dl, F.bookIt, ImVec2(rp.x + S(52), ry), kInkSoft, fmt::format("Rinde {}", r->makes));
 					ry += S(26);
 				}
 				bool       any = false;
 				const auto best = Recipes::Best(*r, any);
-				Text(dl, F.bookIt, ImVec2(rp.x + S(52), ry), kInkSoft, any ? fmt::format("Your best: {}", hc::TierName(best)) : "Not made by hand yet");
+				Text(dl, F.bookIt, ImVec2(rp.x + S(52), ry), kInkSoft, any ? fmt::format("Tu mejor resultado: {}", hc::Es(hc::TierName(best))) : "Todavía no cocinado a mano");
 				const bool can = Recipes::CanMake(*r) > 0;
 				const float by = rp.y + ph - S(118);
-				if (MenuBtnInk("cook", "Cook by hand", rp.x + pw * 0.5f, by, can)) {
+				if (MenuBtnInk("cook", "Cocinar a mano", rp.x + pw * 0.5f, by, can)) {
 					Post(Act::CookByHand);
 				}
-				if (MenuBtnInk("quick", "Quick cook (plain)", rp.x + pw * 0.5f, by + S(44), true)) {
+				if (MenuBtnInk("quick", "Cocina rápida (común)", rp.x + pw * 0.5f, by + S(44), true)) {
 					Post(Act::QuickCook);
 				}
 			}
 			ImGui::End();
 			// leave, bottom centre
 			BeginArea("##leave", ImVec2(W * 0.5f - S(120), H - S(70)), ImVec2(S(240), S(50)));
-			if (MenuButton("leave", "Leave", W * 0.5f, H - S(62))) {
+			if (MenuButton("leave", "Salir", W * 0.5f, H - S(62))) {
 				Post(Act::Leave);
 			}
 			ImGui::End();
@@ -5244,7 +5245,7 @@ namespace Cook
 			y += S(12);
 			if (above) {
 				Text(dl, F.bookIt, ImVec2(pos.x + S(54), y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(kInkSoft, 0.7f),
-					from == 1 ? std::string("1 step done") : fmt::format("{} steps done", from));
+					from == 1 ? std::string("1 paso hecho") : fmt::format("{} pasos hechos", from));
 				y += rowH;
 			}
 			for (int i = from; i < to; ++i) {
@@ -5262,7 +5263,7 @@ namespace Cook
 			}
 			if (below) {
 				Text(dl, F.bookIt, ImVec2(pos.x + S(54), y + (rowH - F.bookIt->FontSize) * 0.5f), Alpha(kInkSoft, 0.7f),
-					n - to == 1 ? std::string("1 more") : fmt::format("{} more", n - to));
+					n - to == 1 ? std::string("1 más") : fmt::format("{} más", n - to));
 			}
 			dl->PopClipRect();
 			if (s_fade < 0.995f) {
@@ -5286,9 +5287,9 @@ namespace Cook
 			const bool pad = Overlay::UsingPad();
 			// the knife can be swapped from here while there's one in the kitchen
 			const bool knife = g_phase == Phase::Cooking && P.knife >= 0;
-			const Key  keys[4] = { { pad ? Btn("LB") : "N", "Knife", Act::Knife }, { pad ? Btn("X") : "H", "How to cook", Act::Help },
-				 { pad ? Btn("Back") : "M", Audio::Muted() ? "Sound (muted)" : "Sound", Act::Mute },
-				 { pad ? Btn("Y") : "Tab", g_phase == Phase::Cooking ? "Put it aside" : "Leave", g_phase == Phase::Cooking ? Act::Abandon : Act::Leave } };
+			const Key  keys[4] = { { pad ? Btn("LB") : "N", "Cuchillo", Act::Knife }, { pad ? Btn("X") : "H", "Cómo cocinar", Act::Help },
+				 { pad ? Btn("Back") : "M", Audio::Muted() ? "Sonido (silenciado)" : "Sonido", Act::Mute },
+				 { pad ? Btn("Y") : "Tab", g_phase == Phase::Cooking ? "Apartar" : "Salir", g_phase == Phase::Cooking ? Act::Abandon : Act::Leave } };
 			const int first = knife ? 0 : 1, count = 4;
 			float     widths[4]{}, total = 0;
 			for (int k = first; k < count; ++k) {
@@ -5332,7 +5333,7 @@ namespace Cook
 			if (Config::Get().padStyle != 1) {
 				return a_xbox;
 			}
-			static const std::pair<const char*, const char*> kPs[] = { { "A", "Cross" }, { "B", "Circle" }, { "X", "Square" }, { "Y", "Triangle" }, { "LB", "L1" },
+			static const std::pair<const char*, const char*> kPs[] = { { "A", "Cruz" }, { "B", "Círculo" }, { "X", "Cuadrado" }, { "Y", "Triángulo" }, { "LB", "L1" },
 				{ "RB", "R1" }, { "LT", "L2" }, { "RT", "R2" }, { "Back", "Share" }, { "Start", "Options" } };
 			for (const auto& [x, p] : kPs) {
 				if (std::strcmp(x, a_xbox) == 0) {
@@ -5342,8 +5343,8 @@ namespace Cook
 			return a_xbox;
 		}
 		// "click", or the controller's own
-		std::string ClickWord() { return Overlay::UsingPad() ? fmt::format("press {}", Btn("A")) : std::string("click"); }
-		std::string HoldWord() { return Overlay::UsingPad() ? fmt::format("hold {}", Btn("A")) : std::string("hold the button"); }
+		std::string ClickWord() { return Overlay::UsingPad() ? fmt::format("pulsa {}", Btn("A")) : std::string("haz clic"); }
+		std::string HoldWord() { return Overlay::UsingPad() ? fmt::format("mantén {}", Btn("A")) : std::string("mantén el botón"); }
 
 		// With a controller: while stirring or turning, the right stick goes round the pot, the bowl or the crank
 		void PadOrbit()
@@ -5399,7 +5400,7 @@ namespace Cook
 				v = g_pot->Cooked(), lo = 0.92, hi = 1.3, top = 2.0;
 				at = { L::kPotX, L::kPotY + L::kPotR + 1.5, L::kPotRim + 3.0 };
 				if (g_pot->Burn() > 0.25) {
-					warn = "Catching on the bottom: stir!";
+					warn = "¡Se pega al fondo: revuelve!";
 				}
 			} else if (g_flow == hc::Flow::Spit && g_spit) {
 				bool on = false;
@@ -5410,7 +5411,7 @@ namespace Cook
 					v = g_spit->Mean(), lo = 0.9, hi = 1.3, top = 1.9;
 					at = { L::kFireX, L::kFireY + 4.0, L::kSpitZ + 7.0 };
 					if (g_spit->Spread() > 0.25 && g_hold != Hold::Crank) {  // (not while it's being turned)
-						warn = "One side's browner: keep turning";
+						warn = "Un lado está más dorado: sigue girando";
 					}
 				}
 			} else if (g_flow == hc::Flow::Oven && g_oven && g_oven->InOven()) {
@@ -5443,7 +5444,7 @@ namespace Cook
 			dl->AddTriangleFilled(ImVec2(mx - S(7), y0 - S(9)), ImVec2(mx + S(7), y0 - S(9)), ImVec2(mx, y0 + S(1)), IM_COL32(250, 240, 220, 250));
 			dl->AddLine(ImVec2(mx, y0), ImVec2(mx, y0 + h), IM_COL32(250, 240, 220, 250), S(2));
 			const bool  ready = v >= lo && v <= hi;
-			const char* word = v < lo * 0.65 ? "Raw" : v < lo ? "Nearly there" : v <= hi ? "Ready" : "Overdone";
+			const char* word = v < lo * 0.65 ? "Crudo" : v < lo ? "Casi listo" : v <= hi ? "Listo" : "Pasado";
 			const std::string label = warn ? fmt::format("{} - {}", word, warn) : std::string(word);
 			Text(dl, F.sans, ImVec2(x0, y0 - S(28)), ready ? IM_COL32(255, 220, 130, 255) : kWhite, label, 0.05f, 0.95f);
 			// where it goes, glowing once it's ready
@@ -5484,8 +5485,8 @@ namespace Cook
 				float*      value;
 			};
 			std::vector<Row> rows;
-			rows.push_back({ "All the kitchen's sounds", &v.volume });
-			rows.push_back({ "Fire and boiling", &v.ambience });
+			rows.push_back({ "Todos los sonidos de la cocina", &v.volume });
+			rows.push_back({ "Fuego y hervor", &v.ambience });
 			for (std::size_t k = 0; k < std::size(Config::kSoundNames); ++k) {
 				if (!v.soundLevels.count(Config::kSoundNames[k])) {
 					v.soundLevels[Config::kSoundNames[k]] = 1.0f;
@@ -5496,7 +5497,7 @@ namespace Cook
 			BeginArea("##sound", ImVec2(x, y), ImVec2(w, h));
 			auto* dl = ImGui::GetWindowDrawList();
 			MsgBox(dl, ImVec2(x, y), ImVec2(x + w, y + h));
-			TextC(dl, F.menu, W * 0.5f, y + S(22), kWhite, "SOUND", 0.26f);
+			TextC(dl, F.menu, W * 0.5f, y + S(22), kWhite, "SONIDO", 0.26f);
 			float yy = y + S(70);
 			// all off at once
 			{
@@ -5505,7 +5506,7 @@ namespace Cook
 				if (Clicked("mute", ImVec2(x + S(32), yy), ImVec2(x + w - S(32), yy + rowH), &hov)) {
 					Audio::SetMuted(!muted);
 				}
-				Text(dl, F.sans, ImVec2(x + S(32), yy + (rowH - F.sans->FontSize) * 0.5f), hov ? kWhite : kGrey, muted ? "Muted: click to hear it again" : "Mute everything", 0.0f, 0.7f);
+				Text(dl, F.sans, ImVec2(x + S(32), yy + (rowH - F.sans->FontSize) * 0.5f), hov ? kWhite : kGrey, muted ? "Silenciado: haz clic para volver a oírlo" : "Silenciar todo", 0.0f, 0.7f);
 				yy += rowH + S(6);
 			}
 			const float bx0 = x + S(300), bx1 = x + w - S(84);
@@ -5533,7 +5534,7 @@ namespace Cook
 				ImGui::PopID();
 				yy += rowH;
 			}
-			TextC(dl, F.sans, W * 0.5f, y + h - S(34), kDim, "M or Esc to close", 0.1f);
+			TextC(dl, F.sans, W * 0.5f, y + h - S(34), kDim, "M o Esc para cerrar", 0.1f);
 			ImGui::End();
 		}
 
@@ -5542,28 +5543,28 @@ namespace Cook
 			const float w = S(520), x = W * 0.5f - w * 0.5f, y = S(110);
 			std::vector<std::string> lines;
 			if (Overlay::UsingPad()) {
-				lines.push_back(fmt::format("The left stick moves the hand (the right one finely). Hold {} or {} to pick things up; let go to put them down. {} puts back what you're holding.",
+				lines.push_back(fmt::format("El stick izquierdo mueve la mano (el derecho, con precisión). Mantén {} o {} para tomar cosas; suelta para dejarlas. {} devuelve lo que tienes en la mano.",
 					Btn("A"), Btn("RT"), Btn("LT")));
-				lines.push_back(fmt::format("Stirring or turning the spit: circle the right stick. {} turns the knife to cut along; {} swaps the knife.", Btn("RB"), Btn("LB")));
+				lines.push_back(fmt::format("Para revolver o girar el asador: gira el stick derecho. {} gira el cuchillo para cortar a lo largo; {} cambia el cuchillo.", Btn("RB"), Btn("LB")));
 			} else {
-				lines.push_back("Hold the left button to pick things up; let go to put them down. The right button puts back what you're holding.");
+				lines.push_back("Mantén el botón izquierdo para tomar cosas; suelta para dejarlas. El botón derecho devuelve lo que tienes en la mano.");
 			}
 			if (g_flow == hc::Flow::Pot) {
-				lines.push_back("Drag ingredients onto the board and click to chop across them; right-click (or R) turns the knife to cut along them. Both ways makes dice: small and even scores best.");
-				lines.push_back("Grab the board by its left end and drag right to tip it into the pot. Line it up with the pot first.");
-				lines.push_back("Hold the ladle in the pot and stir round. When the meter says it's ready, drag the ladle out of the pot and let go over the bowl to serve.");
+				lines.push_back("Arrastra los ingredientes a la tabla y haz clic para cortarlos de través; clic derecho (o R) gira el cuchillo para cortar a lo largo. En ambos sentidos salen dados: los pequeños y uniformes puntúan mejor.");
+				lines.push_back("Toma la tabla por el extremo izquierdo y arrástrala a la derecha para volcarla en la olla. Antes, alinéala con la olla.");
+				lines.push_back("Sostén el cucharón en la olla y revuelve en círculos. Cuando el indicador diga que está listo, saca el cucharón de la olla y suéltalo sobre el cuenco para servir.");
 			} else if (g_flow == hc::Flow::Spit) {
-				lines.push_back("Drag the meat onto the spit. Hold the crank's handle and turn it round so every side faces the fire.");
-				lines.push_back("Drag the roast onto the plate when it's brown all over.");
+				lines.push_back("Arrastra la carne al asador. Toma el mango de la manivela y gírala para que todos los lados queden frente al fuego.");
+				lines.push_back("Arrastra el asado al plato cuando esté dorado por todos lados.");
 			} else {
-				lines.push_back("A pie's fruit first: dice it on the board, then drag the board by its left end over the bowl behind it to sweep it in.");
-				lines.push_back("Drag the flour, butter and the rest into the bowl of water and stir round until it's a ball; lift it onto the board and knead: long pushes, in a steady rhythm.");
+				lines.push_back("Primero la fruta del pastel: córtala en dados en la tabla y luego lleva la tabla por el extremo izquierdo sobre el cuenco de atrás para echarla.");
+				lines.push_back("Arrastra la harina, la mantequilla y lo demás al cuenco con agua y revuelve hasta formar una bola; súbela a la tabla y amasa: empujes largos, a ritmo constante.");
 				if (g_recipe && g_recipe->pie) {
-					lines.push_back("Drag the bowl of filling over the dough to heap it on. A dumpling: take each side of the dough and draw it in over the filling. A pie: pinch round the edge to crimp it.");
+					lines.push_back("Arrastra el cuenco de relleno sobre la masa para volcarlo. Bollo: toma cada lado de la masa y llévalo sobre el relleno. Pastel: pellizca todo el borde para sellarlo.");
 				}
-				lines.push_back("Open the door (drag it left). Drag the peel under the dough, carry it into the mouth, shut the door. Peek, but each peek lets the heat out.");
+				lines.push_back("Abre la puerta (arrástrala a la izquierda). Desliza la pala bajo la masa, llévala a la boca del horno y cierra la puerta. Puedes mirar, pero cada vez que abres se escapa el calor.");
 			}
-			lines.push_back("The meter shows how done it is; there's no gauge for the heat: watch the flames. Logs from the pile make it hotter; once in, they stay in, so don't overdo it.");
+			lines.push_back("El indicador muestra el punto de cocción; el calor no tiene indicador: mira las llamas. Los troncos de la pila dan más calor; una vez dentro se quedan, así que no te excedas.");
 			float h = S(80);
 			for (const auto& l : lines) {
 				h += F.sans->CalcTextSizeA(F.sans->FontSize, FLT_MAX, w - S(64), l.c_str()).y + S(10);
@@ -5571,7 +5572,7 @@ namespace Cook
 			BeginArea("##help", ImVec2(x, y), ImVec2(w, h));
 			auto* dl = ImGui::GetWindowDrawList();
 			MsgBox(dl, ImVec2(x, y), ImVec2(x + w, y + h));
-			TextC(dl, F.menu, W * 0.5f, y + S(22), kWhite, "HOW TO COOK", 0.26f);
+			TextC(dl, F.menu, W * 0.5f, y + S(22), kWhite, "CÓMO COCINAR", 0.26f);
 			float yy = y + S(64);
 			for (const auto& l : lines) {
 				yy += Para(dl, F.sans, x + S(32), yy, w - S(64), kGrey, l) + S(10);
@@ -5585,9 +5586,9 @@ namespace Cook
 			BeginArea("##confirm", ImVec2(x, y), ImVec2(w, h));
 			auto* dl = ImGui::GetWindowDrawList();
 			MsgBox(dl, ImVec2(x, y), ImVec2(x + w, y + h));
-			TextC(dl, F.menu, W * 0.5f, y + S(26), kWhite, "PUT THIS DISH ASIDE?", 0.2f);
-			TextC(dl, F.sans, W * 0.5f, y + S(66), kGrey, "Nothing is used up. You can start again.");
-			switch (MenuButtons("confirm", { { "Put it aside", true }, { "Keep cooking", false } }, W * 0.5f, y + h - S(56))) {
+			TextC(dl, F.menu, W * 0.5f, y + S(26), kWhite, "¿APARTAR ESTE PLATO?", 0.2f);
+			TextC(dl, F.sans, W * 0.5f, y + S(66), kGrey, "No se gasta nada. Puedes empezar de nuevo.");
+			switch (MenuButtons("confirm", { { "Apartar", true }, { "Seguir cocinando", false } }, W * 0.5f, y + h - S(56))) {
 			case 0:
 				Post(Act::AbandonYes);
 				break;
@@ -5606,37 +5607,37 @@ namespace Cook
 			const std::string lab = a_l.label, v = a_l.verdict;
 			auto has = [&](const char* w) { return v.find(w) != std::string::npos; };
 			if (lab == "The cuts") {
-				return "Space your cuts evenly, for small pieces of a size";
+				return "Espacia los cortes de forma uniforme, para trozos pequeños e iguales";
 			}
 			if (lab == "Into the pot") {
-				return "Line the board up over the pot before you tip it";
+				return "Alinea la tabla sobre la olla antes de volcarla";
 			}
 			if (lab == "The heat" || lab == "The fire" || lab == "The oven") {
-				return has("hot") ? "Fewer logs: let the fire settle before adding more" : "Add a log sooner, keep the flames lively";
+				return has("hot") ? "Menos troncos: deja que el fuego se asiente antes de añadir más" : "Añade un tronco antes y mantén las llamas vivas";
 			}
 			if (lab == "The stirring") {
-				return has("Caught") ? "Stir more often, so nothing catches on the bottom" : "Keep the ladle moving round the pot";
+				return has("Caught") ? "Revuelve más a menudo para que nada se pegue al fondo" : "Mantén el cucharón en movimiento por la olla";
 			}
 			if (lab == "The salt") {
-				return has("salty") ? "A shorter pinch of salt" : "A pinch of salt: hold it about half a second";
+				return has("salty") ? "Una pizca de sal más corta" : "Una pizca de sal: mantén alrededor de medio segundo";
 			}
 			if (lab == "All the way round") {
-				return "Give the crank a quarter turn every few seconds, so no side sits too long facing the fire";
+				return "Da un cuarto de vuelta a la manivela cada pocos segundos, para que ningún lado quede mucho tiempo frente al fuego";
 			}
 			if (lab == "Done") {
 				if (has("raw") || has("bloody") || has("Not quite") || has("Underdone")) {
-					return g_flow == hc::Flow::Spit ? "Leave it over the fire a little longer" : "Give it longer: wait for the meter's gold";
+					return g_flow == hc::Flow::Spit ? "Déjalo un poco más sobre el fuego" : "Dale más tiempo: espera la zona dorada del indicador";
 				}
-				return g_flow == hc::Flow::Spit ? "Take it off sooner, in the gold" : "Serve it sooner, while the meter's in the gold";
+				return g_flow == hc::Flow::Spit ? "Retíralo antes, en la zona dorada" : "Sírvelo antes, mientras el indicador está en la zona dorada";
 			}
 			if (lab == "The dough") {
-				return has("fits") ? "Knead in a steady rhythm" : has("Over") ? "Stop kneading once it's smooth" : "Knead longer, with long steady pushes";
+				return has("fits") ? "Amasa a ritmo constante" : has("Over") ? "Deja de amasar cuando esté lisa" : "Amasa más tiempo, con empujes largos y constantes";
 			}
 			if (lab == "The filling") {
-				return has("open") ? "Close the whole edge before it goes in" : "Heap the filling right out to the edge";
+				return has("open") ? "Cierra todo el borde antes de meterlo" : "Extiende el relleno hasta el borde";
 			}
 			if (lab == "The bake") {
-				return has("Dark") ? "Open the door and take it out sooner" : "Leave it in the oven a little longer";
+				return has("Dark") ? "Abre la puerta y sácalo antes" : "Déjalo un poco más en el horno";
 			}
 			return {};
 		}
@@ -5649,7 +5650,7 @@ namespace Cook
 			const float  a = static_cast<float>(Clamp(t / 0.6, 0.0, 1.0));
 			const ImU32  tierCol = g_result.tier == hc::Tier::Masterwork ? kGold : g_result.tier == hc::Tier::Burnt ? IM_COL32(170, 150, 140, 255) : kWhite;
 			// the tier, big, as the game announces a level up
-			const auto title = Upper(hc::TierName(g_result.tier));
+			const auto title = Upper(hc::Es(hc::TierName(g_result.tier)));
 			const float ty = S(70);
 			if (g_result.tier == hc::Tier::Masterwork) {
 				Glow(bg, F.title, ImVec2(W * 0.5f - Measure(F.title, title, 0.12f) * 0.5f, ty), Alpha(kGold, 0.08f * a), title, 0.12f, S(8));
@@ -5658,7 +5659,7 @@ namespace Cook
 			DiamondRule(bg, W * 0.5f, ty + F.title->FontSize + S(12), S(520));
 			TextC(bg, F.menu, W * 0.5f, ty + F.title->FontSize + S(26), Alpha(kGrey, a), Upper(g_givenName + (g_recipe && g_recipe->makes > 1 ? fmt::format(" x{}", g_recipe->makes) : "")), 0.2f, 0.8f);
 			if (g_result.tier == hc::Tier::Burnt && *g_result.burntWhy) {
-				TextC(bg, F.sans, W * 0.5f, ty + F.title->FontSize + S(64), Alpha(IM_COL32(230, 170, 150, 255), a), g_result.burntWhy, 0.05f, 0.8f);
+				TextC(bg, F.sans, W * 0.5f, ty + F.title->FontSize + S(64), Alpha(IM_COL32(230, 170, 150, 255), a), hc::Es(g_result.burntWhy), 0.05f, 0.8f);
 			}
 			// how it went, on a card: each line marked as it helped or held it back; then what to do next time
 			std::vector<std::pair<double, std::string>> tips;
@@ -5684,7 +5685,7 @@ namespace Cook
 			auto* dl = ImGui::GetWindowDrawList();
 			Sheet(dl, pos, ImVec2(w, h), 1);
 			float y = pos.y + S(24);
-			TextC(dl, F.bookSC, pos.x + w * 0.5f, y, kInk, "How it went");
+			TextC(dl, F.bookSC, pos.x + w * 0.5f, y, kInk, "Cómo salió");
 			y += S(42);
 			for (int i = 0; i < g_result.count; ++i) {
 				const auto& l = g_result.lines[i];
@@ -5692,15 +5693,15 @@ namespace Cook
 				// a mark: it helped (+), it was all right, or it held the dish back (-)
 				const char* mark = l.score >= 0.8 ? "+" : l.score >= 0.5 ? "~" : "-";
 				TextC(dl, F.bookSC, pos.x + S(26), y - S(1), c, mark);
-				Text(dl, F.bookSCsm, ImVec2(pos.x + S(44), y + S(4)), kRubric, l.label, 0.04f);
-				Text(dl, F.hand, ImVec2(pos.x + w - S(30) - Measure(F.hand, l.verdict, 0), y), c, l.verdict);
+				Text(dl, F.bookSCsm, ImVec2(pos.x + S(44), y + S(4)), kRubric, hc::Es(l.label), 0.04f);
+				Text(dl, F.hand, ImVec2(pos.x + w - S(30) - Measure(F.hand, hc::Es(l.verdict), 0), y), c, hc::Es(l.verdict));
 				y += rowH;
 			}
 			if (!tips.empty()) {
 				y += S(10);
 				dl->AddLine(ImVec2(pos.x + S(30), y), ImVec2(pos.x + w - S(30), y), Alpha(kInkSoft, 0.35f), 1.0f * g_ui);
 				y += S(10);
-				Text(dl, F.bookSCsm, ImVec2(pos.x + S(30), y + S(2)), kRubric, "Next time", 0.04f);
+				Text(dl, F.bookSCsm, ImVec2(pos.x + S(30), y + S(2)), kRubric, "La próxima vez", 0.04f);
 				y += S(24);
 				for (const auto& tp : tips) {
 					y += Para(dl, F.hand, pos.x + S(30), y, w - S(60), kInkSoft, tp.second) + S(6);
@@ -5708,7 +5709,7 @@ namespace Cook
 			}
 			ImGui::End();
 			BeginArea("##again", ImVec2(W * 0.5f - S(300), H - S(90)), ImVec2(S(600), S(60)));
-			switch (MenuButtons("result", { { "Cook another", false }, { "Done", false } }, W * 0.5f, H - S(80))) {
+			switch (MenuButtons("result", { { "Cocinar otro", false }, { "Listo", false } }, W * 0.5f, H - S(80))) {
 			case 0:
 				Post(Act::Again);
 				break;

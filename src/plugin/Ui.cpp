@@ -31,8 +31,20 @@ namespace Ui
 
 	std::string Upper(std::string a_s)
 	{
-		for (auto& c : a_s) {
-			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+		for (std::size_t i = 0; i < a_s.size(); ++i) {
+			const auto c = static_cast<unsigned char>(a_s[i]);
+			// UTF-8 Latin-1 lowercase (U+00E0..U+00FE, not U+00F7): to their capitals
+			if (c == 0xC3 && i + 1 < a_s.size()) {
+				const auto n = static_cast<unsigned char>(a_s[i + 1]);
+				if (n >= 0xA0 && n <= 0xBE && n != 0xB7) {
+					a_s[i + 1] = static_cast<char>(n - 0x20);
+				}
+				++i;
+				continue;
+			}
+			if (c < 0x80) {
+				a_s[i] = static_cast<char>(std::toupper(c));
+			}
 		}
 		return a_s;
 	}

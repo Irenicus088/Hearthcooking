@@ -13,9 +13,9 @@ namespace Config
 	// what the settings page calls them
 	inline constexpr const char* kSoundNames[] = { "chop", "stir", "knead", "flour", "egg", "salt", "pour", "splash", "log", "crank", "hiss",
 		"loop_fire", "loop_oven", "loop_boil", "done", "burnt" };
-	inline constexpr const char* kSoundLabels[] = { "Knife on the board", "Stirring", "Kneading", "Flour", "Egg cracking", "Salt", "Pouring",
-		"Splashing into the pot", "Firewood", "Turning the spit", "Meat hissing", "Campfire", "Oven fire", "Pot boiling", "Done chime",
-		"Burnt" };
+	inline constexpr const char* kSoundLabels[] = { "Cuchillo en la tabla", "Revolver", "Amasar", "Harina", "Huevo al romperse", "Sal", "Verter",
+		"Salpicar en la olla", "Leña", "Girar el asador", "Chisporroteo de la carne", "Fogata", "Fuego del horno", "Hervor de la olla", "Aviso de listo",
+		"Quemado" };
 
 	struct Values
 	{
