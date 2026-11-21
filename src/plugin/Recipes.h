@@ -27,6 +27,8 @@ namespace Recipes
 		RE::TESBoundObject* form = nullptr;
 		std::string         name;
 		std::string         model;  // meshes\-relative
+		std::string         key;    // what it's matched by: its name and its model's words ("salt pile"), lower case - a
+		                            // translated name still matches through the model, which is never translated
 		int                 count = 1;
 		Role                role = Role::Toss;
 	};
@@ -36,6 +38,7 @@ namespace Recipes
 		RE::BGSConstructibleObject* cobj = nullptr;
 		RE::TESBoundObject*         result = nullptr;
 		std::string                 name;
+		std::string                 key;     // its name and its model's words, lower case (as an ingredient's)
 		std::string                 source;  // where it's from: "Vanilla", "CACO", "Vanilla, edited by CACO"...
 		int                         makes = 1;
 		hc::Flow                    flow = hc::Flow::Pot;
@@ -47,7 +50,8 @@ namespace Recipes
 	};
 
 	void OnDataLoaded();
-	std::vector<std::string> AllNames();  // every recipe's and ingredient's name (for the fonts' letters)
+	std::vector<std::string> AllNames();
+	std::string              MatchKey(const std::string& a_name, const std::string& a_model);  // the key above  // every recipe's and ingredient's name (for the fonts' letters)
 
 	// The recipes made at this kind of station, cookable ones first, then by name
 	std::vector<const Recipe*> ForStation(bool a_oven);

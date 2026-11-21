@@ -206,14 +206,14 @@ namespace Recipes
 			return -1;
 		}
 
-		Role RoleOf(const Recipe& a_r, RE::TESBoundObject* a_form, const std::string& a_name)
+		Role RoleOf(const Recipe& a_r, RE::TESBoundObject* a_form, const std::string& a_key)
 		{
-			const auto low = Lower(a_name);
+			const auto& low = a_key;  // the name and the model's words, so a translated name is still known
 			if (Has(low, { "salt" })) {
 				return Role::Salt;
 			}
 			if (a_r.flow == hc::Flow::Oven) {
-				if (Has(low, { "flour", "butter", "milk", "egg", "yeast", "water", "lard" })) {
+				if (Has(low, { "flour", "butter", "milk", "egg", "yeast", "water", "lard", "sack" })) {
 					return Role::Dough;
 				}
 				return Role::Filling;
@@ -296,8 +296,9 @@ namespace Recipes
 				r->result = result;
 				r->name = result->GetName();
 				r->source = SourceOf(cobj);
+				r->key = MatchKey(r->name, ModelOf(result));
 				r->makes = (std::max)(1, static_cast<int>(cobj->data.numConstructed));
-				const auto low = Lower(r->name);
+				const auto& low = r->key;
 				if (low.find("garlic bread") != std::string::npos) {
 					r->makes = (std::max)(r->makes, 5);  // a loaf cut into five slices: five of it
 				}
@@ -322,6 +323,10 @@ namespace Recipes
 						in.form = a_e.obj;
 						in.name = a_e.obj->GetName() ? a_e.obj->GetName() : "?";
 						in.model = ModelOf(a_e.obj);
+						in.key = MatchKey(in.name, in.model);
+						if (const char* ed = a_e.obj->GetFormEditorID(); ed && *ed) {
+							in.key += " " + Lower(ed);  // (its Editor ID too, when the game keeps them)
+						}
 						in.count = a_e.count;
 						r->ings.push_back(std::move(in));
 					}
@@ -331,7 +336,7 @@ namespace Recipes
 					continue;
 				}
 				for (auto& in : r->ings) {
-					in.role = RoleOf(*r, in.form, in.name);
+					in.role = RoleOf(*r, in.form, in.key);
 					r->salted |= in.role == Role::Salt;
 					r->dough |= in.role == Role::Dough;
 				}
@@ -339,7 +344,7 @@ namespace Recipes
 				if (r->flow == hc::Flow::Spit && std::none_of(r->ings.begin(), r->ings.end(), [](const Ingredient& i) { return i.role == Role::Meat; })) {
 					r->flow = hc::Flow::Pot;
 					for (auto& in : r->ings) {
-						in.role = RoleOf(*r, in.form, in.name);
+						in.role = RoleOf(*r, in.form, in.key);
 					}
 				}
 				if (r->flow == hc::Flow::Pot) {
@@ -391,6 +396,27 @@ namespace Recipes
 		if (found < EspIds::kDishSlots) {
 			spdlog::error("Only {} of the {} dishes are in {} - is the plugin enabled?", found, EspIds::kDishSlots, EspIds::kPlugin);
 		}
+	}
+
+	std::string MatchKey(const std::string& a_name, const std::string& a_model)
+	{
+		// the model's file name in words: "Clutter\\Ingredients\\SaltPile.nif" -> "salt pile", "RawBeef01" -> "raw beef"
+		std::string stem = a_model;
+		if (const auto sl = stem.find_last_of("\\/"); sl != std::string::npos) {
+			stem = stem.substr(sl + 1);
+		}
+		if (const auto dot = stem.find_last_of('.'); dot != std::string::npos) {
+			stem = stem.substr(0, dot);
+		}
+		std::string words;
+		for (std::size_t i = 0; i < stem.size(); ++i) {
+			const unsigned char c = static_cast<unsigned char>(stem[i]);
+			if (std::isupper(c) && i > 0 && std::islower(static_cast<unsigned char>(stem[i - 1]))) {
+				words += ' ';
+			}
+			words += (c == '_' || c == '-' || std::isdigit(c)) ? ' ' : static_cast<char>(std::tolower(c));
+		}
+		return Lower(a_name) + " | " + words;
 	}
 
 	std::vector<std::string> AllNames()

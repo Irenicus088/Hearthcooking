@@ -119,6 +119,7 @@ namespace Cook
 			int                       ing = 0;
 			Role                      role = Role::Toss;
 			std::string               name, model;
+			std::string               key;  // name and model words, lower case: what it's known by (see Recipes::MatchKey)
 			Scene::Id                 prop = -1;
 			std::vector<Scene::Id>    segs, cores;  // on the board: its own mesh cut to each piece, and its solid inside
 			enum class At
@@ -309,9 +310,29 @@ namespace Cook
 		// where the oven's cut things go: a pie's into a bowl of their own, a bread's into the dough's bowl
 		// A bread's cut things (potato bread's potato): into the right bowl, then poured from it into the mixing bowl
 		bool g_cutInMix = false;
+		std::string Lower(std::string a_s)
+		{
+			std::transform(a_s.begin(), a_s.end(), a_s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return a_s;
+		}
+		// what a unit is known by: its name and its model's words, so a translated name still matches
+		const std::string& KeyOf(const Unit& a_u) { return a_u.key.empty() ? a_u.name : a_u.key; }
+		// an ingredient's key from its (shown) name
+		std::string IngKey(const std::string& a_name)
+		{
+			if (g_recipe) {
+				for (const auto& in : g_recipe->ings) {
+					if (in.name == a_name) {
+						return in.key;
+					}
+				}
+			}
+			return a_name;
+		}
+
 		bool Crostata()
 		{
-			std::string n = g_recipe ? g_recipe->name : std::string();
+			std::string n = g_recipe ? g_recipe->key : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			return n.find("crostata") != std::string::npos;
 		}
@@ -338,7 +359,7 @@ namespace Cook
 			if (!g_recipe || !g_recipe->pie) {
 				return false;
 			}
-			std::string n = g_recipe->name;
+			std::string n = g_recipe->key;
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			return n.find("dumpling") != std::string::npos;
 		}
@@ -386,7 +407,7 @@ namespace Cook
 		// some bakes a touch bigger than the rest (a braided bread is long and thin, and read small; a plain loaf too)
 		double BakeSize()
 		{
-			std::string n = g_recipe ? g_recipe->name : std::string();
+			std::string n = g_recipe ? g_recipe->key : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			if (n.find("dumpling") != std::string::npos) {
 				return 5.1;  // a little parcel
@@ -771,7 +792,7 @@ namespace Cook
 			a_u.cut.target = (std::max)(0.6, a_u.boardLen / 6.0);
 			a_u.cut.width = Thick(a_u, a_u.boardLen, 1) * 0.96;
 			{
-				std::string n = a_u.name;
+				std::string n = KeyOf(a_u);
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				// (by name only: everything else diced is cut both ways, whatever its shape)
 				a_u.thin = n.find("leek") != std::string::npos || n.find("carrot") != std::string::npos ||
@@ -799,13 +820,13 @@ namespace Cook
 		// A sauce made in a bowl first: its liquids into it, then it into the pot
 		bool SauceBowl()
 		{
-			std::string n = g_recipe ? g_recipe->name : std::string();
+			std::string n = g_recipe ? g_recipe->key : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			return g_flow == hc::Flow::Pot && n.find("sauce") != std::string::npos;
 		}
 		bool Liquid(const Unit& a_u)
 		{
-			std::string n = a_u.name;
+			std::string n = KeyOf(a_u);
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			for (const char* w : { "ale", "mead", "wine", "milk", "honey", "vinegar", "brandy", "rum", "cider", "oil" }) {
 				if (n.find(w) != std::string::npos && n.find("kale") == std::string::npos) {
@@ -819,7 +840,7 @@ namespace Cook
 		// Bottles and jugs stand up (as the game models them), not lie on their side
 		bool Upright(const Unit& a_u)
 		{
-			std::string n = a_u.name;
+			std::string n = KeyOf(a_u);
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			for (const char* w : { "ale", "mead", "wine", "milk", "jug", "bottle", "vinegar", "brandy", "rum", "flin", "sujamma", "cider" }) {
 				if (n.find(w) != std::string::npos && n.find("kale") == std::string::npos) {
@@ -943,7 +964,7 @@ namespace Cook
 		{
 			bool flour = false, butter = false;
 			for (const auto& u : g_units) {
-				std::string n = u.name;
+				std::string n = KeyOf(u);
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				flour |= u.at == Unit::At::Dough && n.find("flour") != std::string::npos;
 				butter |= u.at == Unit::At::Dough && n.find("butter") != std::string::npos;
@@ -1044,6 +1065,7 @@ namespace Cook
 					u.role = in.role;
 					u.name = in.name;
 					u.model = in.model;
+					u.key = in.key;
 					// kept like the kitchen's things: the mesh it has is written into the INI once, and used from then on
 					if (const auto set = Kit::IngredientMesh(u.name); !set.empty()) {
 						u.model = set;
@@ -1120,7 +1142,7 @@ namespace Cook
 		// What it looks like inside, where there's a texture for it: an atlas of its section across and along
 		ID3D11ShaderResourceView* FleshTexture(const Unit& u)
 		{
-			std::string n = u.name;
+			std::string n = KeyOf(u);
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			static const std::pair<const char*, const char*> kBy[] = {
 				{ "venison", "venison" }, { "pheasant", "pheasant" }, { "chicken", "chicken" }, { "beef", "beef" }, { "horker", "beef" },
@@ -1138,7 +1160,7 @@ namespace Cook
 		// The colour inside it
 		void Flesh(const Unit& u, float (&a_out)[3])
 		{
-			std::string n = u.name;
+			std::string n = KeyOf(u);
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			auto has = [&](std::initializer_list<const char*> ws) {
 				for (const char* w : ws) {
@@ -1295,9 +1317,9 @@ namespace Cook
 		// ---------------------------------------------------------------- starting a dish
 		void BrothColour()
 		{
-			std::string s = g_recipe->name;
+			std::string s = g_recipe->key;
 			for (const auto& in : g_recipe->ings) {
-				s += " " + in.name;
+				s += " " + in.key;
 			}
 			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			auto has = [&](const char* w) { return s.find(w) != std::string::npos; };
@@ -1430,7 +1452,7 @@ namespace Cook
 			// the oven: a pie's fruit and vegetables are cut first, and wait in a bowl
 			if (g_flow == hc::Flow::Oven) {
 				for (auto& u : g_units) {
-					std::string n = u.name;
+					std::string n = KeyOf(u);
 					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 					const bool soft = n.find("honey") != std::string::npos || n.find("sugar") != std::string::npos || n.find("butter") != std::string::npos ||
 					                  n.find("milk") != std::string::npos || n.find("egg") != std::string::npos || n.find("jug") != std::string::npos ||
@@ -1442,10 +1464,10 @@ namespace Cook
 				g_buttered = false;
 				bool flour = false;
 				for (auto& u : g_units) {
-					std::string n = u.name;
+					std::string n = KeyOf(u);
 					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 					flour |= n.find("flour") != std::string::npos;
-					g_topping |= n == "bread";
+					g_topping |= Lower(u.name) == "bread";
 				}
 				g_topping = g_topping && !flour && !g_recipe->pie;
 				if (g_topping) {
@@ -1456,9 +1478,9 @@ namespace Cook
 					g_doughOnBoard = false;
 					g_oven->Knead(5.0, 0.0);
 					for (auto& u : g_units) {
-						std::string n = u.name;
+						std::string n = KeyOf(u);
 						std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-						if (n == "bread") {
+						if (Lower(u.name) == "bread") {
 							u.thin = true;  // cut one way, into slices
 						}
 					}
@@ -1466,7 +1488,7 @@ namespace Cook
 				g_chunks.SetBowl({ CutBowl().x, CutBowl().y, 1.0 }, 3.5, 2.6, false);
 				g_bowlWater = true;
 				for (const auto& u : g_units) {
-					std::string n = u.name;
+					std::string n = KeyOf(u);
 					std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 					if (u.role == Role::Dough && n.find("milk") != std::string::npos) {
 						g_bowlWater = false;  // the milk is the wet: an empty bowl, the dry things first
@@ -1655,7 +1677,7 @@ namespace Cook
 		{
 			// berries and grapes: no shadow on them or from them (small, dark and glossy, they went black in it)
 			{
-				std::string n = u.name;
+				std::string n = KeyOf(u);
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				if (n.find("berr") != std::string::npos || n.find("grape") != std::string::npos) {
 					lk.shadow = false;
@@ -1707,9 +1729,9 @@ namespace Cook
 		int BreadUnit()
 		{
 			for (int i = 0; i < static_cast<int>(g_units.size()); ++i) {
-				std::string n = g_units[i].name;
+				std::string n = KeyOf(g_units[i]);
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-				if (n == "bread") {
+				if (Lower(g_units[i].name) == "bread") {
 					return i;
 				}
 			}
@@ -1851,7 +1873,7 @@ namespace Cook
 		// The order a dough's things go into its bowl, by recipe: groups of words, each group after the ones before
 		std::vector<std::vector<std::string>> DoughOrder()
 		{
-			std::string n = g_recipe ? g_recipe->name : std::string();
+			std::string n = g_recipe ? g_recipe->key : std::string();
 			std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 			if (n.find("potato bread") != std::string::npos) {
 				return { { "milk" }, { "egg" }, { "flour", "butter" } };  // (then the potato poured in, the salt, and stirred)
@@ -1886,7 +1908,7 @@ namespace Cook
 				}
 				// (their spots as laid out: down a column, then the next)
 				std::sort(spots.begin(), spots.end(), [](const Vec3& a, const Vec3& b) { return std::abs(a.x - b.x) > 1.0 ? a.x < b.x : a.y > b.y; });
-				std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return ChopRank(g_units[a].name) < ChopRank(g_units[b].name); });
+				std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return ChopRank(KeyOf(g_units[a])) < ChopRank(KeyOf(g_units[b])); });
 				for (std::size_t k = 0; k < idx.size(); ++k) {
 					g_units[idx[k]].clothAt = spots[k];
 				}
@@ -1896,7 +1918,7 @@ namespace Cook
 				return;
 			}
 			auto rank = [&](const Unit& a_u) {
-				std::string n = a_u.name;
+				std::string n = KeyOf(a_u);
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				for (int g = 0; g < static_cast<int>(order.size()); ++g) {
 					for (std::size_t w = 0; w < order[g].size(); ++w) {
@@ -1953,7 +1975,7 @@ namespace Cook
 				return {};
 			}
 			for (const auto& u : g_units) {
-				std::string n = u.name;
+				std::string n = KeyOf(u);
 				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				const int g = group(n);
 				if (g >= 0 && g < mine && u.at != Unit::At::Dough && u.at != Unit::At::Pot) {
@@ -4781,7 +4803,7 @@ namespace Cook
 				// in the order they go in (a dough's own order, where it has one), else by name
 				std::vector<std::pair<std::string, std::pair<int, int>>> list(by.begin(), by.end());
 				if (a_role == Role::Chop) {
-					std::stable_sort(list.begin(), list.end(), [](const auto& a_a, const auto& a_b) { return ChopRank(a_a.first) < ChopRank(a_b.first); });
+					std::stable_sort(list.begin(), list.end(), [](const auto& a_a, const auto& a_b) { return ChopRank(IngKey(a_a.first)) < ChopRank(IngKey(a_b.first)); });
 				}
 				if (a_role == Role::Dough) {
 					const auto order = DoughOrder();
@@ -4819,7 +4841,7 @@ namespace Cook
 					}
 					// (in the order they go in: a sauce's tomato first, to cook down, the garlic after it)
 					std::vector<std::pair<std::string, std::pair<int, int>>> list(by.begin(), by.end());
-					std::stable_sort(list.begin(), list.end(), [](const auto& a_a, const auto& a_b) { return ChopRank(a_a.first) < ChopRank(a_b.first); });
+					std::stable_sort(list.begin(), list.end(), [](const auto& a_a, const auto& a_b) { return ChopRank(IngKey(a_a.first)) < ChopRank(IngKey(a_b.first)); });
 					// each diced and tipped in before the next is cut
 					for (const auto& [name, c] : list) {
 						s.push_back({ DiceLine(name, c.first), c.second >= c.first });
