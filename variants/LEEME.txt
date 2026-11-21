@@ -1,0 +1,17 @@
+Variantes de compatibilidad de Hearthcooking (JU4N73RR4)
+
+Qué hay acá
+- es\                    los archivos de la traducción al español (se copian sobre el código de EvoDube)
+- scie_patch.py          parche SCIE (cuenta y gasta lo de los contenedores de SCIE)
+- caco_patch.py          parche CACO (necesita caco_porciones.cpp.txt al lado)
+- caco_porciones.cpp.txt el código de las porciones de CACO
+
+Cómo se arman
+Actions > variants > Run workflow. "base" = el commit de EvoDube del que se parte (0.7.6 = 1dc937d).
+Arma 6 DLL (EN/ES x SCIE, CACO, CACO + SCIE) y las deja en la rama "variants", cada una en su carpeta,
+con los registros en logs\ y el resultado en logs\STATUS.txt.
+
+Cuando EvoDube actualiza
+1. Sync fork en GitHub.
+2. Actualizar es\ con la traducción nueva (y los scripts si hace falta).
+3. Run workflow con el commit nuevo de EvoDube como base.
