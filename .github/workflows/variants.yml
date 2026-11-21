@@ -1,0 +1,130 @@
+name: variants
+
+# The compatibility DLLs (English / Spanish x CACO, SCIE, CACO + SCIE), built from EvoDube's code at `base`.
+# By hand only (Actions > variants > Run workflow). Each one goes to the "variants" branch, in its own folder.
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "EvoDube's commit to build from"
+        required: true
+        default: "1dc937d"
+
+permissions:
+  contents: write   # pushes the DLLs and the logs to the variants branch
+
+jobs:
+  dlls:
+    runs-on: windows-2022
+    env:
+      VCPKG_COMMIT: 9e593bb18ea69cc5095e012465dcd675a822ed0d   # vcpkg 2026.07.29 (as build.yml)
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+    steps:
+      - name: Keep line endings as they are (the patch scripts look for exact lines)
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-bincache
+          key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ env.VCPKG_COMMIT }}-
+
+      - name: CommonLib commit
+        id: clib
+        shell: pwsh
+        run: echo "sha=$(git -C extern/CommonLibSSE-NG rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+
+      - name: Restore build folder
+        uses: actions/cache/restore@v4
+        with:
+          path: build
+          key: build-v1-${{ steps.clib.outputs.sha }}-${{ hashFiles('vcpkg.json', 'CMakeLists.txt') }}
+          restore-keys: build-v1-${{ steps.clib.outputs.sha }}-
+
+      - name: Date CommonLib's sources back
+        shell: pwsh
+        run: |
+          $old = Get-Date "2000-01-01"
+          Get-ChildItem extern -Recurse -File | ForEach-Object { $_.LastWriteTime = $old }
+
+      - name: Set up vcpkg
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+          git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          git -C "$env:VCPKG_ROOT" checkout $env:VCPKG_COMMIT
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out/logs | Out-Null
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
+            "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`$<`$<CONFIG:Debug>:Debug>DLL" 2>&1 | Tee-Object -FilePath out/logs/configure.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Build the variants
+        id: variants
+        shell: pwsh
+        run: |
+          $base = "${{ github.event.inputs.base }}"
+          Remove-Item -Recurse -Force src/plugin   # only EvoDube's own files at base, nothing left over
+          git checkout $base -- src/plugin
+          if ($LASTEXITCODE -ne 0) { "base $base not found" | Out-File out/logs/STATUS.txt; exit 1 }
+          $en = Join-Path $env:RUNNER_TEMP "en"
+          Copy-Item -Recurse src/plugin $en
+          $variants = @(
+            @{ name = "EN - SCIE";        es = $false; scie = $true;  caco = $false },
+            @{ name = "EN - CACO";        es = $false; scie = $false; caco = $true  },
+            @{ name = "EN - CACO + SCIE"; es = $false; scie = $true;  caco = $true  },
+            @{ name = "ES - SCIE";        es = $true;  scie = $true;  caco = $false },
+            @{ name = "ES - CACO";        es = $true;  scie = $false; caco = $true  },
+            @{ name = "ES - CACO + SCIE"; es = $true;  scie = $true;  caco = $true  }
+          )
+          $status = @()
+          $fail = 0
+          foreach ($v in $variants) {
+            $n = $v.name
+            Remove-Item -Recurse -Force src/plugin
+            Copy-Item -Recurse $en src/plugin
+            if ($v.es) { Copy-Item variants/es/* src/plugin/ -Force }
+            $ok = $true
+            if ($v.scie) { python variants/scie_patch.py src/plugin/Recipes.cpp; if ($LASTEXITCODE -ne 0) { $ok = $false } }
+            if ($ok -and $v.caco) { python variants/caco_patch.py src/plugin; if ($LASTEXITCODE -ne 0) { $ok = $false } }
+            if (-not $ok) { $status += "$n = scripts failed"; $fail = 1; continue }
+            # every source new again: a file put back as it was must still be compiled again
+            $now = Get-Date
+            Get-ChildItem src/plugin -File | ForEach-Object { $_.LastWriteTime = $now }
+            cmake --build build --config Release --parallel -- /p:CL_MPCount=4 /nologo /v:minimal 2>&1 | Tee-Object -FilePath "out/logs/build - $n.txt"
+            if ($LASTEXITCODE -ne 0) { $status += "$n = build failed"; $fail = 1; continue }
+            $d = "out/$n/SKSE/Plugins"
+            New-Item -ItemType Directory -Force -Path $d | Out-Null
+            Copy-Item build/Release/Hearthcooking.dll "$d/"
+            $status += "$n = ok ($((Get-Item "$d/Hearthcooking.dll").Length) bytes)"
+          }
+          $status | Out-File out/logs/STATUS.txt
+          exit $fail
+
+      - name: Publish to the variants branch
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out/logs | Out-Null
+          "run ${{ github.run_id }} sha ${{ github.sha }} base ${{ github.event.inputs.base }} result ${{ steps.variants.outcome }}" | Out-File out/BUILD.txt
+          Copy-Item -Recurse out $env:RUNNER_TEMP/variants-out
+          cd $env:RUNNER_TEMP/variants-out
+          git init -q -b variants
+          git config user.name "ci"; git config user.email "ci@users.noreply.github.com"
+          git add -A; git commit -q -m "Hearthcooking variants ${{ github.run_id }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" variants
