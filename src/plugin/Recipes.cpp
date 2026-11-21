@@ -258,6 +258,8 @@ namespace Recipes
 			return p ? p : "";
 		}
 
+		bool CacoWhole(RE::TESBoundObject* a_form);  // (CACO) below, with the portions
+
 		void Build()
 		{
 			auto* dh = RE::TESDataHandler::GetSingleton();
@@ -387,6 +389,28 @@ namespace Recipes
 				spdlog::info("Recipe: {} x{} [{}{}] <- {}", r->name, r->makes, r->flow == hc::Flow::Pot ? "pot" : r->flow == hc::Flow::Spit ? "spit" : "oven",
 					r->pie ? ", pie" : "", list);
 				g_recipes.push_back(std::move(r));
+			}
+			// (CACO) the same dish twice in the same place, once with a whole thing CACO splits (a sack of flour, a salt
+			// pile, a bottle) and once without: only the second, so the book stays even
+			if (CacoPatch()) {
+				auto whole = [](const Recipe& a_r) {
+					return std::any_of(a_r.ings.begin(), a_r.ings.end(), [](const Ingredient& a_i) { return CacoWhole(a_i.form); });
+				};
+				std::map<std::pair<std::string, bool>, int> plain;  // (dish, oven) -> its recipes without a whole thing
+				for (const auto& r : g_recipes) {
+					if (!whole(*r)) {
+						++plain[{ r->key, r->oven }];
+					}
+				}
+				const auto before = g_recipes.size();
+				std::erase_if(g_recipes, [&](const std::unique_ptr<Recipe>& a_r) {
+					if (whole(*a_r) && plain[{ a_r->key, a_r->oven }] > 0) {
+						spdlog::info("CACO: {} ({}) left out, another recipe makes it with CACO's portions", a_r->name, a_r->source);
+						return true;
+					}
+					return false;
+				});
+				spdlog::info("CACO: {} recipe(s) made twice left out", before - g_recipes.size());
 			}
 			spdlog::info("Recipes: {} for the pot, {} for the spit, {} for the oven", pot, spit, oven);
 		}
@@ -633,6 +657,13 @@ namespace Recipes
 			LoadPortions();
 			const auto it = a_form ? g_portion.find(a_form) : g_portion.end();
 			return it == g_portion.end() ? nullptr : &it->second;
+		}
+
+		// a whole thing CACO splits (a sack of flour, a salt pile, a bottle of wine), not a loose portion
+		bool CacoWhole(RE::TESBoundObject* a_form)
+		{
+			const auto* p = PortionOf(a_form);
+			return p && p->worth > 1;
 		}
 
 		// everything of a group you have, in portions: the loose ones and every thing of the list
