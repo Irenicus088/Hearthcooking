@@ -482,17 +482,52 @@ namespace Recipes
 		return out;
 	}
 
+	namespace
+	{
+		// SCIE (Skyrim Crafting Inventory Extender) intercepta esta funcion del juego (SE 15869 / AE 16109) mientras
+		// estas sentado en una mesa: devuelve lo que llevas mas lo de los contenedores que tiene activos, y al gastar
+		// (RemoveItem) saca primero de vos y despues de ellos. Sin SCIE contamos como siempre.
+		struct AllEntries
+		{
+			virtual void Unused() {}
+			virtual bool Accept(RE::InventoryEntryData*) { return true; }  // el juego llama a [vtabla + 8]
+		};
+
+		bool ScieLoaded()
+		{
+			static const bool on = [] {
+				const bool b = !REL::Module::IsVR() && ::GetModuleHandleW(L"CraftingInventoryExtender.dll") != nullptr;
+				spdlog::info("SCIE {}: {}", b ? "detectado" : "no detectado", b ? "la cocina cuenta los contenedores cercanos" : "solo el inventario");
+				return b;
+			}();
+			return on;
+		}
+
+		int ScieCount(RE::PlayerCharacter* a_pc, RE::TESBoundObject* a_form)
+		{
+			if (ScieLoaded()) {
+				if (auto* inv = a_pc->GetInventoryChanges()) {
+					using Fn = std::int32_t (*)(RE::InventoryChanges*, RE::TESBoundObject*, void*);
+					static REL::Relocation<Fn> fn{ RELOCATION_ID(15869, 16109) };
+					AllEntries all;
+					return (std::max)(0, fn(inv, a_form, &all));
+				}
+			}
+			const auto counts = a_pc->GetInventoryCounts([a_form](RE::TESBoundObject& a_o) { return &a_o == a_form; });
+			const auto it = counts.find(a_form);
+			return it == counts.end() ? 0 : (std::max)(0, it->second);
+		}
+	}
+
 	int Held(RE::TESBoundObject* a_form)
 	{
 		auto* pc = RE::PlayerCharacter::GetSingleton();
 		if (!pc || !a_form) {
 			return 0;
 		}
-		const auto ins = StandIns(a_form);
-		const auto counts = pc->GetInventoryCounts([&ins](RE::TESBoundObject& a_o) { return std::find(ins.begin(), ins.end(), &a_o) != ins.end(); });
 		int n = 0;
-		for (const auto& [f, c] : counts) {
-			n += (std::max)(0, c);
+		for (auto* f : StandIns(a_form)) {
+			n += ScieCount(pc, f);
 		}
 		return n;
 	}
@@ -519,9 +554,7 @@ namespace Recipes
 				if (left <= 0) {
 					break;
 				}
-				const auto counts = pc->GetInventoryCounts([f](RE::TESBoundObject& a_o) { return &a_o == f; });
-				const auto it = counts.find(f);
-				const int  have = it == counts.end() ? 0 : (std::max)(0, it->second);
+				const int  have = ScieCount(pc, f);
 				const int  take = (std::min)(have, left);
 				if (take > 0) {
 					pc->RemoveItem(f, take, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
