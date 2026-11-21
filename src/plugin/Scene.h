@@ -52,6 +52,7 @@ namespace Scene
 	void  Remove(Id a_id);
 	void  RemoveAll();
 	bool  Valid(Id a_id);
+	bool  Drawable(Id a_id);  // it has a shape the kitchen can draw (lit, of the game's own kind)
 	// A texture swap, as a form's alternate textures give it: the shape named a_shape (or the a_index-th, if no name)
 	// wears these instead of its own
 	// Leaves out the mesh's parts whose names hold any of these (lower case): drawn and measured without them

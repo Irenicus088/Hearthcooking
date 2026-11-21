@@ -540,6 +540,25 @@ namespace Scene
 
 	bool Valid(Id a_id) { return a_id >= 0 && a_id < static_cast<int>(g_props.size()) && g_props[a_id].used; }
 
+	bool Drawable(Id a_id)
+	{
+		if (!Valid(a_id) || !g_props[a_id].node) {
+			return false;
+		}
+		bool any = false;
+		RE::BSVisit::TraverseScenegraphGeometries(g_props[a_id].node.get(), [&](RE::BSGeometry* a_geo) {
+			auto* tri = a_geo ? a_geo->AsTriShape() : nullptr;
+			auto* prop = tri ? a_geo->GetGeometryRuntimeData().shaderProperty.get() : nullptr;
+			auto* lit = prop ? netimmerse_cast<RE::BSLightingShaderProperty*>(prop) : nullptr;
+			if (lit && lit->material) {
+				any = true;
+				return RE::BSVisit::BSVisitControl::kStop;
+			}
+			return RE::BSVisit::BSVisitControl::kContinue;
+		});
+		return any;
+	}
+
 	void Remove(Id a_id)
 	{
 		if (!Valid(a_id)) {

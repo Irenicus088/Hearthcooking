@@ -106,7 +106,7 @@ namespace hc
 				{ "miel", "honey" }, { "vinagre", "vinegar" }, { "ron", "rum" }, { "sidra", "cider" }, { "aceite", "oil" },
 				{ "jarra", "jug" }, { "botella", "bottle" }, { "zumo", "juice" }, { "jugo", "juice" }, { "caldo", "broth" },
 				{ "agua", "water" }, { "harina", "flour" }, { "mantequilla", "butter" }, { "manteca", "lard" }, { "levadura", "yeast" },
-				{ "azucar", "sugar" }, { "sal", "salt" }, { "huevo", "egg" }, { "queso", "cheese" }, { "saco", "sack" },
+				{ "masa", "dough" }, { "azucar", "sugar" }, { "sal", "salt" }, { "huevo", "egg" }, { "queso", "cheese" }, { "saco", "sack" },
 				{ "crema", "creamy bisque" }, { "nata", "cream" },
 				// dishes and how they're made
 				{ "pan", "bread" }, { "bollo", "dumpling" }, { "empanadilla", "dumpling" }, { "tarta", "crostata" },

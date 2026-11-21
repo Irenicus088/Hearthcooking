@@ -207,6 +207,19 @@ namespace Recipes
 			return -1;
 		}
 
+		// CACO (Complete Alchemy & Cooking Overhaul) loaded and the patch on (Hearthcooking.ini [CACO] Patch, 1 by default)
+		bool CacoPatch()
+		{
+			static const bool on = [] {
+				auto*      dh = RE::TESDataHandler::GetSingleton();
+				const bool caco = dh && dh->LookupModByName("Complete Alchemy & Cooking Overhaul.esp");
+				const bool b = caco && ::GetPrivateProfileIntA("CACO", "Patch", 1, "Data\\SKSE\\Plugins\\Hearthcooking.ini") != 0;
+				spdlog::info("CACO patch: {}", b ? "on" : caco ? "off (Hearthcooking.ini [CACO] Patch = 0)" : "off (CACO isn't loaded)");
+				return b;
+			}();
+			return on;
+		}
+
 		Role RoleOf(const Recipe& a_r, RE::TESBoundObject* a_form, const std::string& a_key)
 		{
 			const auto& low = a_key;  // the name and the model's words, so a translated name is still known
@@ -214,7 +227,7 @@ namespace Recipes
 				return Role::Salt;
 			}
 			if (a_r.flow == hc::Flow::Oven) {
-				if (Has(low, { "flour", "butter", "milk", "egg", "yeast", "water", "lard", "sack" })) {
+				if (Has(low, { "flour", "butter", "milk", "egg", "yeast", "water", "lard", "sack" }) || (CacoPatch() && Has(low, { "dough" }))) {
 					return Role::Dough;
 				}
 				return Role::Filling;
@@ -265,6 +278,17 @@ namespace Recipes
 				auto* result = cobj->createdItem->As<RE::TESBoundObject>();
 				if (!result || !result->GetName() || !*result->GetName()) {
 					continue;
+				}
+				// (CACO) what isn't cooking stays with the game's own menu (Quick Cook): what isn't food (water, splitting
+				// milk, wines, bandages, poultices, tallow, joining salt...) and raw food (meat cut into portions, dough)
+				if (CacoPatch()) {
+					auto*      food = result->As<RE::AlchemyItem>();
+					auto*      kw = result->As<RE::BGSKeywordForm>();
+					const bool raw = kw && kw->HasKeywordString("VendorItemFoodRaw");
+					if (!food || !food->IsFood() || raw) {
+						spdlog::info("CACO: {} left to the game's own menu ({})", result->GetName(), raw ? "raw food" : "not food");
+						continue;
+					}
 				}
 				// recipes left out (Hearthcooking.ini [Recipes] Skip, names separated by commas): they cook the game's way
 				{
@@ -497,7 +521,7 @@ namespace Recipes
 		{
 			static const bool on = [] {
 				const bool b = !REL::Module::IsVR() && ::GetModuleHandleW(L"CraftingInventoryExtender.dll") != nullptr;
-				spdlog::info("SCIE {}: {}", b ? "detectado" : "no detectado", b ? "la cocina cuenta los contenedores cercanos" : "solo el inventario");
+				spdlog::info("SCIE {}: {}", b ? "found" : "not found", b ? "the kitchen counts nearby containers" : "the inventory only");
 				return b;
 			}();
 			return on;

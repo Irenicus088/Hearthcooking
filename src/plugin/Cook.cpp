@@ -1046,6 +1046,12 @@ namespace Cook
 				return -1;
 			}
 			const auto id = Scene::Add(a_u.model);
+			if (id >= 0 && !Scene::Drawable(id)) {
+				// a mesh the kitchen can't draw (an old-format one): the stand-in, not an invisible ingredient
+				spdlog::warn("Kitchen: {} ({}) has nothing the kitchen can draw; a stand-in instead", a_u.name, a_u.model);
+				Scene::Remove(id);
+				return -1;
+			}
 			if (g_recipe && a_u.ing >= 0 && a_u.ing < static_cast<int>(g_recipe->ings.size()) && a_u.model == g_recipe->ings[a_u.ing].model) {
 				Swaps(id, g_recipe->ings[a_u.ing].form);  // (its own mesh only: another's would be wrongly dressed)
 			}
