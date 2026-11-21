@@ -543,11 +543,154 @@ namespace Recipes
 		}
 	}
 
+	namespace
+	{
+		// (CACO) what CACO splits into portions when you sit at a cookpot or oven and joins back when you get up. In each
+		// of its lists a thing is worth as many portions as its place (a full sack of flour 20, a salt pile 5, a bottle
+		// of wine 4; place 0 is a filler), the same rule CACO's own script follows.
+		struct PortionGroup
+		{
+			RE::TESBoundObject*                              token = nullptr;  // one loose portion
+			std::vector<std::pair<RE::TESBoundObject*, int>> items;            // (thing, worth), the smallest first
+		};
+		struct Portion
+		{
+			int group = -1;
+			int worth = 0;
+		};
+		std::vector<PortionGroup>                        g_groups;
+		std::unordered_map<RE::TESBoundObject*, Portion> g_portion;
+
+		int CacoCount(RE::PlayerCharacter* a_pc, RE::TESBoundObject* a_form)
+		{
+			if (!a_form) {
+				return 0;
+			}
+			return ScieCount(a_pc, a_form);
+		}
+
+		void LoadPortions()
+		{
+			static std::once_flag once;
+			std::call_once(once, [] {
+				auto* dh = RE::TESDataHandler::GetSingleton();
+				if (!dh || !CacoPatch()) {
+					return;
+				}
+				constexpr const char* kCaco = "Complete Alchemy & Cooking Overhaul.esp";
+				struct L
+				{
+					RE::FormID  list;
+					RE::FormID  token;
+					const char* tokenFile;
+					const char* what;
+				};
+				static constexpr L kLists[] = {
+					{ 0x2CFEF7, 0xCCA102, "Update.esm", "wheat flour" },
+					{ 0x52ACFA, 0xCCA103, "Update.esm", "barley flour" },
+					{ 0x507513, 0xCCA101, "Update.esm", "salt" },
+					{ 0x2CFEF8, 0xCCA100, "Update.esm", "water" },
+					{ 0x53A036, 0xCCA104, "Update.esm", "village white wine" },
+					{ 0x53A034, 0xCCA105, "Update.esm", "village red wine" },
+					{ 0x53A035, 0xCCA106, "Update.esm", "alto blanc wine" },
+					{ 0x53A033, 0xCCA107, "Update.esm", "alto noir wine" },
+					{ 0x9E0581, 0x9E0584, "Complete Alchemy & Cooking Overhaul.esp", "oil" },
+					{ 0x9E0582, 0x9E0583, "Complete Alchemy & Cooking Overhaul.esp", "vinegar" },
+				};
+				for (const auto& l : kLists) {
+					auto* list = dh->LookupForm<RE::BGSListForm>(l.list, kCaco);
+					auto* token = dh->LookupForm(l.token, l.tokenFile);
+					auto* tb = token ? token->As<RE::TESBoundObject>() : nullptr;
+					if (!list || !tb || g_portion.contains(tb)) {
+						spdlog::warn("CACO portions: no list for {}", l.what);
+						continue;
+					}
+					PortionGroup g;
+					g.token = tb;
+					for (std::uint32_t i = 1; i < list->forms.size(); ++i) {
+						auto* f = list->forms[i] ? list->forms[i]->As<RE::TESBoundObject>() : nullptr;
+						if (f && f != tb && !g_portion.contains(f)) {
+							g.items.emplace_back(f, static_cast<int>(i));
+						}
+					}
+					if (g.items.empty()) {
+						spdlog::warn("CACO portions: the list for {} is empty", l.what);
+						continue;
+					}
+					const int k = static_cast<int>(g_groups.size());
+					g_portion[tb] = { k, 1 };
+					for (const auto& [f, w] : g.items) {
+						g_portion[f] = { k, w };
+					}
+					spdlog::info("CACO portions: {} ({} things, the biggest worth {})", l.what, g.items.size(), g.items.back().second);
+					g_groups.push_back(std::move(g));
+				}
+			});
+		}
+
+		const Portion* PortionOf(RE::TESBoundObject* a_form)
+		{
+			LoadPortions();
+			const auto it = a_form ? g_portion.find(a_form) : g_portion.end();
+			return it == g_portion.end() ? nullptr : &it->second;
+		}
+
+		// everything of a group you have, in portions: the loose ones and every thing of the list
+		int GroupPortions(RE::PlayerCharacter* a_pc, const PortionGroup& a_g)
+		{
+			int n = CacoCount(a_pc, a_g.token);
+			for (const auto& [f, w] : a_g.items) {
+				n += CacoCount(a_pc, f) * w;
+			}
+			return n;
+		}
+
+		// takes a_need portions: the thing the recipe names, whole, then loose portions, then other things that fit
+		// whole, and last opens the smallest one left and gives the change back as loose portions (CACO joins them
+		// back when you get up)
+		void TakePortions(RE::PlayerCharacter* a_pc, const PortionGroup& a_g, int a_need, RE::TESBoundObject* a_named, int a_namedWorth)
+		{
+			auto take = [&](RE::TESBoundObject* a_f, int a_worth) {
+				const int k = (std::min)(CacoCount(a_pc, a_f), a_need / (std::max)(1, a_worth));
+				if (k > 0) {
+					a_pc->RemoveItem(a_f, k, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
+					a_need -= k * a_worth;
+				}
+			};
+			take(a_named, a_namedWorth);
+			if (a_need > 0) {
+				take(a_g.token, 1);
+			}
+			for (const auto& [f, w] : a_g.items) {
+				if (a_need > 0) {
+					take(f, w);
+				}
+			}
+			for (const auto& [f, w] : a_g.items) {
+				if (a_need <= 0) {
+					break;
+				}
+				if (w > a_need && CacoCount(a_pc, f) > 0) {
+					a_pc->RemoveItem(f, 1, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
+					a_pc->AddObjectToContainer(a_g.token, nullptr, w - a_need, nullptr);
+					spdlog::info("CACO portions: opened one {}, {} portion(s) back", f->GetName(), w - a_need);
+					a_need = 0;
+				}
+			}
+			if (a_need > 0) {
+				spdlog::warn("CACO portions: {} portion(s) short", a_need);
+			}
+		}
+	}
+
 	int Held(RE::TESBoundObject* a_form)
 	{
 		auto* pc = RE::PlayerCharacter::GetSingleton();
 		if (!pc || !a_form) {
 			return 0;
+		}
+		if (const auto* p = PortionOf(a_form)) {
+			return GroupPortions(pc, g_groups[p->group]) / p->worth;
 		}
 		int n = 0;
 		for (auto* f : StandIns(a_form)) {
@@ -559,8 +702,18 @@ namespace Recipes
 	int CanMake(const Recipe& a_r)
 	{
 		int n = 1 << 20;
+		std::map<int, int> need;  // (CACO) a group of portions -> what one dish takes of it, all together
 		for (const auto& in : a_r.ings) {
+			if (const auto* p = PortionOf(in.form)) {
+				need[p->group] += p->worth * (std::max)(1, in.count);
+				continue;
+			}
 			n = (std::min)(n, Held(in.form) / (std::max)(1, in.count));
+		}
+		if (auto* pc = RE::PlayerCharacter::GetSingleton()) {
+			for (const auto& [g, per] : need) {
+				n = (std::min)(n, GroupPortions(pc, g_groups[g]) / per);
+			}
 		}
 		return n == (1 << 20) ? 0 : n;
 	}
@@ -572,6 +725,12 @@ namespace Recipes
 			return;
 		}
 		for (const auto& in : a_r.ings) {
+			if (const auto* p = PortionOf(in.form)) {
+				if (in.count > 0) {
+					TakePortions(pc, g_groups[p->group], p->worth * in.count, in.form, p->worth);
+				}
+				continue;
+			}
 			// the thing itself first, then our dishes of it, plainest first
 			int left = in.count;
 			for (auto* f : StandIns(in.form)) {
