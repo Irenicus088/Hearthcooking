@@ -8,7 +8,7 @@ on:
       base:
         description: "EvoDube's commit to build from"
         required: true
-        default: "1dc937d"
+        default: "d74829b"
 
 permissions:
   contents: write   # pushes the DLLs and the logs to the variants branch
@@ -80,7 +80,8 @@ jobs:
         run: |
           $base = "${{ github.event.inputs.base }}"
           Remove-Item -Recurse -Force src/plugin   # only EvoDube's own files at base, nothing left over
-          git checkout $base -- src/plugin
+          git fetch --no-tags https://github.com/evodube/Hearthcooking.git main   # (EvoDube's newest commits, the fork needn't be synced)
+          git checkout $base -- src/plugin CMakeLists.txt vcpkg.json   # (his version number too)
           if ($LASTEXITCODE -ne 0) { "base $base not found" | Out-File out/logs/STATUS.txt; exit 1 }
           $en = Join-Path $env:RUNNER_TEMP "en"
           Copy-Item -Recurse src/plugin $en
