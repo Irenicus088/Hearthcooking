@@ -86,6 +86,7 @@ jobs:
           $en = Join-Path $env:RUNNER_TEMP "en"
           Copy-Item -Recurse src/plugin $en
           $variants = @(
+            @{ name = "ES";               es = $true;  scie = $false; caco = $false },   # the plain translation (Nexus)
             @{ name = "EN - SCIE";        es = $false; scie = $true;  caco = $false },
             @{ name = "EN - CACO";        es = $false; scie = $false; caco = $true  },
             @{ name = "EN - CACO + SCIE"; es = $false; scie = $true;  caco = $true  },
