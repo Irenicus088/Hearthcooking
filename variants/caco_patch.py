@@ -125,9 +125,12 @@ R = rep(R, LOGR, DEDUP + LOGR, 'Build (repetidas)')
 wr('Recipes.cpp', R)
 
 C = rd('Cook.cpp')
+SOLID = '\t\t\tScene::Solid(id);  // (food is never see-through: some meshes\' alpha would cut it all away)\n'
+if SOLID not in C:
+	SOLID = ''   # (before 1.9 / 0.7.9 there was no Solid line)
 C = rep(C, '''			const auto id = Scene::Add(a_u.model);
-			if (g_recipe && a_u.ing >= 0''', '''			const auto id = Scene::Add(a_u.model);
-			if (id >= 0 && !Scene::Drawable(id)) {
+''' + SOLID + '''			if (g_recipe && a_u.ing >= 0''', '''			const auto id = Scene::Add(a_u.model);
+''' + SOLID + '''			if (id >= 0 && !Scene::Drawable(id)) {
 				// a mesh the kitchen can't draw (an old-format one): the stand-in, not an invisible ingredient
 				spdlog::warn("Kitchen: {} ({}) has nothing the kitchen can draw; a stand-in instead", a_u.name, a_u.model);
 				Scene::Remove(id);

@@ -55,6 +55,20 @@ namespace Menu
 				}
 				Hint("Se aplica la próxima vez que se abra la cocina; se guarda en Hearthcooking.ini.");
 			}
+			UI::SeparatorText("Gráficos");
+			{
+				static const char* kQ[] = { "Baja (más rápida)", "Media", "Alta" };
+				if (UI::BeginCombo("Calidad de la cocina", kQ[std::clamp(v.quality, 0, 2)])) {
+					for (int q = 2; q >= 0; --q) {
+						if (UI::Selectable(kQ[q], v.quality == q)) {
+							v.quality = q;
+							Changed(true);
+						}
+					}
+					UI::EndCombo();
+				}
+				Hint("Alta: suavizado 4x y sombras nítidas. Media: 2x. Baja: sin suavizado, para tarjetas más viejas. Las sombras cambian la próxima vez que inicies el juego.");
+			}
 			UI::SeparatorText("Controles y sonido");
 			Changed(UI::SliderFloat("Velocidad del cursor", &v.mouseSpeed, 0.2f, 3.0f, "%.2f"));
 			Changed(UI::SliderFloat("Tamaño de la interfaz", &v.uiScale, 0.6f, 1.6f, "%.2f"));
