@@ -1,0 +1,7 @@
+ES = ok (1686528 bytes)
+EN - SCIE = ok (1649152 bytes)
+EN - CACO = ok (1662464 bytes)
+EN - CACO + SCIE = ok (1662464 bytes)
+ES - SCIE = ok (1687552 bytes)
+ES - CACO = ok (1700864 bytes)
+ES - CACO + SCIE = ok (1700864 bytes)
